@@ -10,6 +10,7 @@
   ],
   "exports": {
     "./compiler-options": "./src/compiler-options.ts",
+    "./uno-preset": "./src/uno-preset.ts",
     "./package.json": "./package.json"
   },
   "peerDependencies": {
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "unocss": "^66.10.5",
     "vue": "^3.5.43"
   }
 }

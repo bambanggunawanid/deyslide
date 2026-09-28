@@ -2,7 +2,7 @@
 # Starts the production stack for https://deyslide.bambanggunawan.id with Podman.
 # The deploy workflow runs it on the server from the release folder (~/deyslide).
 #
-#   app     nginx serving the deck on port 3000
+#   app     nginx on port 3000, serving the web app at / and the demo deck at /demo/
 #   tunnel  cloudflared, which publishes app:3000 through the Cloudflare tunnel
 #
 # Both run in one pod. The pod has its own network namespace and publishes no
@@ -42,9 +42,10 @@ podman run --detach --name "$app" --pod "$pod" --restart always \
 
 echo "Waiting for app to answer on port 3000"
 for attempt in $(seq 1 30); do
-  page=$(podman exec "$app" wget -qO- http://127.0.0.1:3000/ 2>/dev/null || true)
-  if grep -q '<div id="app">' <<<"$page"; then
-    echo "app is serving the deck"
+  home=$(podman exec "$app" wget -qO- http://127.0.0.1:3000/ 2>/dev/null || true)
+  demo=$(podman exec "$app" wget -qO- http://127.0.0.1:3000/demo/ 2>/dev/null || true)
+  if grep -q '<div id="app">' <<<"$home" && grep -q '/demo/assets/' <<<"$demo"; then
+    echo "app is serving the web app and the demo deck"
     break
   fi
   if [ "$attempt" = 30 ]; then
