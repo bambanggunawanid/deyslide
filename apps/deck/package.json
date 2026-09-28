@@ -6,7 +6,7 @@
   "description": "The Deyslide demo deck.",
   "scripts": {
     "dev": "slidev",
-    "build": "slidev build",
+    "build": "slidev build --base /demo/",
     "export": "slidev export --output ../../exports/deyslide.pdf"
   },
   "dependencies": {

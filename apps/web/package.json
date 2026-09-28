@@ -1,0 +1,27 @@
+{
+  "name": "@deyslide/web",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Deyslide web app: projects home page, decks, and later the editor.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@deyslide/deck-model": "workspace:*",
+    "reka-ui": "^2.10.5",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@deyslide/components": "workspace:*",
+    "@unocss/reset": "^66.10.5",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "unocss": "^66.10.5",
+    "vite": "^8.3.1"
+  }
+}

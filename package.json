@@ -20,7 +20,8 @@
   },
   "scripts": {
     "dev": "pnpm animations:build && pnpm --filter @deyslide/deck dev",
-    "build": "pnpm animations:build && pnpm --filter @deyslide/deck build",
+    "dev:web": "pnpm --filter @deyslide/web dev",
+    "build": "pnpm animations:build && pnpm --filter @deyslide/deck build && pnpm --filter @deyslide/web build",
     "export": "pnpm animations:build && pnpm --filter @deyslide/deck export",
     "export:video": "pnpm animations:build && node apps/deck/scripts/export-video.ts",
     "animations:build": "pnpm --filter @deyslide/animations build",
@@ -36,11 +37,13 @@
     "@types/node": "^26.6.3",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "^2.5.1",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.14.5",
     "typescript": "^6.0.3",
     "vite": "^8.3.1",
     "vitest": "^5.0.2",
     "vue": "^3.5.43",
+    "vue-router": "^5.3.1",
     "vue-tsc": "^3.3.11",
     "yjs": "^13.6.33"
   }
