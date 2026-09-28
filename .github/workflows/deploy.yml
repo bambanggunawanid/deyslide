@@ -1,0 +1,136 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two deploys at once, and never cancel one halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://deyslide.bambanggunawan.id
+    env:
+      SERVER: ryzen@${{ vars.TAILSCALE_SERVER_IP }}
+      PUBLIC_URL: https://deyslide.bambanggunawan.id
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: BDD scenarios
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package release
+        run: |
+          mkdir -p release/site
+          cp -r dist/. release/site/
+          cp deploy/compose.yaml deploy/nginx.conf release/
+          tar -czf release.tgz -C release .
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_CLIENT_KEY }}
+          tags: tag:ci
+          ping: ${{ vars.TAILSCALE_SERVER_IP }}
+
+      # Tailscale SSH authenticates with the tailnet identity, so no key is needed.
+      - name: Upload release and tunnel token
+        env:
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+        run: |
+          ssh_opts=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$SERVER" 'mkdir -p ~/deyslide'
+          ssh "${ssh_opts[@]}" "$SERVER" 'cat > ~/deyslide/release.tgz' < release.tgz
+          printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" \
+            | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/.env'
+
+      - name: Start containers
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$SERVER" 'bash -se' <<'SCRIPT'
+          set -euo pipefail
+          cd ~/deyslide
+
+          rm -rf release.new
+          mkdir release.new
+          tar -xzf release.tgz -C release.new
+          rm release.tgz
+          cp release.new/compose.yaml release.new/nginx.conf .
+
+          # Swap the site folder, then recreate app so its bind mount
+          # points at the new folder.
+          rm -rf site.old
+          if [ -d site ]; then mv site site.old; fi
+          mv release.new/site site
+          rm -rf release.new
+
+          docker compose pull --quiet
+          docker compose up -d --no-deps --force-recreate app
+          docker compose up -d --remove-orphans
+
+          echo "Waiting for app to answer on port 3000"
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T app wget -qO- http://127.0.0.1:3000/ | grep -q '<div id="app">'; then
+              echo "app is serving the deck"
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker compose ps
+              docker compose logs --tail 50 app
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "Waiting for the tunnel to connect"
+          for attempt in $(seq 1 30); do
+            if docker compose logs tunnel 2>&1 | grep -q 'Registered tunnel connection'; then
+              echo "tunnel is connected"
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker compose ps
+              docker compose logs --tail 50 tunnel
+              exit 1
+            fi
+            sleep 2
+          done
+
+          rm -rf site.old
+          docker compose ps
+          SCRIPT
+
+      - name: Check the public site
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$PUBLIC_URL/" | grep -q '<div id="app">'; then
+              echo "$PUBLIC_URL is live"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "$PUBLIC_URL did not serve the deck"
+          curl -sS -o /dev/null -w 'HTTP %{http_code}\n' --max-time 10 "$PUBLIC_URL/" || true
+          exit 1

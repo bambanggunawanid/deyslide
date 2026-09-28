@@ -1,0 +1,31 @@
+# Production stack for https://deyslide.bambanggunawan.id
+#
+# app:    nginx serving the built deck on port 3000
+# tunnel: cloudflared, which publishes app:3000 through the Cloudflare tunnel
+#
+# No port is published on the host. The site is reachable only through the tunnel.
+name: deyslide
+
+services:
+  app:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: [CMD, wget, -q, --spider, 'http://127.0.0.1:3000/']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Written to .env on the server by the deploy workflow.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is missing from .env}
+    depends_on:
+      app:
+        condition: service_healthy
