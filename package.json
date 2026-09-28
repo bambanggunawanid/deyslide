@@ -31,6 +31,7 @@
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^8.0.0",
     "@motion-canvas/player": "^3.17.2",
+    "@slidev/parser": "53.0.0",
     "@tresjs/cientos": "^5.9.1",
     "@types/node": "^26.6.3",
     "@vitejs/plugin-vue": "^6.0.9",
@@ -40,6 +41,7 @@
     "vite": "^8.3.1",
     "vitest": "^5.0.2",
     "vue": "^3.5.43",
-    "vue-tsc": "^3.3.11"
+    "vue-tsc": "^3.3.11",
+    "yjs": "^13.6.33"
   }
 }

@@ -108,6 +108,15 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 </DeyslideLiveSandbox>
 ```
 
+## Deck format
+
+`packages/deck-model` defines the deck that the upcoming cloud editor saves and syncs (see the epic in issue #8).
+
+- `DeckSchema` (Zod) validates a deck: slides with Slidev frontmatter, speaker notes, and elements. Element types are `text`, `image`, `shape`, `code` (one step, or several for a Magic Move), `scene3d`, `algo-player`, `sandbox`, and `raw` for Markdown the model does not understand.
+- `toMarkdown(deck)` writes Slidev Markdown. Positioned elements use Slidev's own `<v-drag pos="x,y,w,h,rotate">` in Slidev canvas units (980 by 551.25), so plain Slidev renders the output. Slide ids live in frontmatter as `id`, element ids as `data-id`.
+- `fromMarkdown(markdown)` reads it back. Anything it cannot represent exactly, including a `v-drag` block with a JavaScript expression, is kept byte for byte as a `raw` element.
+- `deckToYDoc(deck)` and `yDocToDeck(doc)` map the deck to a Yjs document. Positions are per field and text is `Y.Text`, so concurrent moves and typing merge.
+
 ## Deployment
 
 Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the deck to https://deyslide.bambanggunawan.id.
