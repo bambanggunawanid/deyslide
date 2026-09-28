@@ -16,7 +16,8 @@
   ],
   "packages": {
     ".": {
-      "package-name": "deyslide"
+      "package-name": "deyslide",
+      "release-as": "0.1.0"
     }
   }
 }
