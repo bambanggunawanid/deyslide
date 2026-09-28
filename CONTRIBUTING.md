@@ -85,7 +85,8 @@ All three must pass. The same checks run in CI on every pull request.
 
 - Fill in the pull request template.
 - Link the issue with `Closes #<number>`.
-- Use a Conventional Commit as the pull request title. Pull requests are squash merged, and the title becomes the commit on `main`.
+- Use a Conventional Commit as the pull request title. Pull requests are squash merged, the title becomes the commit on `main`, and it is also the line users read in the release notes.
+- Add the label that matches the change: `enhancement` for `feat`, `bug` for `fix`, `documentation` for `docs`.
 - Keep one topic per pull request.
 
 ### 7. Review and merge
@@ -94,13 +95,24 @@ A maintainer reviews the change, may ask for updates, and squash merges it when 
 
 ## Releases
 
-Releases are automated with [release-please](https://github.com/googleapis/release-please):
+A maintainer releases by pushing a version tag from `main`:
 
-1. Each merge to `main` updates an open release pull request.
-2. That pull request bumps the version and writes `CHANGELOG.md` from the Conventional Commits since the last release.
-3. When a maintainer merges it, release-please tags the version and publishes a GitHub Release with the same notes.
+```bash
+git checkout main && git pull
+git tag v0.1.0
+git push origin v0.1.0
+```
 
-Do not edit `CHANGELOG.md` or the `version` field in `package.json` by hand.
+The Release workflow then publishes a GitHub Release. GitHub writes its notes from the pull requests merged since the previous tag, grouped by label as set in `.github/release.yml`:
+
+| Label | Heading |
+| --- | --- |
+| `enhancement` | Features |
+| `bug` | Bug Fixes |
+| `documentation` | Documentation |
+| none or any other | Other Changes |
+
+The tag is the version. There is no `CHANGELOG.md` to edit.
 
 ## Project layout
 

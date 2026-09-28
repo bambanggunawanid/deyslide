@@ -1,7 +1,7 @@
 name: PR title
 
 # Pull requests are squash merged, so the title becomes the commit on main
-# that release-please reads. It must follow Conventional Commits.
+# and the line in the generated release notes. It must follow Conventional Commits.
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]

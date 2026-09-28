@@ -33,4 +33,4 @@ Closes #
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm build` passes
 - [ ] Docs are updated (README, component props, CONTRIBUTING) where needed
-- [ ] `CHANGELOG.md` and the `package.json` version are untouched (release-please owns them)
+- [ ] The pull request has a label (`enhancement`, `bug` or `documentation`) for its release notes heading

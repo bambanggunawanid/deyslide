@@ -1,0 +1,22 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 publishes a GitHub Release. GitHub writes the
+# notes from the pull requests merged since the previous tag, grouped by the
+# labels in .github/release.yml.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
