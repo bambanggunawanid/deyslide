@@ -1,10 +1,10 @@
 import type { VueWrapper } from '@vue/test-utils'
-import type { MotionCanvasPlayerElement } from '../src/algo-player/controller'
+import type { MotionCanvasPlayerElement } from '../packages/components/src/algo-player/controller'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { Mock } from 'vitest'
 import { expect, vi } from 'vitest'
-import DeyslideAlgoPlayer from '../components/DeyslideAlgoPlayer.vue'
+import DeyslideAlgoPlayer from '../packages/components/components/DeyslideAlgoPlayer.vue'
 import { resetSlidevTestState, slidevTestState } from './support/slidev-client'
 
 // The real package registers a canvas based Web Component. The tests fake

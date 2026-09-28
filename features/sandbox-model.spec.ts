@@ -1,7 +1,7 @@
-import type { SandboxModel, SandboxState } from '../src/sandbox/sandbox'
+import type { SandboxModel, SandboxState } from '../packages/components/src/sandbox/sandbox'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { createSandboxModel } from '../src/sandbox/sandbox'
+import { createSandboxModel } from '../packages/components/src/sandbox/sandbox'
 
 const feature = await loadFeature('./sandbox-model.feature')
 

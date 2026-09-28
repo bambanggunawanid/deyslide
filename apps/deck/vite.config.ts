@@ -1,7 +1,7 @@
 // Adds the `slidev` key to Vite's config type.
 import type {} from '@slidev/types'
+import { vueOptions } from '@deyslide/components/compiler-options'
 import { defineConfig } from 'vite'
-import { vueOptions } from './src/compiler-options.ts'
 
 export default defineConfig({
   slidev: {

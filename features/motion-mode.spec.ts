@@ -1,7 +1,7 @@
-import type { MotionMode, MotionModeInput } from '../src/scene3d/motion-mode'
+import type { MotionMode, MotionModeInput } from '../packages/components/src/scene3d/motion-mode'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { resolveMotionMode } from '../src/scene3d/motion-mode'
+import { resolveMotionMode } from '../packages/components/src/scene3d/motion-mode'
 
 const feature = await loadFeature('./motion-mode.feature')
 

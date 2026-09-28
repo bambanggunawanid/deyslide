@@ -1,7 +1,7 @@
-import type { VideoOptions } from '../scripts/video-plan'
+import type { VideoOptions } from '../apps/deck/scripts/video-plan'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { dwellFor, parseVideoArgs } from '../scripts/video-plan'
+import { dwellFor, parseVideoArgs } from '../apps/deck/scripts/video-plan'
 
 const feature = await loadFeature('./video-options.feature')
 

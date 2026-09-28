@@ -52,12 +52,10 @@ This is an open source project (MIT). Every change follows the full contribution
 
 | Path | Purpose |
 | --- | --- |
-| `slides.md` | Demo deck |
-| `components/` | Public components, auto imported by Slidev |
-| `src/` | Internal logic and TresJS child components, imported explicitly |
-| `animations/` | Motion Canvas project, built into `public/animations/` |
-| `features/` | Gherkin features and their step definitions |
-| `scripts/` | Video export |
+| `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
+| `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/` |
+| `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
+| `features/` | Gherkin features and their step definitions for every package |
 | `deploy/` | Production Podman script and nginx config |
 
 ## Commands
@@ -65,7 +63,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Builds animations, then starts Slidev with HMR |
-| `pnpm build` | Builds animations, then a static site in `dist/` |
+| `pnpm build` | Builds animations, then a static site in `apps/deck/dist/` |
 | `pnpm export` | Builds animations, then a PDF in `exports/deyslide.pdf` |
 | `pnpm export:video` | Builds animations, then a WebM in `exports/deyslide.webm` |
 | `pnpm animations:build` | Builds Motion Canvas projects only |

@@ -1,6 +1,6 @@
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { vueOptions } from '../src/compiler-options'
+import { vueOptions } from '../packages/components/src/compiler-options'
 
 const feature = await loadFeature('./compiler-options.feature')
 

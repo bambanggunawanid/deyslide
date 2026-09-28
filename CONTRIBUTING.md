@@ -50,7 +50,7 @@ Feature: Sandbox state model
     Then "debug" is true
 ```
 
-Logic that needs no browser lives in plain TypeScript under `src/` so the scenarios stay fast.
+Logic that needs no browser lives in plain TypeScript under `packages/components/src/` so the scenarios stay fast.
 Components are tested with `@vue/test-utils` in happy-dom. WebGL and the Motion Canvas element are replaced with stubs, as the existing specs show.
 
 ### 4. Commit with Conventional Commits
@@ -116,14 +116,14 @@ The tag is the version. There is no `CHANGELOG.md` to edit.
 
 ## Project layout
 
+The repository is a pnpm workspace. Run every command from the root.
+
 | Path | Purpose |
 | --- | --- |
-| `slides.md` | Demo deck |
-| `components/` | Public components, auto imported by Slidev |
-| `src/` | Internal logic and TresJS child components |
-| `animations/` | Motion Canvas project, built into `public/animations/` |
-| `features/` | Gherkin features and step definitions |
-| `scripts/` | Video export |
+| `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
+| `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/` |
+| `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
+| `features/` | Gherkin features and their step definitions for every package |
 | `deploy/` | Production Podman script and nginx config |
 
 ## Questions

@@ -19,42 +19,27 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "pnpm animations:build && slidev",
-    "build": "pnpm animations:build && slidev build",
-    "export": "pnpm animations:build && slidev export --output exports/deyslide.pdf",
-    "export:video": "pnpm animations:build && node scripts/export-video.ts",
-    "animations:build": "vite build --config animations/vite.config.ts",
+    "dev": "pnpm animations:build && pnpm --filter @deyslide/deck dev",
+    "build": "pnpm animations:build && pnpm --filter @deyslide/deck build",
+    "export": "pnpm animations:build && pnpm --filter @deyslide/deck export",
+    "export:video": "pnpm animations:build && node apps/deck/scripts/export-video.ts",
+    "animations:build": "pnpm --filter @deyslide/animations build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "vue-tsc --noEmit && vue-tsc --noEmit -p animations/tsconfig.json"
-  },
-  "dependencies": {
-    "@motion-canvas/2d": "^3.17.2",
-    "@motion-canvas/core": "^3.17.2",
-    "@motion-canvas/player": "^3.17.2",
-    "@slidev/cli": "^53.0.0",
-    "@slidev/theme-default": "^0.25.0",
-    "@tresjs/cientos": "^5.9.1",
-    "@tresjs/core": "^5.9.1",
-    "@vueuse/core": "^14.4.0",
-    "three": "^0.186.1",
-    "vue": "^3.5.43"
+    "typecheck": "vue-tsc --noEmit && vue-tsc --noEmit -p packages/animations/tsconfig.json"
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^8.0.0",
-    "@motion-canvas/ui": "^3.17.2",
-    "@motion-canvas/vite-plugin": "^3.17.2",
-    "@slidev/types": "53.0.0",
+    "@motion-canvas/player": "^3.17.2",
+    "@tresjs/cientos": "^5.9.1",
     "@types/node": "^26.6.3",
-    "@types/three": "^0.186.0",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "^2.5.1",
     "happy-dom": "^20.14.5",
-    "playwright-chromium": "1.63.0",
     "typescript": "^6.0.3",
-    "unocss": "^66.10.5",
     "vite": "^8.3.1",
     "vitest": "^5.0.2",
+    "vue": "^3.5.43",
     "vue-tsc": "^3.3.11"
   }
 }

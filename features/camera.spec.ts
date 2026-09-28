@@ -1,7 +1,7 @@
-import type { CameraPose, Vec3 } from '../src/scene3d/camera'
+import type { CameraPose, Vec3 } from '../packages/components/src/scene3d/camera'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { createPoseMemory, damp, MIN_ZOOM, resolveCameraPose } from '../src/scene3d/camera'
+import { createPoseMemory, damp, MIN_ZOOM, resolveCameraPose } from '../packages/components/src/scene3d/camera'
 
 const feature = await loadFeature('./camera.feature')
 
