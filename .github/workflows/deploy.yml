@@ -43,8 +43,9 @@ jobs:
 
       - name: Package release
         run: |
-          mkdir -p release/site
-          cp -r apps/deck/dist/. release/site/
+          mkdir -p release/site/demo
+          cp -r apps/web/dist/. release/site/
+          cp -r apps/deck/dist/. release/site/demo/
           cp deploy/up.sh deploy/nginx.conf release/
           tar -czf release.tgz -C release .
 
@@ -93,13 +94,20 @@ jobs:
 
       - name: Check the public site
         run: |
+          # The web app answers at the root, the demo deck under /demo/.
+          check() {
+            curl -fsS --max-time 10 "$PUBLIC_URL/" | grep -q '<div id="app">' \
+              && curl -fsS --max-time 10 "$PUBLIC_URL/demo/" | grep -q '/demo/assets/'
+          }
           for attempt in $(seq 1 12); do
-            if curl -fsS --max-time 10 "$PUBLIC_URL/" | grep -q '<div id="app">'; then
-              echo "$PUBLIC_URL is live"
+            if check; then
+              echo "$PUBLIC_URL and $PUBLIC_URL/demo/ are live"
               exit 0
             fi
             sleep 5
           done
-          echo "$PUBLIC_URL did not serve the deck"
-          curl -sS -o /dev/null -w 'HTTP %{http_code}\n' --max-time 10 "$PUBLIC_URL/" || true
+          echo "$PUBLIC_URL did not serve the web app and the demo deck"
+          for path in / /demo/; do
+            curl -sS -o /dev/null -w "$path HTTP %{http_code}\n" --max-time 10 "$PUBLIC_URL$path" || true
+          done
           exit 1

@@ -7,27 +7,31 @@ A hybrid presentation engine for two kinds of talks:
 
 Built on [Slidev](https://sli.dev) (Vue 3, Vite, UnoCSS, Shiki Magic Move), [TresJS](https://tresjs.org) for 3D, and [Motion Canvas](https://motioncanvas.io) for procedural 2D animation.
 
+The hosted app at https://deyslide.bambanggunawan.id opens on a projects home page. A project holds decks, like a file in Figma. The demo deck plays at [/demo/](https://deyslide.bambanggunawan.id/demo/).
+
 ## Quick start
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev       # the demo deck in Slidev
+pnpm dev:web   # the web app with the projects home page
 ```
 
-Open the printed URL. Press `o` for the slide overview and `p` for presenter mode.
+Open the printed URL. In the deck, press `o` for the slide overview and `p` for presenter mode.
 
 ## Scripts
 
 | Command | Output |
 | --- | --- |
-| `pnpm dev` | Development server with HMR |
-| `pnpm build` | Static site in `apps/deck/dist/` |
+| `pnpm dev` | Deck development server with HMR |
+| `pnpm dev:web` | Web app development server with HMR |
+| `pnpm build` | Deck in `apps/deck/dist/` (served under `/demo/`) and web app in `apps/web/dist/` |
 | `pnpm export` | PDF handout in `exports/deyslide.pdf` |
 | `pnpm export:video` | WebM video in `exports/deyslide.webm` |
 | `pnpm test` | BDD scenarios in `features/` |
-| `pnpm typecheck` | Type check for the deck and animations |
+| `pnpm typecheck` | Type check for the web app, the deck and the animations |
 
-Each deck script first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `apps/deck/public/animations/`.
+Each deck script, and `pnpm build`, first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `apps/deck/public/animations/`.
 
 `pnpm export` and `pnpm export:video` need Chromium. Install it once with `pnpm exec playwright install chromium`.
 
@@ -108,6 +112,21 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 </DeyslideLiveSandbox>
 ```
 
+## Web app
+
+`apps/web` is a Vue 3 and Vite single page app. It is the start of the cloud editor planned in issue #8.
+
+| Page | Path |
+| --- | --- |
+| Projects home page | `/` |
+| A project and its decks | `/p/<project id>` |
+| A deck: slide outline and Markdown download | `/p/<project id>/d/<deck id>` |
+| The demo deck, a separate Slidev build | `/demo/` |
+
+Anyone can start right away, with no account. As a guest, the project list is kept in IndexedDB and every deck is a Yjs document stored with `y-indexeddb`, so work survives a reload but stays in that browser. A banner says so. Signing up to keep work in the cloud comes in the next phase.
+
+A new deck starts from one of two templates: **Blank** (one title slide) or **Demo deck** (`apps/deck/slides.md`, read with `fromMarkdown`).
+
 ## Deck format
 
 `packages/deck-model` defines the deck that the upcoming cloud editor saves and syncs (see the epic in issue #8).
@@ -119,13 +138,13 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 
 ## Deployment
 
-Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the deck to https://deyslide.bambanggunawan.id.
+Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the web app to https://deyslide.bambanggunawan.id and the demo deck to https://deyslide.bambanggunawan.id/demo/.
 
-1. Builds the deck and runs the BDD scenarios.
+1. Builds the web app and the deck, and runs the BDD scenarios.
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
 3. Uploads the site to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
 4. Runs `deploy/up.sh`, which starts a Podman pod named `deyslide` with two containers: `deyslide-app` (nginx on port 3000) and `deyslide-tunnel` (cloudflared).
-5. Checks that the app answers, the tunnel connects, and the public URL serves the deck.
+5. Checks that nginx answers at `/` and `/demo/`, the tunnel connects, and the public URL serves both.
 
 The pod has its own network and publishes no port, so port 3000 on the server stays free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
 
