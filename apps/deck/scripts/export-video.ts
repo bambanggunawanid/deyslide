@@ -14,6 +14,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-chromium'
 import { dwellFor, parseVideoArgs } from './video-plan.ts'
 
@@ -43,8 +44,12 @@ async function waitForServer(url: string, timeoutMs = 60000) {
   throw new Error(`Slidev did not start on ${url} within ${timeoutMs} ms`)
 }
 
+// The deck package (apps/deck), whatever folder the script is started from.
+const deckDir = fileURLToPath(new URL('..', import.meta.url))
+
 function startSlidev(port: number): ChildProcess {
   return spawn('pnpm', ['exec', 'slidev', '--port', String(port), '--bind', '127.0.0.1'], {
+    cwd: deckDir,
     stdio: ['ignore', 'inherit', 'inherit'],
   })
 }

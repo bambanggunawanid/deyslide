@@ -53,7 +53,7 @@ export default defineConfig({
     project: [`${root}src/bubble-sort.ts`],
   })),
   build: {
-    outDir: fileURLToPath(new URL('../public/animations', import.meta.url)),
+    outDir: fileURLToPath(new URL('../../apps/deck/public/animations', import.meta.url)),
     emptyOutDir: true,
     rollupOptions: {
       output: {

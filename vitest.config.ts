@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
-import { vueOptions } from './src/compiler-options.ts'
+import { vueOptions } from './packages/components/src/compiler-options.ts'
 
 export default defineConfig({
   plugins: [vue(vueOptions)],

@@ -1,7 +1,7 @@
-import type { SortStep } from '../animations/src/logic/bubble-sort-steps'
+import type { SortStep } from '../packages/animations/src/logic/bubble-sort-steps'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { bubbleSortSteps, finalValues } from '../animations/src/logic/bubble-sort-steps'
+import { bubbleSortSteps, finalValues } from '../packages/animations/src/logic/bubble-sort-steps'
 
 const feature = await loadFeature('./bubble-sort.feature')
 

@@ -21,13 +21,13 @@ Open the printed URL. Press `o` for the slide overview and `p` for presenter mod
 | Command | Output |
 | --- | --- |
 | `pnpm dev` | Development server with HMR |
-| `pnpm build` | Static site in `dist/` |
+| `pnpm build` | Static site in `apps/deck/dist/` |
 | `pnpm export` | PDF handout in `exports/deyslide.pdf` |
 | `pnpm export:video` | WebM video in `exports/deyslide.webm` |
 | `pnpm test` | BDD scenarios in `features/` |
 | `pnpm typecheck` | Type check for the deck and animations |
 
-Each deck script first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `public/animations/`.
+Each deck script first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `apps/deck/public/animations/`.
 
 `pnpm export` and `pnpm export:video` need Chromium. Install it once with `pnpm exec playwright install chromium`.
 
@@ -47,7 +47,7 @@ videoDwell: 12 # seconds per click step on this slide
 
 ## Components
 
-Slidev auto imports everything in `components/`.
+The components live in `packages/components`, a Slidev addon. The deck lists it under `slidev.addons` in `apps/deck/package.json`, so Slidev auto imports every component in `packages/components/components/`.
 
 ### `<DeyslideScene3D>`
 
@@ -94,7 +94,7 @@ A wrapper around `<motion-canvas-player>` with play, pause, restart and loop con
 | `quality` | player default | Rendering quality from 0 to 1 |
 | `variables` | none | Project variables |
 
-To add an animation, create a project in `animations/src/`, add it to the `project` list in `animations/vite.config.ts`, and give its `.meta` file a `name`. The bundle appears at `/animations/<name>.js`.
+To add an animation, create a project in `packages/animations/src/`, add it to the `project` list in `packages/animations/vite.config.ts`, and give its `.meta` file a `name`. The bundle appears at `/animations/<name>.js`.
 
 ### `<DeyslideLiveSandbox>`
 

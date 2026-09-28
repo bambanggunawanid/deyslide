@@ -1,0 +1,28 @@
+{
+  "name": "@deyslide/components",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deyslide components as a Slidev addon: 3D scenes, algorithm player and live sandbox.",
+  "keywords": [
+    "slidev-addon",
+    "slidev"
+  ],
+  "exports": {
+    "./compiler-options": "./src/compiler-options.ts",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.43"
+  },
+  "dependencies": {
+    "@motion-canvas/player": "^3.17.2",
+    "@tresjs/cientos": "^5.9.1",
+    "@tresjs/core": "^5.9.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "vue": "^3.5.43"
+  }
+}

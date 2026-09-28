@@ -4,10 +4,10 @@ node_modules/
 # Build and export output
 dist/
 exports/
-public/animations/
+apps/deck/public/animations/
 
 # Motion Canvas editor output
-animations/output/
+packages/animations/output/
 
 # Vite and tool caches
 .vite/

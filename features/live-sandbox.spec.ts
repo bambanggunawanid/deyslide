@@ -3,7 +3,7 @@ import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { mount } from '@vue/test-utils'
 import { expect } from 'vitest'
 import { h } from 'vue'
-import DeyslideLiveSandbox from '../components/DeyslideLiveSandbox.vue'
+import DeyslideLiveSandbox from '../packages/components/components/DeyslideLiveSandbox.vue'
 
 const feature = await loadFeature('./live-sandbox.feature')
 

@@ -1,7 +1,7 @@
-import type { Vec3 } from '../src/scene3d/camera'
+import type { Vec3 } from '../packages/components/src/scene3d/camera'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { ARCHITECTURE_LINKS, ARCHITECTURE_NODES, findNode, linkEndpoints, resolveFocusTarget } from '../src/scene3d/architecture'
+import { ARCHITECTURE_LINKS, ARCHITECTURE_NODES, findNode, linkEndpoints, resolveFocusTarget } from '../packages/components/src/scene3d/architecture'
 
 const feature = await loadFeature('./architecture.feature')
 

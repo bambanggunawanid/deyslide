@@ -44,7 +44,7 @@ jobs:
       - name: Package release
         run: |
           mkdir -p release/site
-          cp -r dist/. release/site/
+          cp -r apps/deck/dist/. release/site/
           cp deploy/up.sh deploy/nginx.conf release/
           tar -czf release.tgz -C release .
 

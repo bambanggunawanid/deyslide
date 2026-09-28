@@ -1,0 +1,31 @@
+{
+  "name": "@deyslide/deck",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Deyslide demo deck.",
+  "scripts": {
+    "dev": "slidev",
+    "build": "slidev build",
+    "export": "slidev export --output ../../exports/deyslide.pdf"
+  },
+  "dependencies": {
+    "@deyslide/components": "workspace:*",
+    "@slidev/cli": "^53.0.0",
+    "@slidev/theme-default": "^0.25.0",
+    "@vueuse/core": "^14.4.0",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@slidev/types": "53.0.0",
+    "@types/node": "^26.6.3",
+    "playwright-chromium": "1.63.0",
+    "unocss": "^66.10.5",
+    "vite": "^8.3.1"
+  },
+  "slidev": {
+    "addons": [
+      "@deyslide/components"
+    ]
+  }
+}

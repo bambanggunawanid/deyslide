@@ -1,6 +1,6 @@
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
-import { resolvePlayerSrc } from '../src/algo-player/controller'
+import { resolvePlayerSrc } from '../packages/components/src/algo-player/controller'
 
 const feature = await loadFeature('./player-source.feature')
 

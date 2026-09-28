@@ -7,56 +7,19 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@motion-canvas/2d':
-        specifier: ^3.17.2
-        version: 3.17.2
-      '@motion-canvas/core':
-        specifier: ^3.17.2
-        version: 3.17.2
-      '@motion-canvas/player':
-        specifier: ^3.17.2
-        version: 3.17.2
-      '@slidev/cli':
-        specifier: ^53.0.0
-        version: 53.0.0(@nuxt/kit@3.21.11)(@oxc-project/types@0.151.0)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.1.0)(cac@7.0.0)(srvx@1.0.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)))(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(lightningcss@1.33.0)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
-      '@slidev/theme-default':
-        specifier: ^0.25.0
-        version: 0.25.0
-      '@tresjs/cientos':
-        specifier: ^5.9.1
-        version: 5.9.1(@tresjs/core@5.9.1(three@0.186.1)(vue@3.5.43(typescript@6.0.3)))(three@0.186.1)(vue@3.5.43(typescript@6.0.3))
-      '@tresjs/core':
-        specifier: ^5.9.1
-        version: 5.9.1(three@0.186.1)(vue@3.5.43(typescript@6.0.3))
-      '@vueuse/core':
-        specifier: ^14.4.0
-        version: 14.4.0(vue@3.5.43(typescript@6.0.3))
-      three:
-        specifier: ^0.186.1
-        version: 0.186.1
-      vue:
-        specifier: ^3.5.43
-        version: 3.5.43(typescript@6.0.3)
     devDependencies:
       '@amiceli/vitest-cucumber':
         specifier: ^8.0.0
         version: 8.0.0(vitest@5.0.2(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)))
-      '@motion-canvas/ui':
+      '@motion-canvas/player':
         specifier: ^3.17.2
         version: 3.17.2
-      '@motion-canvas/vite-plugin':
-        specifier: ^3.17.2
-        version: 3.17.2(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
-      '@slidev/types':
-        specifier: 53.0.0
-        version: 53.0.0(@modelcontextprotocol/server@2.1.0)(@nuxt/kit@3.21.11)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(rolldown@1.2.11)(srvx@1.0.5)(typescript@6.0.3)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      '@tresjs/cientos':
+        specifier: ^5.9.1
+        version: 5.9.1(@tresjs/core@5.9.1(three@0.186.1)(vue@3.5.43(typescript@6.0.3)))(three@0.186.1)(vue@3.5.43(typescript@6.0.3))
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
-      '@types/three':
-        specifier: ^0.186.0
-        version: 0.186.0
       '@vitejs/plugin-vue':
         specifier: ^6.0.9
         version: 6.0.9(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.43(typescript@6.0.3))
@@ -66,24 +29,95 @@ importers:
       happy-dom:
         specifier: ^20.14.5
         version: 20.14.5
-      playwright-chromium:
-        specifier: 1.63.0
-        version: 1.63.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      unocss:
-        specifier: ^66.10.5
-        version: 66.10.5(cac@7.0.0)(rolldown@1.2.11)(srvx@1.0.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
       vite:
         specifier: ^8.3.1
         version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)
       vitest:
         specifier: ^5.0.2
         version: 5.0.2(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      vue:
+        specifier: ^3.5.43
+        version: 3.5.43(typescript@6.0.3)
       vue-tsc:
         specifier: ^3.3.11
         version: 3.3.11(typescript@6.0.3)
+
+  apps/deck:
+    dependencies:
+      '@deyslide/components':
+        specifier: workspace:*
+        version: link:../../packages/components
+      '@slidev/cli':
+        specifier: ^53.0.0
+        version: 53.0.0(@nuxt/kit@3.21.11)(@oxc-project/types@0.151.0)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vitejs/devtools-kit@0.4.12(@modelcontextprotocol/server@2.1.0)(cac@7.0.0)(srvx@1.0.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)))(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(lightningcss@1.33.0)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
+      '@slidev/theme-default':
+        specifier: ^0.25.0
+        version: 0.25.0
+      '@vueuse/core':
+        specifier: ^14.4.0
+        version: 14.4.0(vue@3.5.43(typescript@6.0.3))
+      vue:
+        specifier: ^3.5.43
+        version: 3.5.43(typescript@6.0.3)
+    devDependencies:
+      '@slidev/types':
+        specifier: 53.0.0
+        version: 53.0.0(@modelcontextprotocol/server@2.1.0)(@nuxt/kit@3.21.11)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(rolldown@1.2.11)(srvx@1.0.5)(typescript@6.0.3)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
+      playwright-chromium:
+        specifier: 1.63.0
+        version: 1.63.0
+      unocss:
+        specifier: ^66.10.5
+        version: 66.10.5(cac@7.0.0)(rolldown@1.2.11)(srvx@1.0.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)
+
+  packages/animations:
+    devDependencies:
+      '@motion-canvas/2d':
+        specifier: ^3.17.2
+        version: 3.17.2
+      '@motion-canvas/core':
+        specifier: ^3.17.2
+        version: 3.17.2
+      '@motion-canvas/ui':
+        specifier: ^3.17.2
+        version: 3.17.2
+      '@motion-canvas/vite-plugin':
+        specifier: ^3.17.2
+        version: 3.17.2(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)
+
+  packages/components:
+    dependencies:
+      '@motion-canvas/player':
+        specifier: ^3.17.2
+        version: 3.17.2
+      '@tresjs/cientos':
+        specifier: ^5.9.1
+        version: 5.9.1(@tresjs/core@5.9.1(three@0.186.1)(vue@3.5.43(typescript@6.0.3)))(three@0.186.1)(vue@3.5.43(typescript@6.0.3))
+      '@tresjs/core':
+        specifier: ^5.9.1
+        version: 5.9.1(three@0.186.1)(vue@3.5.43(typescript@6.0.3))
+      three:
+        specifier: ^0.186.1
+        version: 0.186.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.186.0
+        version: 0.186.0
+      vue:
+        specifier: ^3.5.43
+        version: 3.5.43(typescript@6.0.3)
 
 packages:
 
