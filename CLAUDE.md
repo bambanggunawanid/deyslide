@@ -58,7 +58,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | `animations/` | Motion Canvas project, built into `public/animations/` |
 | `features/` | Gherkin features and their step definitions |
 | `scripts/` | Video export |
-| `deploy/` | Production Docker Compose stack and nginx config |
+| `deploy/` | Production Podman script and nginx config |
 
 ## Commands
 

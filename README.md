@@ -115,10 +115,10 @@ Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the de
 1. Builds the deck and runs the BDD scenarios.
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
 3. Uploads the site to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
-4. Starts `deploy/compose.yaml`: `app` (nginx on port 3000) and `tunnel` (cloudflared).
-5. Checks that `app` answers, the tunnel connects, and the public URL serves the deck.
+4. Runs `deploy/up.sh`, which starts a Podman pod named `deyslide` with two containers: `deyslide-app` (nginx on port 3000) and `deyslide-tunnel` (cloudflared).
+5. Checks that the app answers, the tunnel connects, and the public URL serves the deck.
 
-The Cloudflare tunnel route sends `deyslide.bambanggunawan.id` to `http://app:3000`. No port is opened on the server.
+The pod has its own network and publishes no port, so port 3000 on the server stays free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
 
 The `Production` environment holds:
 
@@ -128,7 +128,12 @@ The `Production` environment holds:
 | `CLOUDFLARE_TUNNEL_TOKEN` | Secret |
 | `TAILSCALE_SERVER_IP` | Variable |
 
-The server needs Tailscale SSH (`tailscale up --ssh`), Docker with the Compose plugin, and `ryzen` in the `docker` group. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`.
+The server needs Tailscale SSH (`tailscale up --ssh`) and Podman for `ryzen`. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`. To start the containers again after a reboot, run once on the server:
+
+```bash
+sudo loginctl enable-linger ryzen
+systemctl --user enable podman-restart.service
+```
 
 A manual deploy can be started from the Actions tab with **Run workflow** on the Deploy workflow.
 
