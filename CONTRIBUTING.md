@@ -5,7 +5,7 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Requirements
 
-- Node.js 22.18 or newer
+- Node.js 24 (the version is pinned in `.node-version`)
 - pnpm 10 (the exact version is pinned in `package.json` under `packageManager`)
 - Chromium for `pnpm export` and `pnpm export:video`. Run `pnpm exec playwright install chromium` once.
 
