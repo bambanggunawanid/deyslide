@@ -112,6 +112,7 @@ Do not edit `CHANGELOG.md` or the `version` field in `package.json` by hand.
 | `animations/` | Motion Canvas project, built into `public/animations/` |
 | `features/` | Gherkin features and step definitions |
 | `scripts/` | Video export |
+| `deploy/` | Production Docker Compose stack and nginx config |
 
 ## Questions
 

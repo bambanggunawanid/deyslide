@@ -108,6 +108,30 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 </DeyslideLiveSandbox>
 ```
 
+## Deployment
+
+Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the deck to https://deyslide.bambanggunawan.id.
+
+1. Builds the deck and runs the BDD scenarios.
+2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
+3. Uploads the site to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
+4. Starts `deploy/compose.yaml`: `app` (nginx on port 3000) and `tunnel` (cloudflared).
+5. Checks that `app` answers, the tunnel connects, and the public URL serves the deck.
+
+The Cloudflare tunnel route sends `deyslide.bambanggunawan.id` to `http://app:3000`. No port is opened on the server.
+
+The `Production` environment holds:
+
+| Name | Kind |
+| --- | --- |
+| `TAILSCALE_CLIENT_ID`, `TAILSCALE_CLIENT_KEY` | Secrets |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Secret |
+| `TAILSCALE_SERVER_IP` | Variable |
+
+The server needs Tailscale SSH (`tailscale up --ssh`), Docker with the Compose plugin, and `ryzen` in the `docker` group. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`.
+
+A manual deploy can be started from the Actions tab with **Run workflow** on the Deploy workflow.
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md). Every change starts with an issue, and every behavior starts with a Gherkin scenario.
