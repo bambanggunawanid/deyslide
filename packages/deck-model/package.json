@@ -1,0 +1,17 @@
+{
+  "name": "@deyslide/deck-model",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Deyslide deck format: Zod schema, Slidev Markdown conversion and Yjs mapping.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@slidev/parser": "53.0.0",
+    "@vue/compiler-dom": "^3.5.43",
+    "yaml": "^2.9.1",
+    "yjs": "^13.6.33",
+    "zod": "^4.6.5"
+  }
+}

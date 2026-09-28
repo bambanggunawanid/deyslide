@@ -26,6 +26,7 @@
     "packages/components/components/**/*.vue",
     "packages/components/src/**/*.ts",
     "packages/components/src/**/*.vue",
+    "packages/deck-model/src/**/*.ts",
     "apps/deck/scripts/**/*.ts",
     "apps/deck/*.config.ts",
     "features/**/*.ts",
