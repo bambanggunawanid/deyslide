@@ -1,0 +1,25 @@
+/* Deyslide dark technical theme overrides. Slidev loads this file automatically. */
+
+:root {
+  --slidev-theme-primary: #38bdf8;
+}
+
+.slidev-layout {
+  background: #0b1020;
+  color: #e2e8f0;
+}
+
+.slidev-layout h1,
+.slidev-layout h2 {
+  letter-spacing: -0.02em;
+}
+
+.slidev-layout code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Bigger code for student readability at the back of a room. */
+.slidev-layout .slidev-code {
+  font-size: 0.9em;
+  line-height: 1.6;
+}

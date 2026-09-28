@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build and export output
+dist/
+exports/
+public/animations/
+
+# Motion Canvas editor output
+animations/output/
+
+# Vite and tool caches
+.vite/
+*.local
+.slidev/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
