@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest a new capability or an improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Deyslide uses behavior driven development. Describing the behavior as a Gherkin scenario helps us agree on scope before anyone writes code.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work from the presenter's or author's point of view?
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Presentation mode
+      multiple: true
+      options:
+        - Live Teaching Mode
+        - Cinematic Presentation Mode
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Acceptance scenario
+      description: One or more Gherkin scenarios that describe the expected behavior.
+      render: gherkin
+      placeholder: |
+        Scenario: Camera follows a GLTF node
+          Given a GLTF model with a node named "engine"
+          When I set focus to "engine"
+          Then the camera looks at the engine node
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to implement this myself.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/bambanggunawanid/deyslide/blob/main/CODE_OF_CONDUCT.md).
+          required: true
