@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deyslide": {
+      "type": "http",
+      "url": "https://deyslide.bambanggunawan.id/mcp"
+    }
+  }
+}

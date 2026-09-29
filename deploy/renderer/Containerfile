@@ -1,0 +1,6 @@
+# The slide renderer for Deyslide's MCP server. Playwright's image carries
+# the Chromium that matches playwright-core 1.63.0. The renderer itself
+# (renderer.mjs) is mounted at run time, so a deploy needs no rebuild.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
+WORKDIR /renderer
+RUN npm install --no-save --no-package-lock --omit=dev playwright-core@1.63.0

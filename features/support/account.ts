@@ -33,7 +33,7 @@ export class FakeAccountService implements AccountService {
     this.accounts.set(email, { id: `user-${this.accounts.size + 1}`, name, email, password, confirmed: false })
   }
 
-  async signIn({ email, password }: { email: string, password: string }) {
+  async signIn({ email, password }: { email: string, password: string, next?: string }) {
     const stored = this.accounts.get(email)
     if (!stored || stored.password !== password)
       throw new AccountError('The email or password is wrong.')
@@ -43,12 +43,12 @@ export class FakeAccountService implements AccountService {
     return this.signedIn
   }
 
-  async sendMagicLink(email: string) {
-    this.calls.push(`magic link ${email}`)
+  async sendMagicLink(email: string, next = '/') {
+    this.calls.push(next === '/' ? `magic link ${email}` : `magic link ${email} then ${next}`)
   }
 
-  async signInWith(provider: SocialProvider) {
-    this.calls.push(`social ${provider}`)
+  async signInWith(provider: SocialProvider, next = '/') {
+    this.calls.push(next === '/' ? `social ${provider}` : `social ${provider} then ${next}`)
   }
 
   async requestPasswordReset(email: string) {
@@ -61,5 +61,18 @@ export class FakeAccountService implements AccountService {
 
   async signOut() {
     this.signedIn = undefined
+  }
+
+  /** Apps that asked for access, by client id. */
+  readonly oauthClients = new Map<string, string>()
+
+  async oauthClientName(clientId: string) {
+    return this.oauthClients.get(clientId)
+  }
+
+  async answerConsent(signedQuery: string, accept: boolean) {
+    this.calls.push(`${accept ? 'allow' : 'deny'} ${new URLSearchParams(signedQuery).get('client_id')}`)
+    const redirect = new URLSearchParams(signedQuery).get('redirect_uri')!
+    return accept ? `${redirect}?code=fake-code` : `${redirect}?error=access_denied`
   }
 }

@@ -6,6 +6,8 @@ import { createApp } from 'vue'
 import { installPreview } from './install'
 import PreviewApp from './PreviewApp.vue'
 import { SLIDEV_SHORTCUTS } from './uno-shortcuts'
+// Slidev loads the same reset, so boxes size the same way (a layout's padding stays inside the slide).
+import '@unocss/reset/tailwind.css'
 import './styles.css'
 
 // Slides use any utility class, so styles are generated as they appear.

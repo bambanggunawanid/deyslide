@@ -59,21 +59,22 @@ export class BetterAuthAccountService implements AccountService {
       fail(error)
   }
 
-  async signIn({ email, password }: { email: string, password: string }) {
-    const { data, error } = await this.client.signIn.email({ email, password, callbackURL: '/' })
+  async signIn({ email, password, next = '/' }: { email: string, password: string, next?: string }) {
+    // Better Auth's client follows the callback URL itself after signing in.
+    const { data, error } = await this.client.signIn.email({ email, password, callbackURL: next })
     if (error)
       fail(error)
     return toAccount(data.user)
   }
 
-  async sendMagicLink(email: string) {
-    const { error } = await this.client.signIn.magicLink({ email, callbackURL: '/', errorCallbackURL: '/sign-in?error=link' })
+  async sendMagicLink(email: string, next = '/') {
+    const { error } = await this.client.signIn.magicLink({ email, callbackURL: next, errorCallbackURL: '/sign-in?error=link' })
     if (error)
       fail(error)
   }
 
-  async signInWith(provider: SocialProvider) {
-    const { error } = await this.client.signIn.social({ provider, callbackURL: '/', errorCallbackURL: '/sign-in?error=social' })
+  async signInWith(provider: SocialProvider, next = '/') {
+    const { error } = await this.client.signIn.social({ provider, callbackURL: next, errorCallbackURL: '/sign-in?error=social' })
     if (error)
       fail(error)
   }
@@ -94,5 +95,35 @@ export class BetterAuthAccountService implements AccountService {
     const { error } = await this.client.signOut()
     if (error)
       fail(error)
+  }
+
+  async oauthClientName(clientId: string) {
+    try {
+      const response = await fetch(`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`, { credentials: 'same-origin' })
+      return response.ok ? (await response.json() as { client_name?: string }).client_name : undefined
+    }
+    catch {
+      return undefined
+    }
+  }
+
+  async answerConsent(signedQuery: string, accept: boolean) {
+    let response: Response
+    try {
+      response = await fetch('/api/auth/oauth2/consent', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ accept, oauth_query: signedQuery }),
+      })
+    }
+    catch {
+      throw new AccountError('Deyslide is unreachable. Check your connection and try again.')
+    }
+    const data = await response.json().catch(() => ({})) as { url?: string, redirect_uri?: string, error_description?: string }
+    const next = data.url ?? data.redirect_uri
+    if (!response.ok || !next)
+      throw new AccountError(response.status === 401 ? 'You are signed out. Sign in and start again from the app.' : 'This request expired or is not valid. Start again from the app.')
+    return next
   }
 }

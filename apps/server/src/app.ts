@@ -1,9 +1,11 @@
 import type { AssistantDependencies } from './assistant/routes.ts'
 import type { Auth } from './auth.ts'
 import type { ServerConfig } from './config.ts'
+import type { McpDependencies } from './mcp/tools.ts'
 import type { ProjectStore } from './projects.ts'
 import { Hono } from 'hono'
 import { assistantRoutes } from './assistant/routes.ts'
+import { mcpRoutes } from './mcp/routes.ts'
 import { projectRoutes } from './routes.ts'
 
 /** What the web app may offer on its sign in page. */
@@ -22,9 +24,11 @@ export interface AppDependencies {
   emailEnabled: boolean
   /** The deck assistant, when it is on. */
   assistant?: Omit<AssistantDependencies, 'auth' | 'projects'>
+  /** The MCP server for Claude Code and other agents. */
+  mcp: McpDependencies
 }
 
-export function createApp({ config, auth, projects, emailEnabled, assistant }: AppDependencies) {
+export function createApp({ config, auth, projects, emailEnabled, assistant, mcp }: AppDependencies) {
   const app = new Hono().basePath('/api')
 
   app.get('/health', c => c.json({ ok: true }))
@@ -42,9 +46,14 @@ export function createApp({ config, auth, projects, emailEnabled, assistant }: A
   if (assistant)
     app.route('/', assistantRoutes({ ...assistant, auth, projects }))
 
-  app.notFound(c => c.json({ error: 'Not found' }, 404))
+  // The MCP endpoint and its discovery documents live at the site root. They
+  // come first, since one of them sits under /api/auth.
+  const root = new Hono()
+  root.route('/', mcpRoutes({ ...mcp, config, auth }))
+  root.route('/', app)
+  root.notFound(c => c.json({ error: 'Not found' }, 404))
 
-  return app
+  return root
 }
 
 export type App = ReturnType<typeof createApp>
