@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { ref, watch } from 'vue'
-import { NAME_MAX_LENGTH } from '../guest/store'
+import { NAME_MAX_LENGTH } from '../projects/names'
 
 /** Asks for a name, runs `action`, and stays open with the error if it fails. */
 const props = withDefaults(defineProps<{

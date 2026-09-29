@@ -15,7 +15,7 @@ The hosted app at https://deyslide.bambanggunawan.id opens on a projects home pa
 pnpm install
 pnpm dev       # the demo deck in Slidev
 pnpm dev:web   # the web app with the projects home page
-pnpm dev:server  # the API, for sign in (needs Postgres, see "API server")
+pnpm dev:server  # the API, for accounts and cloud save (needs Postgres, see "API server")
 ```
 
 Open the printed URL. In the deck, press `o` for the slide overview and `p` for presenter mode.
@@ -126,7 +126,11 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 | Sign in, sign up, forgot and reset password | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` |
 | The demo deck, a separate Slidev build | `/demo/` |
 
-Anyone can start right away, with no account. As a guest, the project list is kept in IndexedDB and every deck is a Yjs document stored with `y-indexeddb`, so work survives a reload but stays in that browser. A banner says so. Accounts exist now, and saving projects to them is the next part of issue #19.
+Anyone can start right away, with no account. As a guest, the project list is kept in IndexedDB and every deck is a Yjs document stored with `y-indexeddb`, so work survives a reload but stays in that browser. A banner says so.
+
+Signed in, projects and decks live in the account and open on any device. Signing in moves the browser's projects into the account, keeping their ids so old links still work, and then clears them from the browser. If the move fails, they stay in the browser and the move is tried again at the next sign in.
+
+The pages talk to one `ProjectStore` interface (`apps/web/src/projects/`): `GuestStore` for the browser and `CloudStore` for the account. `startSession` picks the right one at startup, and `Workspace` switches it on sign in and sign out.
 
 The sign in page offers only what the API reports as configured at `/api/config`, so a missing Google app hides the Google button instead of breaking it.
 
@@ -160,6 +164,17 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `BETTER_AUTH_SECRET` | a development value | Signs sessions. Required in production, at least 32 characters |
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | Postgres defaults | Database connection |
 | `HOST`, `PORT` | `127.0.0.1`, `3001` | Where the API listens |
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/projects` | The signed in person's projects with their decks |
+| `POST /api/projects`, `PATCH` and `DELETE /api/projects/:id` | Create, rename, delete a project |
+| `POST /api/projects/:id/decks` | Add a deck: a name and the deck's Yjs document in base64 |
+| `PATCH` and `DELETE /api/decks/:id` | Rename, delete a deck |
+| `GET /api/decks/:id/state` | The deck's Yjs document, as binary |
+| `POST /api/import` | Move browser projects into the account. Running it twice adds nothing |
+
+Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything the person does not own reads as not found.
 
 The BDD scenarios run the whole API on [PGlite](https://pglite.dev), Postgres compiled to WebAssembly, so `pnpm test` needs no database.
 
