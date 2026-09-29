@@ -1,0 +1,9 @@
+{
+  "name": "deyslide",
+  "version": "0.1.0",
+  "description": "Write, edit and look at Deyslide decks from Claude Code: the Deyslide MCP server plus a skill for building good slides.",
+  "author": {
+    "name": "bambanggunawanid",
+    "url": "https://github.com/bambanggunawanid"
+  }
+}

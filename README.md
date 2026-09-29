@@ -16,6 +16,7 @@ pnpm install
 pnpm dev       # the demo deck in Slidev
 pnpm dev:web   # the web app with the projects home page
 pnpm dev:server  # the API, for accounts and cloud save (needs Postgres, see "API server")
+pnpm dev:renderer  # slide images for the MCP server (after pnpm build, see "Claude Code")
 ```
 
 Open the printed URL. In the deck, press `o` for the slide overview and `p` for presenter mode.
@@ -27,7 +28,8 @@ Open the printed URL. In the deck, press `o` for the slide overview and `p` for 
 | `pnpm dev` | Deck development server with HMR |
 | `pnpm dev:web` | Web app development server with HMR |
 | `pnpm dev:server` | API server, restarted on every change |
-| `pnpm build` | Deck in `apps/deck/dist/` (served under `/demo/`), web app in `apps/web/dist/`, API in `apps/server/dist/server.mjs` |
+| `pnpm dev:renderer` | Slide renderer for the MCP server, serving `apps/web/dist/` |
+| `pnpm build` | Deck in `apps/deck/dist/` (served under `/demo/`), web app in `apps/web/dist/`, API in `apps/server/dist/server.mjs`, renderer in `apps/renderer/dist/renderer.mjs` |
 | `pnpm export` | PDF handout in `exports/deyslide.pdf` |
 | `pnpm export:video` | WebM video in `exports/deyslide.webm` |
 | `pnpm test` | BDD scenarios in `features/` |
@@ -153,6 +155,45 @@ Signed in people can ask Claude to change the open deck from a chat under the pr
 
 The browser sends the deck's Markdown and the chat with each message (`apps/web/src/assistant/`). On the server (`apps/server/src/assistant/`), Claude gets that Markdown with numbered slides and four tools: `replace_slide`, `insert_slide`, `delete_slide` and `move_slide`. The tools change a copy of the Markdown in memory, and a change that would split a slide in two, break its frontmatter YAML or make an unreadable deck goes back to Claude as an error instead. Claude has no tool that reads the database or any other deck, and a request for a deck the person does not own is refused before Claude sees anything.
 
+## Claude Code
+
+People who use [Claude Code](https://claude.com/claude-code) can build and edit their Deyslide decks from it, with their own Claude plan: no API key and nothing to buy on Deyslide. Install the plugin, which brings the MCP server and a skill on writing good decks:
+
+```text
+/plugin marketplace add bambanggunawanid/deyslide
+/plugin install deyslide@deyslide
+```
+
+Or add only the MCP server:
+
+```bash
+claude mcp add --transport http deyslide https://deyslide.bambanggunawan.id/mcp
+```
+
+The first tool call opens the browser: sign in to Deyslide and allow the app. Claude Code then works on that account's decks, and `/mcp` signs in again when needed.
+
+| Tool | What it does |
+| --- | --- |
+| `get_guide` | The writing guide: workflow, Slidev syntax, layouts, clicks, Magic Move, Deyslide components, design rules |
+| `list_decks` | Projects and decks, with ids, slide counts and editor links |
+| `create_project`, `create_deck` | New projects, and decks from Markdown |
+| `read_deck` | A deck's Markdown with each slide numbered |
+| `write_deck` | Replaces a whole deck |
+| `edit_slides` | Replace, insert, delete and move slides in one batch that saves all edits or none |
+| `render_slides` | PNG images of up to six slides, with each slide's click count, overflow and render errors |
+
+Everything is checked the way the web app checks it, and every call reaches only the signed in person's decks. There are no delete tools. A deck open in the browser picks up changes made from Claude Code when its tab comes back into view, unless it has unsaved typing.
+
+How it fits together:
+
+- **Sign in** (`apps/server/src/auth.ts`): Better Auth's [OAuth provider](https://www.better-auth.com/docs/plugins/oauth-provider) with dynamic client registration and PKCE. MCP clients register themselves with a loopback redirect, so they are registered as native apps. Access tokens are JWTs whose audience is the MCP endpoint, valid for an hour and refreshed by the client. The consent page is `apps/web/src/pages/ConsentPage.vue`.
+- **Discovery**: `/.well-known/oauth-protected-resource/mcp` names the authorization server, and `/.well-known/oauth-authorization-server/api/auth` describes it. A call without a valid token gets 401 with a `WWW-Authenticate` header that points to the first.
+- **MCP server** (`apps/server/src/mcp/`): Streamable HTTP at `/mcp`, stateless, with one server per request bound to the token's account.
+- **Renderer** (`apps/renderer/`): draws slides with the web app's own preview in headless Chromium, so images match the editor. Each request gets a fresh browser context that can only load the web app's files; in production the container also has no network, and the API reaches it through a Unix socket. It checks whether anything is drawn past the slide's edges to report overflow.
+- **Plugin** (`.claude-plugin/marketplace.json`, `plugins/deyslide/`): the MCP server settings and the `deyslide` skill.
+
+To try it locally, run `pnpm build`, then `pnpm dev:server` with `RENDERER_URL=http://127.0.0.1:3102` in `apps/server/.env`, `pnpm dev:renderer` and `pnpm dev:web`, and add `http://localhost:5173/mcp` to Claude Code. The renderer uses Playwright's Chromium, or the one in `CHROMIUM_PATH`.
+
 ## API server
 
 `apps/server` is a Node 24 server with [Hono](https://hono.dev) and [Better Auth](https://www.better-auth.com), on Postgres through [Kysely](https://kysely.dev). nginx serves it under `/api/`, on the same origin as the web app, so auth cookies stay first party.
@@ -188,6 +229,7 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `ANTHROPIC_API_KEY` | none | Turns the deck assistant on and pays for it |
 | `ASSISTANT_MONTHLY_LIMIT_USD` | `3` | What each account may spend on the assistant per month, in US dollars |
 | `ASSISTANT_ENABLED` | on with an API key | `true` turns the assistant on with an `ant auth login` profile instead of a key, `false` turns it off |
+| `RENDERER_URL` | none | The slide renderer for the MCP server: `http://host:port` or `unix:/path/to/socket`. Without it, `render_slides` says images are unavailable |
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -198,6 +240,7 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `GET /api/decks/:id/state` | The deck's Yjs document, as binary |
 | `POST /api/import` | Move browser projects into the account. Running it twice adds nothing |
 | `GET /api/assistant` | How much of this month's assistant allowance is used, and when it starts again |
+| `/mcp` | The MCP server for Claude Code and other agents (see "Claude Code") |
 | `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 
 Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything the person does not own reads as not found.
@@ -211,9 +254,10 @@ A new deck starts from one of two templates: **Blank** (one title slide) or **De
 `pnpm test:e2e` runs `e2e/*.e2e.ts` with Playwright in headless Chromium, on a desktop and a phone screen. It starts everything it needs:
 
 - the API from `apps/server` on [PGlite](https://pglite.dev), so no database is needed, with sent emails kept in memory so tests can open confirmation, magic link and reset links, and a keyword fake in place of Claude (`e2e/server.ts`, never deployed)
-- the production build of the web app with `vite preview`, sending `/api` to that API
+- the production build of the web app with `vite preview`, sending `/api`, `/mcp` and `/.well-known` to that API
+- the slide renderer from `apps/renderer`, serving that build
 
-It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, the editor and preview, and the deck assistant. It is not part of CI. No test calls the real Claude API.
+It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, the editor and preview, the deck assistant, and Claude Code connecting through the MCP server, signing in, building a deck and getting real slide images. It is not part of CI. No test calls the real Claude API.
 
 Install Chromium once with `pnpm exec playwright install chromium`. To use a Chromium you already have instead, set `PLAYWRIGHT_CHROMIUM_PATH` to its executable. After a failure, `pnpm exec playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 
@@ -233,7 +277,7 @@ Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the we
 1. Builds the web app, the deck and the API bundle, and runs the BDD scenarios.
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
 3. Uploads the release and the API settings to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
-4. Runs `deploy/up.sh`, which starts a Podman pod named `deyslide` with four containers:
+4. Runs `deploy/up.sh`, which starts the slide renderer and a Podman pod named `deyslide` with four containers:
 
    | Container | Image | Role |
    | --- | --- | --- |
@@ -243,6 +287,8 @@ Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the we
    | `deyslide-tunnel` | `cloudflared` | Publishes `app:3000` through the Cloudflare tunnel |
 
 5. Checks that nginx answers at `/`, `/demo/` and `/api/health`, the tunnel connects, and the public URL serves all three.
+
+The slide renderer (`deyslide-renderer`) runs outside the pod with `--network none`, since it runs decks' code. Its image is built on the server from `deploy/renderer/Containerfile`, on top of Playwright's image (about 2.5 GB, built once per Playwright version), and it talks to the API through a Unix socket in the `deyslide-sockets` volume. If it cannot start, the deploy goes on with a warning and `render_slides` says images are unavailable.
 
 The pod has its own network and publishes no port, so ports 3000, 3001 and 5432 on the server stay free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
 

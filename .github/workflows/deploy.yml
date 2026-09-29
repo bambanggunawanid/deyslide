@@ -43,10 +43,11 @@ jobs:
 
       - name: Package release
         run: |
-          mkdir -p release/site/demo release/server
+          mkdir -p release/site/demo release/server release/renderer
           cp -r apps/web/dist/. release/site/
           cp -r apps/deck/dist/. release/site/demo/
           cp apps/server/dist/server.mjs release/server/
+          cp apps/renderer/dist/renderer.mjs deploy/renderer/Containerfile release/renderer/
           cp deploy/up.sh deploy/nginx.conf release/
           tar -czf release.tgz -C release .
 

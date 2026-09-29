@@ -1,0 +1,18 @@
+{
+  "name": "@deyslide/renderer",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Draws Deyslide slides to PNG with the web app's preview in headless Chromium, for the MCP server.",
+  "scripts": {
+    "dev": "RENDERER_SITE_DIR=${RENDERER_SITE_DIR:-../web/dist} node src/main.ts",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "vite": "^8.3.1"
+  }
+}

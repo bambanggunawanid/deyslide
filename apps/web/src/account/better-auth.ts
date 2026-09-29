@@ -59,8 +59,9 @@ export class BetterAuthAccountService implements AccountService {
       fail(error)
   }
 
-  async signIn({ email, password }: { email: string, password: string }) {
-    const { data, error } = await this.client.signIn.email({ email, password, callbackURL: '/' })
+  async signIn({ email, password, next = '/' }: { email: string, password: string, next?: string }) {
+    // Better Auth's client follows the callback URL itself after signing in.
+    const { data, error } = await this.client.signIn.email({ email, password, callbackURL: next })
     if (error)
       fail(error)
     return toAccount(data.user)

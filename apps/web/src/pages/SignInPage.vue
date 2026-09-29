@@ -36,7 +36,7 @@ onMounted(async () => {
 
 async function signIn() {
   await runForm(busy, error, async () => {
-    await setAccount(await service.signIn({ email: email.value, password: password.value }))
+    await setAccount(await service.signIn({ email: email.value, password: password.value, next: next.value }))
     if (next.value)
       browser.leave(next.value)
     else

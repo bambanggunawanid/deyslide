@@ -23,7 +23,8 @@ export interface AccountService {
   current: () => Promise<Account | undefined>
   /** Creates the account and sends the confirmation email. */
   signUp: (input: { name: string, email: string, password: string }) => Promise<void>
-  signIn: (input: { email: string, password: string }) => Promise<Account>
+  /** `next` is where the browser goes after signing in, when not the home page. */
+  signIn: (input: { email: string, password: string, next?: string }) => Promise<Account>
   /** `next` is where the link leads after signing in. */
   sendMagicLink: (email: string, next?: string) => Promise<void>
   /** Leaves the page for the provider's sign in screen. `next` is where it leads after signing in. */

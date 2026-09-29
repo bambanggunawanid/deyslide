@@ -33,7 +33,7 @@ export class FakeAccountService implements AccountService {
     this.accounts.set(email, { id: `user-${this.accounts.size + 1}`, name, email, password, confirmed: false })
   }
 
-  async signIn({ email, password }: { email: string, password: string }) {
+  async signIn({ email, password }: { email: string, password: string, next?: string }) {
     const stored = this.accounts.get(email)
     if (!stored || stored.password !== password)
       throw new AccountError('The email or password is wrong.')

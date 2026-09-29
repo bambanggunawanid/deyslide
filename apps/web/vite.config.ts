@@ -5,6 +5,12 @@ import vue from '@vitejs/plugin-vue'
 import unocss from 'unocss/vite'
 import { defineConfig } from 'vite'
 
+// `pnpm dev:server` runs the API on port 3001, reached the way nginx routes it
+// in production: /api/, the MCP endpoint and its OAuth discovery documents.
+// The end to end tests point it at their own API with DEYSLIDE_API_URL.
+const apiUrl = process.env.DEYSLIDE_API_URL ?? 'http://127.0.0.1:3001'
+const apiProxy = { '/api': apiUrl, '/mcp': apiUrl, '/.well-known': apiUrl }
+
 // The preview runs in a sandboxed iframe, whose origin is "null". Its module
 // scripts are cross origin requests, so the server must allow that origin.
 const previewCors = { origin: 'null' }
@@ -33,12 +39,10 @@ export default defineConfig({
   },
   server: {
     cors: previewCors,
-    // `pnpm dev:server` runs the API here, the same way nginx routes /api/ in
-    // production. `vite preview` uses the same proxy; the end to end tests point
-    // it at their own API with DEYSLIDE_API_URL.
-    proxy: { '/api': process.env.DEYSLIDE_API_URL ?? 'http://127.0.0.1:3001' },
+    proxy: apiProxy,
   },
   preview: {
     cors: previewCors,
+    proxy: apiProxy,
   },
 })

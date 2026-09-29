@@ -1,0 +1,14 @@
+{
+  "name": "deyslide",
+  "description": "Claude Code plugins for Deyslide, the hosted Slidev presentation app.",
+  "owner": {
+    "name": "bambanggunawanid"
+  },
+  "plugins": [
+    {
+      "name": "deyslide",
+      "source": "./plugins/deyslide",
+      "description": "Write, edit and look at Deyslide decks from Claude Code: the Deyslide MCP server plus a skill for building good slides."
+    }
+  ]
+}

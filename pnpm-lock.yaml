@@ -91,7 +91,7 @@ importers:
         version: link:../../packages/components
       '@slidev/cli':
         specifier: ^53.0.0
-        version: 53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
+        version: 53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
       '@slidev/theme-default':
         specifier: ^0.25.0
         version: 0.25.0
@@ -114,6 +114,19 @@ importers:
       unocss:
         specifier: ^66.10.5
         version: 66.10.5(cac@7.0.0)(rolldown@1.2.11)(srvx@1.0.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1))
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)
+
+  apps/renderer:
+    dependencies:
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
       vite:
         specifier: ^8.3.1
         version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)
@@ -5391,7 +5404,7 @@ snapshots:
 
   '@shikijs/vscode-textmate@10.0.2': {}
 
-  '@slidev/cli@53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)':
+  '@slidev/cli@53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)':
     dependencies:
       '@antfu/ni': 30.6.0
       '@antfu/utils': 9.3.0
