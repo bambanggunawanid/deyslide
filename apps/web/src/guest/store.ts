@@ -125,6 +125,23 @@ export class GuestStore implements ProjectStore {
     }
   }
 
+  async saveDeck(projectId: string, deckId: string, deck: Deck) {
+    const summary = this.requireDeck(projectId, deckId)
+    const { deckToYDoc, DECK_KEY } = await loadModel()
+    const open = await this.storage.openDeck(deckId)
+    try {
+      open.doc.transact(() => open.doc.getMap(DECK_KEY).clear())
+      deckToYDoc(deck, open.doc)
+    }
+    finally {
+      await open.close()
+    }
+    summary.slideCount = deck.slides.length
+    summary.updatedAt = this.now()
+    this.requireProject(projectId).updatedAt = summary.updatedAt
+    await this.commit()
+  }
+
   async deckMarkdown(deckId: string): Promise<string> {
     const { toMarkdown } = await loadModel()
     return toMarkdown(await this.readDeck(deckId))

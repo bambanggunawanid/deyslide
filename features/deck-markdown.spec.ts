@@ -3,6 +3,7 @@ import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { parseSync } from '@slidev/parser/core'
 import { expect } from 'vitest'
 import { fromMarkdown, parsePos, toMarkdown } from '../packages/deck-model/src'
+import demoMarkdown from '../apps/deck/slides.md?raw'
 import { sampleDeck } from './support/decks'
 
 const feature = await loadFeature('./deck-markdown.feature')
@@ -15,6 +16,23 @@ function describePosition(pos: Position | undefined) {
 }
 
 describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
+  Scenario('Markdown for people to edit leaves out slide ids', ({ Given, When, Then, And }) => {
+    let deck: Deck
+    let markdown: string
+    Given('the demo deck', () => {
+      deck = fromMarkdown(demoMarkdown)
+    })
+    When('it is converted to Slidev Markdown without ids', () => {
+      markdown = toMarkdown(deck, { ids: false })
+    })
+    Then('no slide frontmatter holds an id', () => {
+      expect(parseSync(markdown, 'slides.md').slides.map(slide => slide.frontmatter.id)).toEqual([undefined, undefined, undefined, undefined, undefined])
+    })
+    And('converting it back gives the same deck', () => {
+      expect(fromMarkdown(markdown)).toEqual(deck)
+    })
+  })
+
   Scenario('A deck survives a round trip through Markdown', ({ Given, When, Then }) => {
     let deck: Deck
     let result: Deck

@@ -7,6 +7,7 @@ import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../apps/web/src/guest/store'
 import { HttpProjectApi } from '../apps/web/src/projects/api'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
+import { fromMarkdown } from '../packages/deck-model/src'
 import { createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./cloud-store.feature')
@@ -102,6 +103,24 @@ describeFeature(feature, ({ Background, Scenario }) => {
     When('the store tries to create the project "Algorithms 101"', () => attempt(() => store.createProject('Algorithms 101')))
     Then('it fails with "Deyslide is unreachable. Check your connection and try again."', () => {
       expect((error as Error).message).toBe('Deyslide is unreachable. Check your connection and try again.')
+    })
+  })
+
+  Scenario('Save new content for a deck', ({ Given, When, Then, And }) => {
+    Given('the store has the project "Algorithms 101" with the demo deck "Sorting"', async () => {
+      const created = await store.createProject('Algorithms 101')
+      await store.createDeck(created.id, 'Sorting', 'demo')
+    })
+    When('the store saves the deck with one slide titled "Rewritten"', async () => {
+      await store.saveDeck(project().id, project().decks[0].id, fromMarkdown('# Rewritten\n'))
+    })
+    Then('reading the deck gives 1 slide titled "Rewritten"', async () => {
+      const deck = await store.readDeck(project().decks[0].id)
+      expect(deck.slides).toHaveLength(1)
+      expect(deck.slides[0].elements[0]).toMatchObject({ type: 'raw', markdown: '# Rewritten' })
+    })
+    And('the store lists the deck "Sorting" with 1 slide', () => {
+      expect(project().decks.map(deck => [deck.name, deck.slideCount])).toEqual([['Sorting', 1]])
     })
   })
 })

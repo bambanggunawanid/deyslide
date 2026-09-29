@@ -44,3 +44,9 @@ Feature: Guest projects in the browser
       | name | message                     |
       |      | A project needs a name      |
       | ···  | A project needs a name      |
+
+  Scenario: Save new content for a deck
+    Given the project "Algorithms 101" with the demo deck "Sorting"
+    When they save the deck with one slide titled "Rewritten"
+    And the page is reloaded
+    Then the deck "Sorting" has 1 slide titled "Rewritten"

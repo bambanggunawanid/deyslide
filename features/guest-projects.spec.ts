@@ -6,6 +6,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { expect } from 'vitest'
 import { IndexedDbGuestStorage } from '../apps/web/src/guest/indexeddb-storage'
 import { GuestStore as Store } from '../apps/web/src/guest/store'
+import { fromMarkdown } from '../packages/deck-model/src'
 
 const feature = await loadFeature('./guest-projects.feature')
 
@@ -125,6 +126,22 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline }) => {
     Then('it is refused with "<message>"', () => {
       expect(String(error)).toContain(variables.message)
       expect(store.listProjects()).toHaveLength(0)
+    })
+  })
+
+  Scenario('Save new content for a deck', ({ Given, When, And, Then }) => {
+    Given('the project "Algorithms 101" with the demo deck "Sorting"', projectWithDemoDeck)
+    When('they save the deck with one slide titled "Rewritten"', async () => {
+      await store.saveDeck(project().id, deckNamed('Sorting').id, fromMarkdown('# Rewritten\n'))
+    })
+    And('the page is reloaded', async () => {
+      store = await openStore()
+    })
+    Then('the deck "Sorting" has 1 slide titled "Rewritten"', async () => {
+      expect(deckNamed('Sorting').slideCount).toBe(1)
+      const deck = await store.readDeck(deckNamed('Sorting').id)
+      expect(deck.slides).toHaveLength(1)
+      expect(deck.slides[0].elements[0]).toMatchObject({ type: 'raw', markdown: '# Rewritten' })
     })
   })
 })

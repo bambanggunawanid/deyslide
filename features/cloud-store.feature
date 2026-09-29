@@ -28,3 +28,9 @@ Feature: The web app's cloud store against the real API
     Given the network is down
     When the store tries to create the project "Algorithms 101"
     Then it fails with "Deyslide is unreachable. Check your connection and try again."
+
+  Scenario: Save new content for a deck
+    Given the store has the project "Algorithms 101" with the demo deck "Sorting"
+    When the store saves the deck with one slide titled "Rewritten"
+    Then reading the deck gives 1 slide titled "Rewritten"
+    And the store lists the deck "Sorting" with 1 slide

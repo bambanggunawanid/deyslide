@@ -111,11 +111,21 @@ export function elementToMarkdown(element: DeckElement): string {
   return `${open}\n\n${formatElementBody(element)}\n\n</v-drag>`
 }
 
+export interface ToMarkdownOptions {
+  /**
+   * Writes each slide's id into its frontmatter, so ids survive a round trip.
+   * Editors that show Markdown to people turn this off to keep it clean.
+   * @default true
+   */
+  ids?: boolean
+}
+
 /** Builds the slide text the same way Slidev's own `prettifySlide` does. */
-function slideRaw(slide: Slide) {
-  const frontmatter = { ...slide.frontmatter, [SLIDE_ID_KEY]: slide.id }
+function slideRaw(slide: Slide, { ids = true }: ToMarkdownOptions) {
+  const frontmatter = ids ? { ...slide.frontmatter, [SLIDE_ID_KEY]: slide.id } : { ...slide.frontmatter }
+  const hasFrontmatter = Object.keys(frontmatter).length > 0
   const content = slide.elements.map(elementToMarkdown).join('\n\n').trim()
-  let raw = `---\n${stringifyYaml(frontmatter).trim()}\n---\n`
+  let raw = hasFrontmatter ? `---\n${stringifyYaml(frontmatter).trim()}\n---\n` : ''
   if (content)
     raw += `\n${content}\n`
   if (slide.notes?.trim())
@@ -123,9 +133,9 @@ function slideRaw(slide: Slide) {
   return raw
 }
 
-export function toMarkdown(deck: Deck): string {
+export function toMarkdown(deck: Deck, options: ToMarkdownOptions = {}): string {
   const valid = DeckSchema.parse(deck)
-  const slides = valid.slides.map(slide => ({ raw: slideRaw(slide) }))
+  const slides = valid.slides.map(slide => ({ raw: slideRaw(slide, options) }))
   return stringify({ slides } as Parameters<typeof stringify>[0])
 }
 
@@ -273,4 +283,37 @@ export function fromMarkdown(markdown: string): Deck {
     return slide
   })
   return DeckSchema.parse({ version: DECK_VERSION, slides })
+}
+
+// Source slides -----------------------------------------------------------------
+
+/** A slide as Slidev reads it from Markdown, with its place in the text. */
+export interface SourceSlide {
+  /** First line of the slide, 0 based, including its frontmatter. */
+  start: number
+  /** The line after the slide. */
+  end: number
+  frontmatter: Record<string, unknown>
+  /** The slide's Markdown without frontmatter and speaker notes. */
+  content: string
+}
+
+/** Splits Slidev Markdown into slides exactly as Slidev does, for editors and previews. */
+export function splitSlides(markdown: string): SourceSlide[] {
+  return parseSync(markdown, 'slides.md').slides.map(slide => ({
+    start: slide.start,
+    end: slide.end,
+    frontmatter: slide.frontmatter ?? {},
+    content: slide.content,
+  }))
+}
+
+/** The index of the slide that holds a 0 based line. */
+export function slideAtLine(slides: SourceSlide[], line: number): number {
+  let index = 0
+  for (const [position, slide] of slides.entries()) {
+    if (slide.start <= line)
+      index = position
+  }
+  return index
 }

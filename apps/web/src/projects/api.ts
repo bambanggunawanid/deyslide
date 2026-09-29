@@ -13,6 +13,7 @@ export interface ProjectApi {
   renameDeck: (deckId: string, name: string) => Promise<void>
   deleteDeck: (deckId: string) => Promise<void>
   deckState: (deckId: string) => Promise<Uint8Array>
+  saveDeckState: (deckId: string, state: Uint8Array) => Promise<void>
   /** Returns how many projects were added. */
   importProjects: (projects: ExportedProject[]) => Promise<number>
 }
@@ -61,6 +62,10 @@ export class HttpProjectApi implements ProjectApi {
   async deckState(deckId: string) {
     const response = await this.send('GET', `/decks/${encodeURIComponent(deckId)}/state`)
     return new Uint8Array(await response.arrayBuffer())
+  }
+
+  async saveDeckState(deckId: string, state: Uint8Array) {
+    await this.send('PUT', `/decks/${encodeURIComponent(deckId)}/state`, { state: toBase64(state) })
   }
 
   async importProjects(projects: ExportedProject[]) {

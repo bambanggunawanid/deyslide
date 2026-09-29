@@ -98,6 +98,18 @@ export class CloudStore implements ProjectStore {
     }
   }
 
+  async saveDeck(_projectId: string, deckId: string, deck: Deck) {
+    const { deckToYDoc } = await loadModel()
+    const doc = deckToYDoc(deck)
+    try {
+      await this.api.saveDeckState(deckId, Y.encodeStateAsUpdate(doc))
+    }
+    finally {
+      doc.destroy()
+    }
+    await this.refresh()
+  }
+
   async deckMarkdown(deckId: string) {
     const { toMarkdown } = await loadModel()
     return toMarkdown(await this.readDeck(deckId))

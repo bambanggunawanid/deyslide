@@ -30,13 +30,27 @@ export async function createProject(page: Page, name: string) {
   await expect(page.getByTestId('project-name')).toHaveText(name)
 }
 
-/** Adds a deck to the open project page and waits for its outline. */
+/** Adds a deck to the open project page and waits for the editor. */
 export async function addDeck(page: Page, name: string, template: 'blank' | 'demo') {
   await page.getByTestId('new-deck').click()
   await page.locator(`[data-template="${template}"]`).click()
   await page.getByTestId('name-input').fill(name)
   await page.getByTestId('name-submit').click()
-  await expect(page.getByTestId('slide-outline')).toBeVisible()
+  await expect(page.getByTestId('slide-position')).toContainText('Slide 1 of')
+}
+
+/** The slide inside the sandboxed preview frame. */
+export function slide(page: Page) {
+  return page.frameLocator('[data-testid="preview-frame"]').getByTestId('slide')
+}
+
+/** Replaces everything in the Markdown editor. */
+export async function replaceMarkdown(page: Page, markdown: string) {
+  const editor = page.locator('.cm-content')
+  await editor.click()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.press('Delete')
+  await editor.fill(markdown)
 }
 
 export async function signUp(page: Page, name: string, email: string, password: string) {

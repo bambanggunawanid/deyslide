@@ -52,7 +52,7 @@ This is an open source project (MIT). Every change follows the full contribution
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, project and deck pages, sign in pages, guest storage in the browser |
+| `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`), sign in pages, guest storage in the browser |
 | `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, bundled into one file for production |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |

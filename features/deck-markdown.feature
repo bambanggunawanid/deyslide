@@ -48,6 +48,12 @@ Feature: Deck and Slidev Markdown round trips
     Then both conversions give the slides ids "slide-1" and "slide-2"
     And the v-drag element gets the id "slide-1:el:1" both times
 
+  Scenario: Markdown for people to edit leaves out slide ids
+    Given the demo deck
+    When it is converted to Slidev Markdown without ids
+    Then no slide frontmatter holds an id
+    And converting it back gives the same deck
+
   Scenario Outline: Read a v-drag position
     Given the v-drag position "<pos>"
     When the position is read

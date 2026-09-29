@@ -1,0 +1,42 @@
+/* Slidev's own base styles and the default theme's layout styles. */
+@import '@slidev/client/styles/vars.css';
+@import '@slidev/client/styles/layouts-base.css';
+@import '@slidev/client/styles/vclick.css';
+@import '@slidev/client/styles/code.css';
+@import '@slidev/theme-default/styles/layouts.css';
+
+html,
+body,
+#preview {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+
+.preview-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+}
+
+.slidev-page {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  overflow: hidden;
+  font-family: 'Avenir Next', 'Nunito Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.preview-error {
+  position: absolute;
+  inset: auto 8px 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #7f1d1d;
+  color: #fee2e2;
+  font: 13px/1.4 ui-monospace, monospace;
+  white-space: pre-wrap;
+}

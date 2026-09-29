@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addDeck, createProject, signIn, signUp, uniqueEmail } from './helpers'
+import { addDeck, createProject, signIn, signUp, slide, uniqueEmail } from './helpers'
 
 test('browser projects move into the account and open on another device', async ({ page, browser }) => {
   const email = uniqueEmail('eka')
@@ -13,14 +13,14 @@ test('browser projects move into the account and open on another device', async 
 
   // The link from before signing up still opens the deck, now from the account.
   await page.goto(deckPath)
-  await expect(page.getByTestId('slide-title')).toHaveCount(5)
+  await expect(page.getByTestId('slide-position')).toHaveText('Slide 1 of 5')
 
   const laptop = await browser.newContext()
   const other = await laptop.newPage()
   await signIn(other, email, 'correct horse')
   await other.locator('[data-project="Algorithms 101"]').click()
   await other.locator('[data-deck="Sorting"]').click()
-  await expect(other.getByTestId('slide-title').first()).toHaveText('Deyslide')
+  await expect(slide(other).locator('h1')).toHaveText('Deyslide')
   await laptop.close()
 })
 

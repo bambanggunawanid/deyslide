@@ -108,11 +108,8 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       await web.click('[data-testid="name-submit"]')
       await vi.waitFor(() => expect(web.router.currentRoute.value.name).toBe('deck'))
     })
-    Then('the deck page shows 5 slides starting with "Deyslide"', async () => {
-      await web.waitFor('[data-testid="slide-outline"]')
-      const titles = findAll('[data-testid="slide-title"]').map(item => item.textContent?.trim())
-      expect(titles).toHaveLength(5)
-      expect(titles[0]).toBe('Deyslide')
+    Then('the editor shows slide 1 of 5', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="slide-position"]')).toBe('Slide 1 of 5'))
     })
     And('Ana\'s account holds "Graphs" with 1 deck', () => {
       expect(cloudSummary()).toEqual([['Graphs', ['Intro']]])

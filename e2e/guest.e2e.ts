@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addDeck, createProject } from './helpers'
+import { addDeck, createProject, slide } from './helpers'
 
 test('a guest creates a project and a demo deck that survive a reload', async ({ page }) => {
   await page.goto('/')
@@ -9,11 +9,11 @@ test('a guest creates a project and a demo deck that survive a reload', async ({
   await createProject(page, 'Algorithms 101')
   await expect(page.getByTestId('empty-decks')).toBeVisible()
   await addDeck(page, 'Sorting', 'demo')
-  await expect(page.getByTestId('slide-title')).toHaveCount(5)
-  await expect(page.getByTestId('slide-title').first()).toHaveText('Deyslide')
+  await expect(page.getByTestId('slide-position')).toHaveText('Slide 1 of 5')
+  await expect(slide(page).locator('h1')).toHaveText('Deyslide')
 
   await page.reload()
-  await expect(page.getByTestId('slide-title')).toHaveCount(5)
+  await expect(page.getByTestId('slide-position')).toHaveText('Slide 1 of 5')
   await page.goto('/')
   await expect(page.locator('[data-project="Algorithms 101"]')).toContainText('1 deck')
 })

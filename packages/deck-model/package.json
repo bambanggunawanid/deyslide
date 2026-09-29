@@ -5,7 +5,8 @@
   "private": true,
   "description": "The Deyslide deck format: Zod schema, Slidev Markdown conversion and Yjs mapping.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./position": "./src/position.ts"
   },
   "dependencies": {
     "@slidev/parser": "53.0.0",

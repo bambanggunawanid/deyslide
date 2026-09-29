@@ -2,7 +2,8 @@ import type { GuestStore } from '../apps/web/src/guest/store'
 import type { WebApp } from './support/web'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
-import { find, findAll, mountWebApp, text } from './support/web'
+import { previewRequests, resetEditorDoubles } from './support/editor-doubles'
+import { find, mountWebApp, text } from './support/web'
 
 const feature = await loadFeature('./web-app.feature')
 
@@ -29,10 +30,13 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     await click(`[data-template="${template}"]`)
     await submitName(name)
     await vi.waitFor(() => expect(router().currentRoute.value.name).toBe('deck'))
-    await vi.waitFor(() => expect(find('[data-testid="slide-outline"]')).not.toBeNull())
+    await vi.waitFor(() => expect(find('[data-testid="slide-position"]')).not.toBeNull())
   }
 
-  AfterEachScenario(() => web?.unmount())
+  AfterEachScenario(() => {
+    web?.unmount()
+    resetEditorDoubles()
+  })
 
   Background(({ Given }) => {
     Given('the web app opened at "/"', async () => {
@@ -73,10 +77,11 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('the deck page for "Sorting" is open', () => {
       expect(text('[data-testid="deck-name"]')).toBe('Sorting')
     })
-    And('the slide outline has 5 slides starting with "Deyslide"', () => {
-      const titles = findAll('[data-testid="slide-title"]').map(item => item.textContent?.trim())
-      expect(titles).toHaveLength(5)
-      expect(titles[0]).toBe('Deyslide')
+    And('the editor shows slide 1 of 5, the cover titled "Deyslide"', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="slide-position"]')).toBe('Slide 1 of 5'))
+      const request = previewRequests.at(-1)!
+      expect(request.slide.first).toBe(true)
+      expect(request.slide.content).toContain('Deyslide')
     })
   })
 
