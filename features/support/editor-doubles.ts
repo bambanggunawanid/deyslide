@@ -23,13 +23,14 @@ export const editorJumps: number[] = []
 /** A textarea in place of CodeMirror, with the same props, events and `goToLine`. */
 export const MarkdownEditorDouble = defineComponent({
   name: 'MarkdownEditor',
-  props: { modelValue: { type: String, required: true } },
+  props: { modelValue: { type: String, required: true }, readonly: Boolean },
   emits: ['update:modelValue', 'cursor'],
   setup(props, { emit, expose }) {
     expose({ goToLine: (line: number) => editorJumps.push(line) })
     return () => h('textarea', {
       'data-testid': 'markdown-editor',
       'value': props.modelValue,
+      'readonly': props.readonly,
       'onInput': (event: Event) => emit('update:modelValue', (event.target as HTMLTextAreaElement).value),
     })
   },

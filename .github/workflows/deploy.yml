@@ -59,7 +59,8 @@ jobs:
           ping: ${{ vars.TAILSCALE_SERVER_IP }}
 
       # Tailscale SSH authenticates with the tailnet identity, so no key is needed.
-      # Optional settings may be empty: the API then hides that sign in option.
+      # Optional settings may be empty: the API then hides that sign in option,
+      # or the assistant when ANTHROPIC_API_KEY is empty.
       # The database password and the auth secret are made on the server by
       # up.sh, once, and never leave it.
       - name: Upload release and settings
@@ -71,6 +72,8 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GH_OAUTH_CLIENT_ID: ${{ secrets.GH_OAUTH_CLIENT_ID }}
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ASSISTANT_MONTHLY_LIMIT_USD: ${{ vars.ASSISTANT_MONTHLY_LIMIT_USD }}
         run: |
           ssh_opts=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=20)
           ssh "${ssh_opts[@]}" "$SERVER" 'mkdir -p ~/deyslide'
@@ -79,7 +82,7 @@ jobs:
             | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/.env'
           {
             printf 'PUBLIC_URL=%s\n' "$PUBLIC_URL"
-            for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET; do
+            for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET ANTHROPIC_API_KEY ASSISTANT_MONTHLY_LIMIT_USD; do
               printf '%s=%s\n' "$name" "${!name}"
             done
           } | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/server.env'

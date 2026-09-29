@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 const optional = z.string().trim().optional().transform(value => value || undefined)
+/** An empty variable, as the deploy workflow writes for unset settings, counts as unset. */
+const unsetIfEmpty = (value: unknown) => typeof value === 'string' && !value.trim() ? undefined : value
 
 const EnvSchema = z.object({
   NODE_ENV: optional,
@@ -16,6 +18,12 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: optional,
   GH_OAUTH_CLIENT_ID: optional,
   GH_OAUTH_CLIENT_SECRET: optional,
+  /** The Claude API key that pays for the assistant. */
+  ANTHROPIC_API_KEY: optional,
+  /** "true" turns the assistant on without an API key, for a local `ant auth login` profile. "false" turns it off. */
+  ASSISTANT_ENABLED: z.preprocess(unsetIfEmpty, z.enum(['true', 'false']).optional()),
+  /** What each account may spend on the assistant per calendar month, in US dollars. */
+  ASSISTANT_MONTHLY_LIMIT_USD: z.preprocess(unsetIfEmpty, z.coerce.number().positive().default(3)),
 })
 
 export interface OAuthCredentials {
@@ -33,6 +41,8 @@ export interface ServerConfig {
   cloudflareEmail?: { accountId: string, token: string }
   google?: OAuthCredentials
   github?: OAuthCredentials
+  /** Present when the assistant is on. */
+  assistant?: { monthlyLimitUsd: number }
 }
 
 /** Development only. Production refuses to start without a real secret. */
@@ -67,5 +77,8 @@ export function readConfig(env: Record<string, string | undefined> = process.env
       : undefined,
     google: pair(values.GOOGLE_CLIENT_ID, values.GOOGLE_CLIENT_SECRET),
     github: pair(values.GH_OAUTH_CLIENT_ID, values.GH_OAUTH_CLIENT_SECRET),
+    assistant: values.ASSISTANT_ENABLED === 'true' || (values.ASSISTANT_ENABLED !== 'false' && values.ANTHROPIC_API_KEY)
+      ? { monthlyLimitUsd: values.ASSISTANT_MONTHLY_LIMIT_USD }
+      : undefined,
   }
 }

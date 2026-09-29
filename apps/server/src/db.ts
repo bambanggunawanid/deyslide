@@ -24,10 +24,60 @@ export interface DeckTable {
   updated_at: Timestamp
 }
 
-/** The app's own tables. Better Auth manages `user`, `session`, `account` and `verification`. */
+export type Role = 'owner' | 'editor' | 'viewer'
+/** The roles that can be given to someone else. There is one owner, who made the project. */
+export type SharedRole = Exclude<Role, 'owner'>
+
+export interface ProjectMemberTable {
+  project_id: string
+  user_id: string
+  role: SharedRole
+  created_at: Timestamp
+}
+
+export interface DeckMemberTable {
+  deck_id: string
+  user_id: string
+  role: SharedRole
+  created_at: Timestamp
+}
+
+/** Access waiting for someone without an account. It becomes a member row when they sign in verified. */
+export interface InviteTable {
+  id: string
+  email: string
+  target_type: 'project' | 'deck'
+  target_id: string
+  role: SharedRole
+  invited_by: string
+  created_at: Timestamp
+}
+
+/** The columns of Better Auth's `user` table that the app reads. */
+export interface UserTable {
+  id: string
+  name: string
+  email: string
+  emailVerified: boolean
+}
+
+/** What an account spent on the assistant in one calendar month (UTC), in millionths of a dollar. */
+export interface AssistantUsageTable {
+  user_id: string
+  /** Such as "2026-09". */
+  month: string
+  cost_micros: number
+}
+
+/** The app's own tables, plus Better Auth's `user` for reading names and emails. */
 export interface Database {
   project: ProjectTable
   deck: DeckTable
+  project_member: ProjectMemberTable
+  deck_member: DeckMemberTable
+  invite: InviteTable
+  assistant_usage: AssistantUsageTable
+  user: UserTable
 }
 
 export type AppDb = Kysely<Database>
@@ -54,6 +104,43 @@ const MIGRATIONS: Record<string, Migration> = {
         .addColumn('updated_at', 'timestamptz', column => column.notNull().defaultTo(sql`now()`))
         .execute()
       await db.schema.createIndex('deck_project_id_index').on('deck').column('project_id').execute()
+    },
+  },
+  '2026-09-29-sharing': {
+    async up(db) {
+      for (const [table, target, targetTable] of [['project_member', 'project_id', 'project'], ['deck_member', 'deck_id', 'deck']] as const) {
+        await db.schema.createTable(table)
+          .addColumn(target, 'text', column => column.notNull().references(`${targetTable}.id`).onDelete('cascade'))
+          .addColumn('user_id', 'text', column => column.notNull().references('user.id').onDelete('cascade'))
+          .addColumn('role', 'text', column => column.notNull().check(sql`role in ('editor', 'viewer')`))
+          .addColumn('created_at', 'timestamptz', column => column.notNull().defaultTo(sql`now()`))
+          .addPrimaryKeyConstraint(`${table}_primary_key`, [target, 'user_id'])
+          .execute()
+        await db.schema.createIndex(`${table}_user_id_index`).on(table).column('user_id').execute()
+      }
+
+      await db.schema.createTable('invite')
+        .addColumn('id', 'text', column => column.primaryKey())
+        .addColumn('email', 'text', column => column.notNull())
+        .addColumn('target_type', 'text', column => column.notNull().check(sql`target_type in ('project', 'deck')`))
+        .addColumn('target_id', 'text', column => column.notNull())
+        .addColumn('role', 'text', column => column.notNull().check(sql`role in ('editor', 'viewer')`))
+        .addColumn('invited_by', 'text', column => column.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('created_at', 'timestamptz', column => column.notNull().defaultTo(sql`now()`))
+        .addUniqueConstraint('invite_target_email_unique', ['target_type', 'target_id', 'email'])
+        .execute()
+      await db.schema.createIndex('invite_email_index').on('invite').column('email').execute()
+    },
+  },
+  // Named to sort after the migrations above, since Kysely runs them in name order.
+  '2026-09-29-usage-of-the-assistant': {
+    async up(db) {
+      await db.schema.createTable('assistant_usage')
+        .addColumn('user_id', 'text', column => column.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('month', 'text', column => column.notNull())
+        .addColumn('cost_micros', 'integer', column => column.notNull())
+        .addPrimaryKeyConstraint('assistant_usage_primary_key', ['user_id', 'month'])
+        .execute()
     },
   },
 }

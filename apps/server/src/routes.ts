@@ -6,11 +6,11 @@ import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { DeckContentError, NameSchema } from './projects.ts'
 
-interface Env {
+export interface Env {
   Variables: { userId: string }
 }
 
-class BadRequest extends Error {}
+export class BadRequest extends Error {}
 
 const Base64Schema = z.base64('The deck content must be base64').transform(value => new Uint8Array(Buffer.from(value, 'base64')))
 const NameBody = z.object({ name: NameSchema })
@@ -34,7 +34,7 @@ const ImportBody = z.object({
   })).max(100),
 })
 
-async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.output<T>> {
+export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.output<T>> {
   const json = await c.req.json().catch(() => {
     throw new BadRequest('The request body must be JSON')
   })
@@ -44,17 +44,22 @@ async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.outpu
   return parsed.data
 }
 
-const notFound = (c: Context) => c.json({ error: 'Not found' }, 404)
+export const notFound = (c: Context) => c.json({ error: 'Not found' }, 404)
 
-/** Projects and decks of the signed in user, under /api. */
-export function projectRoutes(auth: Auth, store: ProjectStore) {
-  const signedIn = createMiddleware<Env>(async (c, next) => {
+/** Lets a request through only with a session, and names its user. */
+export function signedInOnly(auth: Auth) {
+  return createMiddleware<Env>(async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers })
     if (!session)
       return c.json({ error: 'Sign in first' }, 401)
     c.set('userId', session.user.id)
     await next()
   })
+}
+
+/** Projects and decks of the signed in user, under /api. */
+export function projectRoutes(auth: Auth, store: ProjectStore) {
+  const signedIn = signedInOnly(auth)
 
   const api = new Hono<Env>()
 

@@ -147,6 +147,12 @@ The preview renders Slidev Markdown the way Slidev does, in the browser (`apps/w
 
 A deck can run code, and decks will be shared, so the preview is its own page (`preview.html`) in an iframe with `sandbox="allow-scripts"`. It has an opaque origin: no access to the app, its storage, its cookies or the API. The editor talks to it with `postMessage`. Because of that origin, the preview's scripts load as cross origin requests, which is why nginx and Vite allow any origin on static assets.
 
+### Deck assistant
+
+Signed in people can ask Claude to change the open deck from a chat under the preview: "Add a slide that compares bubble sort and merge sort", "Reveal the points on slide 3 one click at a time". Each change lands in the editor as Claude makes it, the preview jumps to the changed slide, and autosave keeps it like a typed change. The editor is read only while Claude works, and **Undo** takes back the whole reply. Guests see a link to sign in.
+
+The browser sends the deck's Markdown and the chat with each message (`apps/web/src/assistant/`). On the server (`apps/server/src/assistant/`), Claude gets that Markdown with numbered slides and four tools: `replace_slide`, `insert_slide`, `delete_slide` and `move_slide`. The tools change a copy of the Markdown in memory, and a change that would split a slide in two, break its frontmatter YAML or make an unreadable deck goes back to Claude as an error instead. Claude has no tool that reads the database or any other deck, and a request for a deck the person does not own is refused before Claude sees anything.
+
 ## API server
 
 `apps/server` is a Node 24 server with [Hono](https://hono.dev) and [Better Auth](https://www.better-auth.com), on Postgres through [Kysely](https://kysely.dev). nginx serves it under `/api/`, on the same origin as the web app, so auth cookies stay first party.
@@ -159,6 +165,8 @@ A deck can run code, and decks will be shared, so the preview is its own page (`
 | GitHub | `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` |
 
 Email goes through the [Cloudflare Email Service REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/) with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_TOKEN`, from `EMAIL_FROM` (default `noreply@bambanggunawan.id`). Without them, production turns email sign in off, and development prints every email, links included, to the terminal.
+
+The deck assistant needs `ANTHROPIC_API_KEY`, a [Claude API](https://platform.claude.com) key that Deyslide pays for. It uses Claude Opus 5.5 (`claude-opus-5-5`) with server side refusal fallbacks turned on (`fallbacks: "default"`): if Claude declines a request for policy reasons, the API retries it on the fallback model Anthropic recommends, and that model's tokens count at its own price. Each account may spend `ASSISTANT_MONTHLY_LIMIT_USD` (default 3) US dollars per calendar month (UTC), counted from the token usage the API reports, and runs one request at a time. For local testing without a key, sign in with the [`ant` CLI](https://github.com/anthropics/anthropic-cli) (`ant auth login`, billed to your Claude Console organization), set `ASSISTANT_ENABLED=true` and leave `ANTHROPIC_API_KEY` unset, since any value, even an empty one, takes precedence over the profile. A Claude.ai subscription token cannot be used.
 
 The server creates and updates its tables on every start. For local development, run Postgres and give the server its connection in `apps/server/.env` (ignored by git):
 
@@ -177,6 +185,9 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `BETTER_AUTH_SECRET` | a development value | Signs sessions. Required in production, at least 32 characters |
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | Postgres defaults | Database connection |
 | `HOST`, `PORT` | `127.0.0.1`, `3001` | Where the API listens |
+| `ANTHROPIC_API_KEY` | none | Turns the deck assistant on and pays for it |
+| `ASSISTANT_MONTHLY_LIMIT_USD` | `3` | What each account may spend on the assistant per month, in US dollars |
+| `ASSISTANT_ENABLED` | on with an API key | `true` turns the assistant on with an `ant auth login` profile instead of a key, `false` turns it off |
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -186,6 +197,8 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `PATCH` and `DELETE /api/decks/:id` | Rename, delete a deck |
 | `GET /api/decks/:id/state` | The deck's Yjs document, as binary |
 | `POST /api/import` | Move browser projects into the account. Running it twice adds nothing |
+| `GET /api/assistant` | How much of this month's assistant allowance is used, and when it starts again |
+| `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 
 Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything the person does not own reads as not found.
 
@@ -197,10 +210,10 @@ A new deck starts from one of two templates: **Blank** (one title slide) or **De
 
 `pnpm test:e2e` runs `e2e/*.e2e.ts` with Playwright in headless Chromium, on a desktop and a phone screen. It starts everything it needs:
 
-- the API from `apps/server` on [PGlite](https://pglite.dev), so no database is needed, with sent emails kept in memory so tests can open confirmation, magic link and reset links (`e2e/server.ts`, never deployed)
+- the API from `apps/server` on [PGlite](https://pglite.dev), so no database is needed, with sent emails kept in memory so tests can open confirmation, magic link and reset links, and a keyword fake in place of Claude (`e2e/server.ts`, never deployed)
 - the production build of the web app with `vite preview`, sending `/api` to that API
 
-It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, and browser projects moving into the account and opening on a second browser. It is not part of CI.
+It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, the editor and preview, and the deck assistant. It is not part of CI. No test calls the real Claude API.
 
 Install Chromium once with `pnpm exec playwright install chromium`. To use a Chromium you already have instead, set `PLAYWRIGHT_CHROMIUM_PATH` to its executable. After a failure, `pnpm exec playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 
@@ -246,6 +259,8 @@ The `Production` environment holds:
 | `CLOUDFLARE_EMAIL_TOKEN` | Secret | Email sign in (optional), a token with Email Sending: Edit |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Secrets | Google sign in (optional) |
 | `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` | Secrets | GitHub sign in (optional). GitHub reserves the `GITHUB_` prefix |
+| `ANTHROPIC_API_KEY` | Secret | The deck assistant (optional) |
+| `ASSISTANT_MONTHLY_LIMIT_USD` | Variable | The assistant's allowance per account and month, in US dollars (optional, default 3) |
 
 OAuth apps use these callback URLs: `https://deyslide.bambanggunawan.id/api/auth/callback/google` and `https://deyslide.bambanggunawan.id/api/auth/callback/github`.
 

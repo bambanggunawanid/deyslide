@@ -3,6 +3,7 @@ import type { RenderRequest } from '../preview/protocol'
 import { fromMarkdown, slideAtLine, splitSlides, toMarkdown } from '@deyslide/deck-model'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import AssistantPanel from '../assistant/AssistantPanel.vue'
 import { useProjects } from '../composables/useProjects'
 import { useAutosave } from '../editor/autosave'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
@@ -58,6 +59,12 @@ const totalClicks = ref(0)
 const previewError = ref('')
 const view = ref<'write' | 'preview'>('write')
 
+// A deck that loses slides, for example after an undo, keeps the preview on a slide that exists.
+watch(slides, (list) => {
+  if (current.value > list.length - 1)
+    current.value = Math.max(0, list.length - 1)
+})
+
 const slide = computed(() => slides.value[Math.min(current.value, slides.value.length - 1)])
 watch(current, () => {
   clicks.value = 0
@@ -79,6 +86,15 @@ function showSlide(index: number) {
   const target = slides.value[current.value]
   if (target)
     editor.value?.goToLine(target.start)
+}
+
+/** True while the assistant edits the deck. The editor is read only until it finishes. */
+const assistantBusy = ref(false)
+
+/** Takes the assistant's Markdown and shows the slide it changed, or the nearest slide that still exists. */
+function applyAssistant(markdown: string, slideIndex?: number) {
+  text.value = markdown
+  current.value = Math.max(0, Math.min(slideIndex ?? current.value, splitSlides(markdown).length - 1))
 }
 
 function onRendered(count: number) {
@@ -165,7 +181,7 @@ onBeforeUnmount(() => {
 
       <div class="grid gap-4 md:grid-cols-2">
         <div class="h-[calc(100dvh-14rem)] min-h-96" :class="view === 'write' ? 'block' : 'hidden md:block'">
-          <MarkdownEditor ref="editor" v-model="text" @cursor="onCursor" />
+          <MarkdownEditor ref="editor" v-model="text" :readonly="assistantBusy" @cursor="onCursor" />
         </div>
 
         <div class="flex flex-col gap-3" :class="view === 'preview' ? 'flex' : 'hidden md:flex'">
@@ -190,6 +206,7 @@ onBeforeUnmount(() => {
           <p v-if="previewError" class="m-0 rounded-md bg-rose-950 p-2 font-mono text-xs text-rose-200" role="alert" data-testid="slide-error">
             {{ previewError }}
           </p>
+          <AssistantPanel :deck-id="deckId" :markdown="text" @update="applyAssistant" @busy="assistantBusy = $event" />
         </div>
       </div>
     </template>

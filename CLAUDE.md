@@ -52,14 +52,14 @@ This is an open source project (MIT). Every change follows the full contribution
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`), sign in pages, guest storage in the browser |
-| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, bundled into one file for production |
+| `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`) and the assistant chat (`src/assistant/`), sign in pages, guest storage in the browser |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, and the Claude deck assistant (`src/assistant/`), bundled into one file for production |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
 | `features/` | Gherkin features and their step definitions for every package |
-| `e2e/` | Playwright end to end tests and the in-memory API they start |
+| `e2e/` | Playwright end to end tests and the in-memory API they start, with a fake Claude |
 | `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
 
 ## Commands

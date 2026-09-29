@@ -244,6 +244,11 @@ export class ProjectStore {
     })
   }
 
+  /** Whether the deck exists and belongs to the user. */
+  async ownsDeck(userId: string, deckId: string) {
+    return Boolean(await this.ownedDeckProject(userId, deckId))
+  }
+
   private async ownsProject(userId: string, projectId: string) {
     const row = await this.db.selectFrom('project').select('id').where('id', '=', projectId).where('owner_id', '=', userId).executeTakeFirst()
     return Boolean(row)

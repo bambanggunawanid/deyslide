@@ -1,5 +1,6 @@
 // The Deyslide API for end to end tests: the real server code on PGlite
-// (in-memory Postgres), with sent emails kept in memory. Never deployed.
+// (in-memory Postgres), with sent emails kept in memory and a fake Claude.
+// Never deployed.
 import type { Email, Mailer } from '../apps/server/src/mailer.ts'
 import process from 'node:process'
 import { PGlite } from '@electric-sql/pglite'
@@ -9,6 +10,7 @@ import { Kysely } from 'kysely'
 import { PGliteDialect } from 'kysely-pglite-dialect'
 import { readConfig } from '../apps/server/src/config.ts'
 import { createServer } from '../apps/server/src/server.ts'
+import { KeywordModel } from './keyword-model.ts'
 
 const port = Number(process.env.E2E_API_PORT ?? 3101)
 const outbox: Email[] = []
@@ -18,9 +20,10 @@ const mailer: Mailer = {
   },
 }
 
-const config = readConfig({ PUBLIC_URL: process.env.E2E_PUBLIC_URL ?? 'http://127.0.0.1:4180' })
+const config = readConfig({ PUBLIC_URL: process.env.E2E_PUBLIC_URL ?? 'http://127.0.0.1:4180', ASSISTANT_ENABLED: 'true' })
 const db = new Kysely<any>({ dialect: new PGliteDialect(new PGlite()) })
-const { app } = await createServer({ config, db, mailer })
+// The assistant answers with a keyword fake instead of Claude.
+const { app } = await createServer({ config, db, mailer, assistantModel: new KeywordModel() })
 
 const root = new Hono()
 // The newest email to an address, so a test can open the link in it.

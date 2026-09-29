@@ -1,18 +1,21 @@
 import type { VueWrapper } from '@vue/test-utils'
 import type { Router } from 'vue-router'
 import type { AccountService } from '../../apps/web/src/account/types'
+import type { AssistantApi } from '../../apps/web/src/assistant/api'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 import App from '../../apps/web/src/App.vue'
 import { ACCOUNT_KEY } from '../../apps/web/src/composables/useAccount'
+import { ASSISTANT_KEY } from '../../apps/web/src/composables/useAssistant'
 import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
 import { createAppRouter } from '../../apps/web/src/router'
 import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
+import { FakeAssistantApi } from './assistant-api'
 import { MarkdownEditorDouble, SlidePreviewFrameDouble } from './editor-doubles'
 import { FakeProjectApi } from './project-api'
 
@@ -28,10 +31,12 @@ export interface MountOptions {
   api?: ProjectApi
   /** The browser's projects, for scenarios that start with some. */
   guest?: GuestStore
+  /** The deck assistant. Off unless a scenario passes one. */
+  assistant?: AssistantApi
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, assistant = new FakeAssistantApi({ on: false }) }: MountOptions = {}) {
   const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
   const { account, workspace } = await startSession({ service, guest: store, api })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
@@ -40,7 +45,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
     attachTo: document.body,
     global: {
       plugins: [router],
-      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account },
+      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant },
       // CodeMirror and the sandboxed preview run in the Playwright tests.
       stubs: { MarkdownEditor: MarkdownEditorDouble, SlidePreviewFrame: SlidePreviewFrameDouble },
     },
