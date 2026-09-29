@@ -43,9 +43,10 @@ jobs:
 
       - name: Package release
         run: |
-          mkdir -p release/site/demo
+          mkdir -p release/site/demo release/server
           cp -r apps/web/dist/. release/site/
           cp -r apps/deck/dist/. release/site/demo/
+          cp apps/server/dist/server.mjs release/server/
           cp deploy/up.sh deploy/nginx.conf release/
           tar -czf release.tgz -C release .
 
@@ -58,15 +59,30 @@ jobs:
           ping: ${{ vars.TAILSCALE_SERVER_IP }}
 
       # Tailscale SSH authenticates with the tailnet identity, so no key is needed.
-      - name: Upload release and tunnel token
+      # Optional settings may be empty: the API then hides that sign in option.
+      # The database password and the auth secret are made on the server by
+      # up.sh, once, and never leave it.
+      - name: Upload release and settings
         env:
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_EMAIL_TOKEN: ${{ secrets.CLOUDFLARE_EMAIL_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GH_OAUTH_CLIENT_ID: ${{ secrets.GH_OAUTH_CLIENT_ID }}
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
         run: |
           ssh_opts=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=20)
           ssh "${ssh_opts[@]}" "$SERVER" 'mkdir -p ~/deyslide'
           ssh "${ssh_opts[@]}" "$SERVER" 'cat > ~/deyslide/release.tgz' < release.tgz
           printf 'TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" \
             | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/.env'
+          {
+            printf 'PUBLIC_URL=%s\n' "$PUBLIC_URL"
+            for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET; do
+              printf '%s=%s\n' "$name" "${!name}"
+            done
+          } | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/server.env'
 
       - name: Start containers
         run: |
@@ -81,33 +97,36 @@ jobs:
           cp release.new/up.sh release.new/nginx.conf .
           rm -f compose.yaml
 
-          # up.sh recreates the app container, so its bind mount picks up the
-          # new site folder.
-          rm -rf site.old
-          if [ -d site ]; then mv site site.old; fi
-          mv release.new/site site
+          # up.sh recreates the app and server containers, so their bind
+          # mounts pick up the new folders.
+          for folder in site server; do
+            rm -rf "$folder.old"
+            if [ -d "$folder" ]; then mv "$folder" "$folder.old"; fi
+            mv "release.new/$folder" "$folder"
+          done
           rm -rf release.new
 
           ./up.sh
-          rm -rf site.old
+          rm -rf site.old server.old
           SCRIPT
 
       - name: Check the public site
         run: |
-          # The web app answers at the root, the demo deck under /demo/.
+          # The web app answers at the root, the demo deck under /demo/ and the API under /api/.
           check() {
             curl -fsS --max-time 10 "$PUBLIC_URL/" | grep -q '<div id="app">' \
-              && curl -fsS --max-time 10 "$PUBLIC_URL/demo/" | grep -q '/demo/assets/'
+              && curl -fsS --max-time 10 "$PUBLIC_URL/demo/" | grep -q '/demo/assets/' \
+              && curl -fsS --max-time 10 "$PUBLIC_URL/api/health" | grep -q '"ok":true'
           }
           for attempt in $(seq 1 12); do
             if check; then
-              echo "$PUBLIC_URL and $PUBLIC_URL/demo/ are live"
+              echo "$PUBLIC_URL, $PUBLIC_URL/demo/ and $PUBLIC_URL/api/ are live"
               exit 0
             fi
             sleep 5
           done
-          echo "$PUBLIC_URL did not serve the web app and the demo deck"
-          for path in / /demo/; do
+          echo "$PUBLIC_URL did not serve the web app, the demo deck and the API"
+          for path in / /demo/ /api/health; do
             curl -sS -o /dev/null -w "$path HTTP %{http_code}\n" --max-time 10 "$PUBLIC_URL$path" || true
           done
           exit 1

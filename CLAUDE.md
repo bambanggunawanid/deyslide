@@ -52,13 +52,14 @@ This is an open source project (MIT). Every change follows the full contribution
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, project and deck pages, guest storage in the browser |
+| `apps/web/` | The web app: projects home page, project and deck pages, sign in pages, guest storage in the browser |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, bundled into one file for production |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
 | `features/` | Gherkin features and their step definitions for every package |
-| `deploy/` | Production Podman script and nginx config |
+| `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
 
 ## Commands
 
@@ -66,11 +67,12 @@ This is an open source project (MIT). Every change follows the full contribution
 | --- | --- |
 | `pnpm dev` | Builds animations, then starts Slidev with HMR |
 | `pnpm dev:web` | Starts the web app with HMR |
-| `pnpm build` | Builds animations, the deck in `apps/deck/dist/` and the web app in `apps/web/dist/` |
+| `pnpm dev:server` | Starts the API, restarting on changes. Needs Postgres, see the README |
+| `pnpm build` | Builds animations, the deck in `apps/deck/dist/`, the web app in `apps/web/dist/` and the API in `apps/server/dist/` |
 | `pnpm export` | Builds animations, then a PDF in `exports/deyslide.pdf` |
 | `pnpm export:video` | Builds animations, then a WebM in `exports/deyslide.webm` |
 | `pnpm animations:build` | Builds Motion Canvas projects only |
 | `pnpm test` | Runs every BDD feature |
-| `pnpm typecheck` | Type checks the web app, the deck and the animations |
+| `pnpm typecheck` | Type checks the web app, the API, the deck and the animations |
 
 Run `pnpm test`, `pnpm typecheck` and `pnpm build` before opening a pull request.

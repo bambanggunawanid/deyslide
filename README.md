@@ -15,6 +15,7 @@ The hosted app at https://deyslide.bambanggunawan.id opens on a projects home pa
 pnpm install
 pnpm dev       # the demo deck in Slidev
 pnpm dev:web   # the web app with the projects home page
+pnpm dev:server  # the API, for sign in (needs Postgres, see "API server")
 ```
 
 Open the printed URL. In the deck, press `o` for the slide overview and `p` for presenter mode.
@@ -25,11 +26,12 @@ Open the printed URL. In the deck, press `o` for the slide overview and `p` for 
 | --- | --- |
 | `pnpm dev` | Deck development server with HMR |
 | `pnpm dev:web` | Web app development server with HMR |
-| `pnpm build` | Deck in `apps/deck/dist/` (served under `/demo/`) and web app in `apps/web/dist/` |
+| `pnpm dev:server` | API server, restarted on every change |
+| `pnpm build` | Deck in `apps/deck/dist/` (served under `/demo/`), web app in `apps/web/dist/`, API in `apps/server/dist/server.mjs` |
 | `pnpm export` | PDF handout in `exports/deyslide.pdf` |
 | `pnpm export:video` | WebM video in `exports/deyslide.webm` |
 | `pnpm test` | BDD scenarios in `features/` |
-| `pnpm typecheck` | Type check for the web app, the deck and the animations |
+| `pnpm typecheck` | Type check for the web app, the API, the deck and the animations |
 
 Each deck script, and `pnpm build`, first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `apps/deck/public/animations/`.
 
@@ -121,9 +123,45 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 | Projects home page | `/` |
 | A project and its decks | `/p/<project id>` |
 | A deck: slide outline and Markdown download | `/p/<project id>/d/<deck id>` |
+| Sign in, sign up, forgot and reset password | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` |
 | The demo deck, a separate Slidev build | `/demo/` |
 
-Anyone can start right away, with no account. As a guest, the project list is kept in IndexedDB and every deck is a Yjs document stored with `y-indexeddb`, so work survives a reload but stays in that browser. A banner says so. Signing up to keep work in the cloud comes in the next phase.
+Anyone can start right away, with no account. As a guest, the project list is kept in IndexedDB and every deck is a Yjs document stored with `y-indexeddb`, so work survives a reload but stays in that browser. A banner says so. Accounts exist now, and saving projects to them is the next part of issue #19.
+
+The sign in page offers only what the API reports as configured at `/api/config`, so a missing Google app hides the Google button instead of breaking it.
+
+## API server
+
+`apps/server` is a Node 24 server with [Hono](https://hono.dev) and [Better Auth](https://www.better-auth.com), on Postgres through [Kysely](https://kysely.dev). nginx serves it under `/api/`, on the same origin as the web app, so auth cookies stay first party.
+
+| Sign in option | Needs |
+| --- | --- |
+| Email and password, with email confirmation and password reset | Email sending |
+| Magic link | Email sending |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| GitHub | `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` |
+
+Email goes through the [Cloudflare Email Service REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/) with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_TOKEN`, from `EMAIL_FROM` (default `noreply@bambanggunawan.id`). Without them, production turns email sign in off, and development prints every email, links included, to the terminal.
+
+The server creates and updates its tables on every start. For local development, run Postgres and give the server its connection in `apps/server/.env` (ignored by git):
+
+```bash
+podman run -d --name deyslide-pg -p 5432:5432 \
+  -e POSTGRES_USER=deyslide -e POSTGRES_PASSWORD=deyslide -e POSTGRES_DB=deyslide \
+  docker.io/library/postgres:18-alpine
+
+printf 'PGHOST=127.0.0.1\nPGUSER=deyslide\nPGPASSWORD=deyslide\nPGDATABASE=deyslide\n' > apps/server/.env
+pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api/
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PUBLIC_URL` | `http://localhost:5173` | The address people open. Links in emails and OAuth callbacks use it |
+| `BETTER_AUTH_SECRET` | a development value | Signs sessions. Required in production, at least 32 characters |
+| `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | Postgres defaults | Database connection |
+| `HOST`, `PORT` | `127.0.0.1`, `3001` | Where the API listens |
+
+The BDD scenarios run the whole API on [PGlite](https://pglite.dev), Postgres compiled to WebAssembly, so `pnpm test` needs no database.
 
 A new deck starts from one of two templates: **Blank** (one title slide) or **Demo deck** (`apps/deck/slides.md`, read with `fromMarkdown`).
 
@@ -138,23 +176,39 @@ A new deck starts from one of two templates: **Blank** (one title slide) or **De
 
 ## Deployment
 
-Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the web app to https://deyslide.bambanggunawan.id and the demo deck to https://deyslide.bambanggunawan.id/demo/.
+Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the web app to https://deyslide.bambanggunawan.id, the demo deck to https://deyslide.bambanggunawan.id/demo/ and the API under https://deyslide.bambanggunawan.id/api/.
 
-1. Builds the web app and the deck, and runs the BDD scenarios.
+1. Builds the web app, the deck and the API bundle, and runs the BDD scenarios.
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
-3. Uploads the site to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
-4. Runs `deploy/up.sh`, which starts a Podman pod named `deyslide` with two containers: `deyslide-app` (nginx on port 3000) and `deyslide-tunnel` (cloudflared).
-5. Checks that nginx answers at `/` and `/demo/`, the tunnel connects, and the public URL serves both.
+3. Uploads the release and the API settings to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
+4. Runs `deploy/up.sh`, which starts a Podman pod named `deyslide` with four containers:
 
-The pod has its own network and publishes no port, so port 3000 on the server stays free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
+   | Container | Image | Role |
+   | --- | --- | --- |
+   | `deyslide-db` | `postgres:18-alpine` | Database, data in the `deyslide-pgdata` volume. Kept running across deploys |
+   | `deyslide-server` | `node:24-alpine` | The API on port 3001, running the bundled `server.mjs` |
+   | `deyslide-app` | `nginx:stable-alpine` | Port 3000: web app, demo deck, and `/api/` passed to the API |
+   | `deyslide-tunnel` | `cloudflared` | Publishes `app:3000` through the Cloudflare tunnel |
+
+5. Checks that nginx answers at `/`, `/demo/` and `/api/health`, the tunnel connects, and the public URL serves all three.
+
+The pod has its own network and publishes no port, so ports 3000, 3001 and 5432 on the server stay free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
+
+On its first run, `up.sh` creates `~/deyslide/secrets.env` with a random database password and auth secret. They never leave the server and are kept on later deploys, since a new auth secret would sign everyone out.
 
 The `Production` environment holds:
 
-| Name | Kind |
-| --- | --- |
-| `TAILSCALE_CLIENT_ID`, `TAILSCALE_CLIENT_KEY` | Secrets |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Secret |
-| `TAILSCALE_SERVER_IP` | Variable |
+| Name | Kind | Needed for |
+| --- | --- | --- |
+| `TAILSCALE_CLIENT_ID`, `TAILSCALE_CLIENT_KEY` | Secrets | Reaching the server |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Secret | Publishing the site |
+| `TAILSCALE_SERVER_IP` | Variable | Reaching the server |
+| `CLOUDFLARE_ACCOUNT_ID` | Variable | Email sign in (optional) |
+| `CLOUDFLARE_EMAIL_TOKEN` | Secret | Email sign in (optional), a token with Email Sending: Edit |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Secrets | Google sign in (optional) |
+| `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` | Secrets | GitHub sign in (optional). GitHub reserves the `GITHUB_` prefix |
+
+OAuth apps use these callback URLs: `https://deyslide.bambanggunawan.id/api/auth/callback/google` and `https://deyslide.bambanggunawan.id/api/auth/callback/github`.
 
 The server needs Tailscale SSH (`tailscale up --ssh`) and Podman for `ryzen`. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`. To start the containers again after a reboot, run once on the server:
 

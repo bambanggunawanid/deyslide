@@ -2,10 +2,12 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import NameDialog from '../components/NameDialog.vue'
+import { useAccount } from '../composables/useAccount'
 import { useGuestStore } from '../composables/useGuestStore'
 import { plural, timeAgo } from '../format'
 
 const { store, projects } = useGuestStore()
+const { account } = useAccount()
 const router = useRouter()
 const creating = ref(false)
 
@@ -31,7 +33,7 @@ async function createProject(name: string) {
         No projects yet
       </p>
       <p class="mt-2 text-sm text-dey-muted">
-        A project holds your slide decks. Create one to start, no account needed.
+        A project holds your slide decks. Create one to start{{ account ? '.' : ', no account needed.' }}
       </p>
     </div>
 
