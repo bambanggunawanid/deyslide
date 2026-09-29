@@ -123,7 +123,7 @@ A live state inspector for workshops. Booleans become switches, numbers get step
 | --- | --- |
 | Projects home page | `/` |
 | A project and its decks | `/p/<project id>` |
-| A deck: slide outline and Markdown download | `/p/<project id>/d/<deck id>` |
+| A deck: Markdown editor with a live slide preview | `/p/<project id>/d/<deck id>` |
 | Sign in, sign up, forgot and reset password | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` |
 | The demo deck, a separate Slidev build | `/demo/` |
 
@@ -134,6 +134,18 @@ Signed in, projects and decks live in the account and open on any device. Signin
 The pages talk to one `ProjectStore` interface (`apps/web/src/projects/`): `GuestStore` for the browser and `CloudStore` for the account. `startSession` picks the right one at startup, and `Workspace` switches it on sign in and sign out.
 
 The sign in page offers only what the API reports as configured at `/api/config`, so a missing Google app hides the Google button instead of breaking it.
+
+### Editor and slide preview
+
+A deck opens in a Markdown editor (CodeMirror) beside a preview of the slide under the cursor. Slide buttons move both, and a click stepper plays `v-click`, `v-clicks` and Magic Move steps. On phones, tabs switch between writing and the preview. Changes save on their own a moment after typing stops, to the browser or the account, and the editor says whether they are saved.
+
+The preview renders Slidev Markdown the way Slidev does, in the browser (`apps/web/src/preview/`):
+
+1. The slide is split on `::name::` lines into slots, and each part goes through markdown-it with Vue components allowed, as in Slidev. Code is highlighted with Shiki and wrapped in `v-pre`, so it is shown and never evaluated.
+2. The result is compiled as a Vue template on the fly, inside the slide's layout. Slidev's own layouts and the default theme's styles are used, and UnoCSS generates utility classes as slides use them.
+3. Deyslide components (3D scene, algorithm player, live sandbox, shape) load when a slide uses them.
+
+A deck can run code, and decks will be shared, so the preview is its own page (`preview.html`) in an iframe with `sandbox="allow-scripts"`. It has an opaque origin: no access to the app, its storage, its cookies or the API. The editor talks to it with `postMessage`. Because of that origin, the preview's scripts load as cross origin requests, which is why nginx and Vite allow any origin on static assets.
 
 ## API server
 

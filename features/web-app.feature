@@ -19,7 +19,7 @@ Feature: Web app pages
     Given the project "Algorithms 101" is open
     When they add the deck "Sorting" from the demo template
     Then the deck page for "Sorting" is open
-    And the slide outline has 5 slides starting with "Deyslide"
+    And the editor shows slide 1 of 5, the cover titled "Deyslide"
 
   Scenario: Download a deck as Markdown
     Given the deck "Sorting" from the demo template is open

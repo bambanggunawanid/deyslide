@@ -10,6 +10,11 @@
     ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@slidev/client": [
+        "./apps/web/src/preview/slidev-client.ts"
+      ]
+    },
     "resolveJsonModule": true,
     "types": [
       "vite/client",

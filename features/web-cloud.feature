@@ -27,7 +27,7 @@ Feature: Projects follow the account in the web app
   Scenario: New projects go to the account
     Given Ana is signed in on the web app
     When she creates the project "Graphs" and adds a deck from the demo template
-    Then the deck page shows 5 slides starting with "Deyslide"
+    Then the editor shows slide 1 of 5
     And Ana's account holds "Graphs" with 1 deck
     And the browser no longer holds any project
 

@@ -9,6 +9,7 @@
     "slidev"
   ],
   "exports": {
+    "./components/*": "./components/*",
     "./compiler-options": "./src/compiler-options.ts",
     "./uno-preset": "./src/uno-preset.ts",
     "./package.json": "./package.json"

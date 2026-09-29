@@ -19,6 +19,8 @@ export interface ProjectStore {
   renameDeck: (projectId: string, deckId: string, name: string) => Promise<void>
   deleteDeck: (projectId: string, deckId: string) => Promise<void>
   readDeck: (deckId: string) => Promise<Deck>
+  /** Replaces a deck's content, for example after editing its Markdown. */
+  saveDeck: (projectId: string, deckId: string, deck: Deck) => Promise<void>
   deckMarkdown: (deckId: string) => Promise<string>
 }
 

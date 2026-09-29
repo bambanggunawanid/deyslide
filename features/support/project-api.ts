@@ -83,6 +83,15 @@ export class FakeProjectApi implements ProjectApi {
     return state
   }
 
+  async saveDeckState(deckId: string, state: Uint8Array) {
+    this.check()
+    const deck = this.projects.flatMap(project => project.decks).find(item => item.id === deckId)
+    if (!deck)
+      throw new StoreError('That project or deck no longer exists.')
+    deck.slideCount = this.slides(state)
+    this.states.set(deckId, state)
+  }
+
   async importProjects(projects: ExportedProject[]) {
     this.check()
     if (this.failImports)

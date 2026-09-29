@@ -13,6 +13,7 @@ import { GuestStore } from '../../apps/web/src/guest/store'
 import { createAppRouter } from '../../apps/web/src/router'
 import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
+import { MarkdownEditorDouble, SlidePreviewFrameDouble } from './editor-doubles'
 import { FakeProjectApi } from './project-api'
 
 // Dialogs and menus render in portals on document.body, outside the wrapper.
@@ -40,6 +41,8 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
     global: {
       plugins: [router],
       provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account },
+      // CodeMirror and the sandboxed preview run in the Playwright tests.
+      stubs: { MarkdownEditor: MarkdownEditorDouble, SlidePreviewFrame: SlidePreviewFrameDouble },
     },
   })
 
