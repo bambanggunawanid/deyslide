@@ -32,5 +32,6 @@ Closes #
 - [ ] `pnpm test` passes
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm build` passes
+- [ ] `pnpm test:e2e` passes, when the web app or the API changed
 - [ ] Docs are updated (README, component props, CONTRIBUTING) where needed
 - [ ] The pull request has a label (`enhancement`, `bug` or `documentation`) for its release notes heading

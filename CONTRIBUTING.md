@@ -81,6 +81,8 @@ pnpm build
 
 All three must pass. The same checks run in CI on every pull request.
 
+When a change touches the web app or the API, also run `pnpm test:e2e`. It drives the built app in headless Chromium and is not part of CI, so it is on you to run it.
+
 ### 6. Open a pull request
 
 - Fill in the pull request template.
@@ -127,6 +129,7 @@ The repository is a pnpm workspace. Run every command from the root.
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
 | `features/` | Gherkin features and their step definitions for every package |
+| `e2e/` | Playwright end to end tests and the in-memory API they start |
 | `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
 
 ## Questions

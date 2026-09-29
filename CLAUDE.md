@@ -59,6 +59,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
 | `features/` | Gherkin features and their step definitions for every package |
+| `e2e/` | Playwright end to end tests and the in-memory API they start |
 | `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
 
 ## Commands
@@ -73,6 +74,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | `pnpm export:video` | Builds animations, then a WebM in `exports/deyslide.webm` |
 | `pnpm animations:build` | Builds Motion Canvas projects only |
 | `pnpm test` | Runs every BDD feature |
+| `pnpm test:e2e` | Runs the Playwright tests in `e2e/` against the built web app and the API, local only |
 | `pnpm typecheck` | Type checks the web app, the API, the deck and the animations |
 
-Run `pnpm test`, `pnpm typecheck` and `pnpm build` before opening a pull request.
+Run `pnpm test`, `pnpm typecheck` and `pnpm build` before opening a pull request, and `pnpm test:e2e` when a change touches the web app or the API.

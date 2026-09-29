@@ -23,3 +23,7 @@ Thumbs.db
 
 # Local settings with secrets
 .env
+
+# Playwright
+test-results/
+playwright-report/

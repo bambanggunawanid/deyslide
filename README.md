@@ -31,6 +31,7 @@ Open the printed URL. In the deck, press `o` for the slide overview and `p` for 
 | `pnpm export` | PDF handout in `exports/deyslide.pdf` |
 | `pnpm export:video` | WebM video in `exports/deyslide.webm` |
 | `pnpm test` | BDD scenarios in `features/` |
+| `pnpm test:e2e` | End to end tests in a real browser, local only (see "End to end tests") |
 | `pnpm typecheck` | Type check for the web app, the API, the deck and the animations |
 
 Each deck script, and `pnpm build`, first runs `pnpm animations:build`, which compiles the Motion Canvas projects into `apps/deck/public/animations/`.
@@ -179,6 +180,17 @@ Every deck written is checked with `@deyslide/deck-model` before it is saved, an
 The BDD scenarios run the whole API on [PGlite](https://pglite.dev), Postgres compiled to WebAssembly, so `pnpm test` needs no database.
 
 A new deck starts from one of two templates: **Blank** (one title slide) or **Demo deck** (`apps/deck/slides.md`, read with `fromMarkdown`).
+
+## End to end tests
+
+`pnpm test:e2e` runs `e2e/*.e2e.ts` with Playwright in headless Chromium, on a desktop and a phone screen. It starts everything it needs:
+
+- the API from `apps/server` on [PGlite](https://pglite.dev), so no database is needed, with sent emails kept in memory so tests can open confirmation, magic link and reset links (`e2e/server.ts`, never deployed)
+- the production build of the web app with `vite preview`, sending `/api` to that API
+
+It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, and browser projects moving into the account and opening on a second browser. It is not part of CI.
+
+Install Chromium once with `pnpm exec playwright install chromium`. To use a Chromium you already have instead, set `PLAYWRIGHT_CHROMIUM_PATH` to its executable. After a failure, `pnpm exec playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 
 ## Deck format
 
