@@ -3,7 +3,9 @@ import { createApp } from 'vue'
 import { createWebHistory } from 'vue-router'
 import { BetterAuthAccountService } from './account/better-auth'
 import App from './App.vue'
+import { HttpAssistantApi } from './assistant/api'
 import { ACCOUNT_KEY } from './composables/useAccount'
+import { ASSISTANT_KEY } from './composables/useAssistant'
 import { WORKSPACE_KEY } from './composables/useProjects'
 import { IndexedDbGuestStorage } from './guest/indexeddb-storage'
 import { MemoryGuestStorage } from './guest/memory-storage'
@@ -26,5 +28,6 @@ const { account, workspace } = await startSession({
 createApp(App)
   .provide(WORKSPACE_KEY, workspace)
   .provide(ACCOUNT_KEY, account)
+  .provide(ASSISTANT_KEY, new HttpAssistantApi())
   .use(createAppRouter(createWebHistory(), () => account.account.value))
   .mount('#app')

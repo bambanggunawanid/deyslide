@@ -1,8 +1,10 @@
 import type { Mailer } from './mailer.ts'
 import process from 'node:process'
+import Anthropic from '@anthropic-ai/sdk'
 import { serve } from '@hono/node-server'
 import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
+import { ClaudeModel } from './assistant/model.ts'
 import { readConfig } from './config.ts'
 import { CloudflareMailer, ConsoleMailer } from './mailer.ts'
 import { createServer } from './server.ts'
@@ -21,7 +23,10 @@ else if (!config.production)
 else
   console.warn('CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_EMAIL_TOKEN is missing, so email sign in is off')
 
-const { app } = await createServer({ config, db, mailer })
+// The SDK reads ANTHROPIC_API_KEY, or a local `ant auth login` profile.
+const assistantModel = config.assistant ? new ClaudeModel(new Anthropic()) : undefined
+
+const { app } = await createServer({ config, db, mailer, assistantModel })
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.info(`Deyslide API listening on http://${info.address}:${info.port}`)

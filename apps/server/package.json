@@ -9,6 +9,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
     "@deyslide/deck-model": "workspace:*",
     "@hono/node-server": "^2.1.1",
     "better-auth": "^1.7.6",

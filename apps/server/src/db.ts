@@ -61,6 +61,14 @@ export interface UserTable {
   emailVerified: boolean
 }
 
+/** What an account spent on the assistant in one calendar month (UTC), in millionths of a dollar. */
+export interface AssistantUsageTable {
+  user_id: string
+  /** Such as "2026-09". */
+  month: string
+  cost_micros: number
+}
+
 /** The app's own tables, plus Better Auth's `user` for reading names and emails. */
 export interface Database {
   project: ProjectTable
@@ -68,6 +76,7 @@ export interface Database {
   project_member: ProjectMemberTable
   deck_member: DeckMemberTable
   invite: InviteTable
+  assistant_usage: AssistantUsageTable
   user: UserTable
 }
 
@@ -121,6 +130,17 @@ const MIGRATIONS: Record<string, Migration> = {
         .addUniqueConstraint('invite_target_email_unique', ['target_type', 'target_id', 'email'])
         .execute()
       await db.schema.createIndex('invite_email_index').on('invite').column('email').execute()
+    },
+  },
+  // Named to sort after the migrations above, since Kysely runs them in name order.
+  '2026-09-29-usage-of-the-assistant': {
+    async up(db) {
+      await db.schema.createTable('assistant_usage')
+        .addColumn('user_id', 'text', column => column.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('month', 'text', column => column.notNull())
+        .addColumn('cost_micros', 'integer', column => column.notNull())
+        .addPrimaryKeyConstraint('assistant_usage_primary_key', ['user_id', 'month'])
+        .execute()
     },
   },
 }

@@ -317,3 +317,25 @@ export function slideAtLine(slides: SourceSlide[], line: number): number {
   }
   return index
 }
+
+/**
+ * The full text of each slide, with its frontmatter and speaker notes, as
+ * Slidev reads it. The first slide's frontmatter is the deck's headmatter.
+ */
+export function slideTexts(markdown: string): string[] {
+  return parseSync(markdown, 'slides.md').slides.map(slide => slide.raw)
+}
+
+/** Joins slide texts into one Markdown document, the reverse of `slideTexts`. */
+export function joinSlides(texts: string[]): string {
+  return stringify({ slides: texts.map(raw => ({ raw })) } as Parameters<typeof stringify>[0])
+}
+
+/**
+ * YAML problems in each slide's frontmatter. Slidev skips frontmatter it
+ * cannot read instead of failing, so code that writes slides checks here.
+ */
+export function frontmatterErrors(markdown: string): string[] {
+  return parseSync(markdown, 'slides.md').slides.flatMap(slide =>
+    (slide.frontmatterDoc?.errors ?? []).map(error => `Slide ${slide.index + 1}: ${error.message.split('\n')[0]}`))
+}

@@ -23,3 +23,8 @@ export function slidesIn(state: Uint8Array): number {
   const slides = doc.getMap('deck').get('slides') as Y.Array<unknown>
   return slides.length
 }
+
+/** The demo deck's Markdown, 5 slides. */
+export function demoDeckMarkdown(): string {
+  return demoMarkdown
+}
