@@ -30,6 +30,8 @@
     "apps/web/src/**/*.ts",
     "apps/web/src/**/*.vue",
     "apps/web/*.config.ts",
+    "apps/server/src/**/*.ts",
+    "apps/server/*.config.ts",
     "apps/deck/scripts/**/*.ts",
     "apps/deck/*.config.ts",
     "features/**/*.ts",

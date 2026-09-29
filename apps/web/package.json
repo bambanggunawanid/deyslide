@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@deyslide/deck-model": "workspace:*",
+    "better-auth": "^1.7.6",
     "reka-ui": "^2.10.5",
     "vue": "^3.5.43",
     "vue-router": "^5.3.1",
