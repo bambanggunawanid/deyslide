@@ -120,13 +120,14 @@ The repository is a pnpm workspace. Run every command from the root.
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, project and deck pages, guest storage in the browser |
+| `apps/web/` | The web app: projects home page, project and deck pages, sign in pages, guest storage in the browser |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, bundled into one file for production |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
 | `features/` | Gherkin features and their step definitions for every package |
-| `deploy/` | Production Podman script and nginx config |
+| `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
 
 ## Questions
 
