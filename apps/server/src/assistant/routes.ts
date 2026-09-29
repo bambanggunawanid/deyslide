@@ -7,6 +7,7 @@ import type { UsageStore } from './usage.ts'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
+import { atLeast } from '../projects.ts'
 import { BadRequest, body, notFound, signedInOnly } from '../routes.ts'
 import { runAssistant } from './agent.ts'
 import { MARKDOWN_MAX_LENGTH } from './draft.ts'
@@ -88,8 +89,11 @@ export function assistantRoutes({ auth, projects, usage, model, monthlyLimitUsd,
   api.post('/decks/:id/assistant', signedIn, async (c) => {
     const userId = c.var.userId
     const request = await body(c, AssistantBody)
-    if (!(await projects.ownsDeck(userId, c.req.param('id'))))
+    const access = await projects.deckAccess(userId, c.req.param('id'))
+    if (!access)
       return notFound(c)
+    if (!atLeast(access.role, 'editor'))
+      return c.json({ error: 'You can view this deck but not change it, so the assistant cannot work on it.' }, 403)
 
     const date = now()
     const month = monthOf(date)

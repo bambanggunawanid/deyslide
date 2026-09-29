@@ -1,4 +1,4 @@
-import type { DeckSummary, Project, ProjectStore } from '../projects.ts'
+import type { DeckSummary, Project, ProjectStore, SharedProject } from '../projects.ts'
 import { deckToYDoc, fromMarkdown, frontmatterErrors, toMarkdown, yDocToDeck } from '@deyslide/deck-model'
 import * as Y from 'yjs'
 import { MARKDOWN_MAX_LENGTH } from '../assistant/draft.ts'
@@ -53,13 +53,18 @@ export class MarkdownDecks {
     return this.projects.list(userId)
   }
 
+  /** Projects and decks other people shared with the person. */
+  shared(userId: string): Promise<SharedProject[]> {
+    return this.projects.shared(userId)
+  }
+
   createProject(userId: string, name: string) {
     return this.projects.createProject(userId, name)
   }
 
-  /** The deck's summary and project, or undefined when it is not the person's. */
-  async find(userId: string, deckId: string): Promise<{ project: Project, deck: DeckSummary } | undefined> {
-    for (const project of await this.projects.list(userId)) {
+  /** The deck's summary and project, or undefined when it is neither the person's nor shared with them. */
+  async find(userId: string, deckId: string): Promise<{ project: Project | SharedProject, deck: DeckSummary } | undefined> {
+    for (const project of [...await this.projects.list(userId), ...await this.projects.shared(userId)]) {
       const deck = project.decks.find(item => item.id === deckId)
       if (deck)
         return { project, deck }

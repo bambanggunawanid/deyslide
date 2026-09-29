@@ -2,6 +2,7 @@ import type { Deck } from '@deyslide/deck-model'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
 import type { ProjectApi } from './api'
+import type { SharingApi } from './sharing'
 import type { ExportedProject, ProjectStore } from './types'
 import * as Y from 'yjs'
 import { deckFromTemplate } from '../guest/templates'
@@ -13,11 +14,29 @@ const loadModel = () => import('@deyslide/deck-model')
 /** Projects saved to the signed in person's account, through the API. */
 export class CloudStore implements ProjectStore {
   private projects: Project[] = []
+  private shared: Project[] = []
   private readonly listeners = new Set<() => void>()
   private readonly api: ProjectApi
+  readonly sharing: SharingApi
 
   private constructor(api: ProjectApi) {
     this.api = api
+    this.sharing = {
+      members: target => api.members(target),
+      share: async (target, email, role) => {
+        const list = await api.share(target, email, role)
+        await this.refresh()
+        return list
+      },
+      changeRole: async (target, entry, role) => {
+        await api.changeRole(target, entry, role)
+        await this.refresh()
+      },
+      remove: async (target, entry) => {
+        await api.remove(target, entry)
+        await this.refresh()
+      },
+    }
   }
 
   static async open(api: ProjectApi) {
@@ -33,7 +52,9 @@ export class CloudStore implements ProjectStore {
 
   /** Reloads the project list from the server. */
   async refresh() {
-    this.projects = await this.api.list()
+    const [projects, shared] = await Promise.all([this.api.list(), this.api.shared()])
+    this.projects = projects
+    this.shared = shared
     for (const listener of this.listeners)
       listener()
   }
@@ -42,8 +63,12 @@ export class CloudStore implements ProjectStore {
     return [...this.projects].sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  listShared() {
+    return [...this.shared].sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
   getProject(projectId: string) {
-    return this.projects.find(project => project.id === projectId)
+    return this.projects.find(project => project.id === projectId) ?? this.shared.find(project => project.id === projectId)
   }
 
   getDeck(projectId: string, deckId: string) {

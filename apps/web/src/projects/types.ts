@@ -1,6 +1,7 @@
 import type { Deck } from '@deyslide/deck-model'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
+import type { SharingApi } from './sharing'
 
 /**
  * Where the pages read and write projects. Guests use the browser store;
@@ -10,6 +11,9 @@ import type { DeckSummary, Project } from '../guest/types'
 export interface ProjectStore {
   onChange: (listener: () => void) => () => void
   listProjects: () => Project[]
+  /** Projects and decks other people shared with the signed in person. Always empty for guests. */
+  listShared: () => Project[]
+  /** Finds a project among the person's own and the shared ones. */
   getProject: (projectId: string) => Project | undefined
   getDeck: (projectId: string, deckId: string) => DeckSummary | undefined
   createProject: (name: string) => Promise<Project>
@@ -22,6 +26,8 @@ export interface ProjectStore {
   /** Replaces a deck's content, for example after editing its Markdown. */
   saveDeck: (projectId: string, deckId: string, deck: Deck) => Promise<void>
   deckMarkdown: (deckId: string) => Promise<string>
+  /** Sharing, for signed in people only. */
+  sharing?: SharingApi
 }
 
 /** A browser project with each deck's Yjs document in base64, ready to move into an account. */

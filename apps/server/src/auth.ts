@@ -14,6 +14,8 @@ export interface AuthDependencies {
   db: Kysely<any>
   /** Without a mailer, sign in that needs email (password and magic link) is off. */
   mailer?: Mailer
+  /** Runs after every sign in by someone whose email address is confirmed, for example to turn invites into access. */
+  onConfirmedSignIn?: (user: { id: string, email: string }) => Promise<void>
 }
 
 export const MAGIC_LINK_SECONDS = 10 * 60
@@ -68,7 +70,7 @@ const registerMcpClientsAsNative = createAuthMiddleware(async (ctx) => {
     return { context: { body: { ...body, application_type: 'native' } } }
 })
 
-export function createAuth({ config, db, mailer }: AuthDependencies) {
+export function createAuth({ config, db, mailer, onConfirmedSignIn }: AuthDependencies) {
   const socialProviders = {
     ...(config.google && { google: config.google }),
     ...(config.github && { github: config.github }),
@@ -101,6 +103,19 @@ export function createAuth({ config, db, mailer }: AuthDependencies) {
     },
     socialProviders,
     hooks: { before: registerMcpClientsAsNative },
+    databaseHooks: {
+      session: {
+        create: {
+          after: async (session) => {
+            if (!onConfirmedSignIn)
+              return
+            const user = await db.selectFrom('user').select(['id', 'email', 'emailVerified']).where('id', '=', session.userId).executeTakeFirst()
+            if (user?.emailVerified)
+              await onConfirmedSignIn({ id: user.id, email: user.email })
+          },
+        },
+      },
+    },
     // Better Auth's own JWT endpoint is not used. The OAuth provider signs access tokens with its keys.
     disabledPaths: ['/token'],
     plugins: [

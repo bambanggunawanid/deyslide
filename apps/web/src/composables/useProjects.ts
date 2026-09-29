@@ -13,21 +13,27 @@ export function useWorkspace(): Workspace {
   return workspace
 }
 
-/** The active project store plus a project list that refreshes after every change. */
-export function useProjects(): { store: ShallowRef<ProjectStore>, projects: ShallowRef<Project[]> } {
+/**
+ * The active project store plus lists that refresh after every change: the
+ * person's own projects, and the ones shared with them.
+ */
+export function useProjects(): { store: ShallowRef<ProjectStore>, projects: ShallowRef<Project[]>, shared: ShallowRef<Project[]> } {
   const { store } = useWorkspace()
   const projects = shallowRef<Project[]>([])
+  const shared = shallowRef<Project[]>([])
   let stop = () => {}
   watch(store, (current) => {
     stop()
-    projects.value = current.listProjects()
-    const unsubscribe = current.onChange(() => {
+    const read = () => {
       projects.value = current.listProjects()
-    })
+      shared.value = current.listShared()
+    }
+    read()
+    const unsubscribe = current.onChange(read)
     stop = () => {
       unsubscribe()
     }
   }, { immediate: true })
   onScopeDispose(() => stop())
-  return { store, projects }
+  return { store, projects, shared }
 }

@@ -324,6 +324,44 @@ describeFeature(feature, ({ Background, Scenario }) => {
     })
   })
 
+  async function shareDeckWithBudi(role: string) {
+    const budi = await signedInBrowser(server, 'budi@example.com', 'Budi')
+    const shared = await ana.json(`/api/decks/${deckId}/sharing`, { json: { email: 'budi@example.com', role } })
+    expect(shared.status).toBe(201)
+    return budi
+  }
+
+  Scenario('A viewer of a shared deck cannot ask for changes', ({ Given, When, Then, And }) => {
+    let budi: TestBrowser
+    Given('Ana shared the deck with Budi as a viewer', async () => {
+      budi = await shareDeckWithBudi('viewer')
+    })
+    When('Budi asks the assistant about Ana\'s deck', async () => {
+      await ask(budi, 'Make it better')
+    })
+    Then('it is refused with 403 "You can view this deck but not change it, so the assistant cannot work on it."', () => {
+      expect(status).toBe(403)
+      expect(error).toBe('You can view this deck but not change it, so the assistant cannot work on it.')
+    })
+    And('Claude received 0 requests', () => {
+      expect(model.requests).toHaveLength(0)
+    })
+  })
+
+  Scenario('An editor of a shared deck can', ({ Given, When, Then }) => {
+    let budi: TestBrowser
+    Given('Ana shared the deck with Budi as an editor', async () => {
+      budi = await shareDeckWithBudi('editor')
+    })
+    When('Budi asks the assistant about Ana\'s deck', async () => {
+      await ask(budi, 'Make it better')
+    })
+    Then('the stream ends with the reply "Done."', () => {
+      expect(status).toBe(200)
+      expect(done().reply).toBe('Done.')
+    })
+  })
+
   Scenario('Guests cannot use the assistant', ({ When, Then }) => {
     When('a guest asks the assistant about Ana\'s deck', async () => {
       await ask(new Browser(server), 'Show me this deck')

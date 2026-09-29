@@ -299,7 +299,7 @@ describeFeature(feature, ({ Background, Scenario }) => {
 
   Scenario('Other accounts stay out of reach', ({ Given, When, Then, And }) => {
     let budi: Client
-    Given('Budi connects Claude Code to his own account', async () => {
+    Given('Budi connects Claude Code to Budi\'s account', async () => {
       budi = await connectAs(await signedInBrowser(server, 'budi@example.com'))
     })
     When('Budi\'s Claude Code reads Ana\'s deck "Sorting"', async () => {
@@ -312,6 +312,36 @@ describeFeature(feature, ({ Background, Scenario }) => {
     And('Budi\'s list_decks is empty', async () => {
       await call('list_decks', {}, budi)
       expect(resultText()).toBe('This account has no projects yet. Create one with create_project.')
+    })
+  })
+
+  Scenario('Decks shared with you follow your role', ({ Given, And, Then, But }) => {
+    let budi: Client
+    let budiBrowser: TestBrowser
+    Given('Ana shared the project "Talks" with Budi as a viewer', async () => {
+      budiBrowser = await signedInBrowser(server, 'budi@example.com', 'Budi')
+      const shared = await ana.json(`/api/projects/${projectId}/sharing`, { json: { email: 'budi@example.com', role: 'viewer' } })
+      expect(shared.status).toBe(201)
+    })
+    And('Budi connects Claude Code to Budi\'s account', async () => {
+      budi = await connectAs(budiBrowser)
+    })
+    Then('Budi\'s list_decks shows "Sorting" shared by Ana as view only', async () => {
+      await call('list_decks', {}, budi)
+      expect(resultText()).toContain('Shared with you:')
+      expect(resultText()).toContain(`Deck "Sorting" (id ${deckId}), 5 slides, view only`)
+    })
+    And('Budi\'s Claude Code can read the deck "Sorting"', async () => {
+      await call('read_deck', { deckId }, budi)
+      expect(result.isError).toBeFalsy()
+      expect(resultText()).toContain('<slide number="5">')
+    })
+    But('writing it is refused with "Nothing was saved. You can view this deck but not change it."', async () => {
+      await call('write_deck', { deckId, markdown: '# Mine\n' }, budi)
+      expect(result.isError).toBe(true)
+      expect(resultText()).toBe('Nothing was saved. You can view this deck but not change it.')
+      await call('edit_slides', { deckId, edits: [{ action: 'delete', slide: 1 }] }, budi)
+      expect(resultText()).toBe('Nothing was saved. You can view this deck but not change it.')
     })
   })
 

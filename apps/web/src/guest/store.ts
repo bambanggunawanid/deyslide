@@ -42,6 +42,11 @@ export class GuestStore implements ProjectStore {
   }
 
   /** Projects, most recently changed first. */
+  /** Guests have nothing shared with them. */
+  listShared(): Project[] {
+    return []
+  }
+
   listProjects(): Project[] {
     return [...this.index.projects].sort((a, b) => b.updatedAt - a.updatedAt)
   }
