@@ -35,6 +35,7 @@
     "apps/deck/scripts/**/*.ts",
     "apps/deck/*.config.ts",
     "features/**/*.ts",
+    "e2e/**/*.ts",
     "*.config.ts"
   ]
 }

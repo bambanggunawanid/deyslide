@@ -28,12 +28,15 @@
     "animations:build": "pnpm --filter @deyslide/animations build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
     "typecheck": "vue-tsc --noEmit && vue-tsc --noEmit -p packages/animations/tsconfig.json"
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^8.0.0",
     "@electric-sql/pglite": "^0.5.8",
+    "@hono/node-server": "^2.1.1",
     "@motion-canvas/player": "^3.17.2",
+    "@playwright/test": "1.63.0",
     "@slidev/parser": "53.0.0",
     "@tresjs/cientos": "^5.9.1",
     "@types/node": "^26.6.3",
