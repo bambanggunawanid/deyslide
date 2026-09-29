@@ -1,4 +1,4 @@
-import type { Position } from './schema'
+import type { Position } from './schema.ts'
 
 /**
  * Slidev's `v-drag` position string: "x,y,w,h,rotate".

@@ -1,23 +1,14 @@
 import type { Deck } from '@deyslide/deck-model'
+import type { ExportedProject, ProjectStore } from '../projects/types'
 import type { DeckTemplate } from './templates'
 import type { DeckSummary, GuestIndex, GuestStorage, Project } from './types'
+import * as Y from 'yjs'
+import { toBase64 } from '../projects/base64'
+import { cleanName, StoreError } from '../projects/names'
 import { deckFromTemplate } from './templates'
 
 /** The deck model is large, so it loads the first time a deck is touched. */
 const loadModel = () => import('@deyslide/deck-model')
-
-export const NAME_MAX_LENGTH = 80
-
-export class GuestStoreError extends Error {}
-
-function cleanName(name: string, kind: string) {
-  const trimmed = name.trim()
-  if (!trimmed)
-    throw new GuestStoreError(`A ${kind} needs a name`)
-  if (trimmed.length > NAME_MAX_LENGTH)
-    throw new GuestStoreError(`A ${kind} name can have at most ${NAME_MAX_LENGTH} characters`)
-  return trimmed
-}
 
 export interface GuestStoreOptions {
   now?: () => number
@@ -28,7 +19,7 @@ export interface GuestStoreOptions {
  * A guest's projects and decks. Keeps the index in memory, writes every
  * change through to storage, and tells listeners so the UI can refresh.
  */
-export class GuestStore {
+export class GuestStore implements ProjectStore {
   private index: GuestIndex = { version: 1, projects: [] }
   private readonly listeners = new Set<() => void>()
   private readonly now: () => number
@@ -139,17 +130,43 @@ export class GuestStore {
     return toMarkdown(await this.readDeck(deckId))
   }
 
+  /** Every project with its decks' content, for moving into an account. */
+  async exportProjects(): Promise<ExportedProject[]> {
+    const exported: ExportedProject[] = []
+    for (const project of this.index.projects) {
+      const decks = []
+      for (const deck of project.decks) {
+        const open = await this.storage.openDeck(deck.id)
+        try {
+          decks.push({ id: deck.id, name: deck.name, createdAt: deck.createdAt, updatedAt: deck.updatedAt, state: toBase64(Y.encodeStateAsUpdate(open.doc)) })
+        }
+        finally {
+          await open.close()
+        }
+      }
+      exported.push({ id: project.id, name: project.name, createdAt: project.createdAt, updatedAt: project.updatedAt, decks })
+    }
+    return exported
+  }
+
+  /** Removes every project and deck from the browser. */
+  async clear() {
+    await Promise.all(this.index.projects.flatMap(project => project.decks.map(deck => this.storage.deleteDeck(deck.id))))
+    this.index.projects = []
+    await this.commit()
+  }
+
   private requireProject(projectId: string) {
     const project = this.getProject(projectId)
     if (!project)
-      throw new GuestStoreError('That project no longer exists')
+      throw new StoreError('That project no longer exists')
     return project
   }
 
   private requireDeck(projectId: string, deckId: string) {
     const deck = this.getDeck(projectId, deckId)
     if (!deck)
-      throw new GuestStoreError('That deck no longer exists')
+      throw new StoreError('That deck no longer exists')
     return deck
   }
 

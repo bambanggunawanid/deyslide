@@ -3,16 +3,17 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import NameDialog from '../components/NameDialog.vue'
 import { useAccount } from '../composables/useAccount'
-import { useGuestStore } from '../composables/useGuestStore'
+import { useProjects, useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 
-const { store, projects } = useGuestStore()
+const { store, projects } = useProjects()
 const { account } = useAccount()
+const { notice } = useWorkspace()
 const router = useRouter()
 const creating = ref(false)
 
 async function createProject(name: string) {
-  const project = await store.createProject(name)
+  const project = await store.value.createProject(name)
   await router.push({ name: 'project', params: { projectId: project.id } })
 }
 </script>
@@ -25,6 +26,13 @@ async function createProject(name: string) {
       </h1>
       <button class="dey-btn-primary ml-auto" data-testid="new-project" @click="creating = true">
         New project
+      </button>
+    </div>
+
+    <div v-if="notice" class="dey-panel mt-6 flex items-start gap-3 text-sm" role="status" data-testid="workspace-notice">
+      <span class="flex-1">{{ notice }}</span>
+      <button class="dey-btn text-xs" @click="notice = ''">
+        Dismiss
       </button>
     </div>
 

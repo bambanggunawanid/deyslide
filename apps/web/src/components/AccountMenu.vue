@@ -4,7 +4,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccount } from '../composables/useAccount'
 
-const { service, account } = useAccount()
+const { service, account, setAccount } = useAccount()
 const router = useRouter()
 const error = ref('')
 
@@ -12,7 +12,7 @@ async function signOut() {
   error.value = ''
   try {
     await service.signOut()
-    account.value = undefined
+    await setAccount(undefined)
     await router.push('/')
   }
   catch {

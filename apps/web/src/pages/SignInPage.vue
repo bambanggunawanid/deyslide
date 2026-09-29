@@ -7,7 +7,7 @@ import FormError from '../components/FormError.vue'
 import SocialButtons from '../components/SocialButtons.vue'
 import { useAccount } from '../composables/useAccount'
 
-const { service, options, account } = useAccount()
+const { service, options, setAccount } = useAccount()
 const route = useRoute()
 const router = useRouter()
 
@@ -26,7 +26,7 @@ const anyOption = computed(() => options.email || options.google || options.gith
 
 async function signIn() {
   await runForm(busy, error, async () => {
-    account.value = await service.signIn({ email: email.value, password: password.value })
+    await setAccount(await service.signIn({ email: email.value, password: password.value }))
     await router.push('/')
   })
 }

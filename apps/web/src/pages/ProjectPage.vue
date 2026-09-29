@@ -6,13 +6,13 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NameDialog from '../components/NameDialog.vue'
-import { useGuestStore } from '../composables/useGuestStore'
+import { useProjects } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import { TEMPLATES } from '../guest/templates'
 
 const props = defineProps<{ projectId: string }>()
 
-const { store, projects } = useGuestStore()
+const { store, projects } = useProjects()
 const router = useRouter()
 const project = computed(() => projects.value.find(item => item.id === props.projectId))
 
@@ -24,12 +24,12 @@ const renamingDeck = ref<DeckSummary>()
 const deletingDeck = ref<DeckSummary>()
 
 async function addDeck(name: string) {
-  const deck = await store.createDeck(props.projectId, name, template.value)
+  const deck = await store.value.createDeck(props.projectId, name, template.value)
   await router.push({ name: 'deck', params: { projectId: props.projectId, deckId: deck.id } })
 }
 
 async function deleteProject() {
-  await store.deleteProject(props.projectId)
+  await store.value.deleteProject(props.projectId)
   await router.push({ name: 'home' })
 }
 </script>

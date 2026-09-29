@@ -2,25 +2,26 @@
 import type { Deck } from '@deyslide/deck-model'
 import { toMarkdown } from '@deyslide/deck-model'
 import { computed, shallowRef, watch } from 'vue'
-import { useGuestStore } from '../composables/useGuestStore'
+import { useProjects } from '../composables/useProjects'
 import { plural } from '../format'
 import { deckOutline } from '../guest/outline'
 
 const props = defineProps<{ projectId: string, deckId: string }>()
 
-const { store, projects } = useGuestStore()
+const { store, projects } = useProjects()
 const project = computed(() => projects.value.find(item => item.id === props.projectId))
 const summary = computed(() => project.value?.decks.find(deck => deck.id === props.deckId))
 const deck = shallowRef<Deck>()
 const loadError = shallowRef('')
 
-watch(() => props.deckId, async (deckId) => {
+// Signing in or out swaps the store, which can hold the same deck id.
+watch(() => [props.deckId, store.value] as const, async ([deckId]) => {
   deck.value = undefined
   loadError.value = ''
   if (!summary.value)
     return
   try {
-    deck.value = await store.readDeck(deckId)
+    deck.value = await store.value.readDeck(deckId)
   }
   catch {
     loadError.value = 'This deck could not be read from this browser.'

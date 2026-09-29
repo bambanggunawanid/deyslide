@@ -1,17 +1,19 @@
 import type { VueWrapper } from '@vue/test-utils'
 import type { Router } from 'vue-router'
 import type { AccountService } from '../../apps/web/src/account/types'
+import type { ProjectApi } from '../../apps/web/src/projects/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
-import { shallowRef } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import App from '../../apps/web/src/App.vue'
 import { ACCOUNT_KEY } from '../../apps/web/src/composables/useAccount'
-import { GUEST_STORE_KEY } from '../../apps/web/src/composables/useGuestStore'
+import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
 import { createAppRouter } from '../../apps/web/src/router'
+import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
+import { FakeProjectApi } from './project-api'
 
 // Dialogs and menus render in portals on document.body, outside the wrapper.
 export const find = (selector: string) => document.body.querySelector<HTMLElement>(selector)
@@ -19,17 +21,25 @@ export const findAll = (selector: string) => [...document.body.querySelectorAll<
 export const text = (selector: string) => find(selector)?.textContent?.trim() ?? ''
 export const pageText = () => document.body.textContent?.replace(/\s+/g, ' ') ?? ''
 
+export interface MountOptions {
+  path?: string
+  service?: AccountService
+  api?: ProjectApi
+  /** The browser's projects, for scenarios that start with some. */
+  guest?: GuestStore
+}
+
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService() as AccountService } = {}) {
-  const store = await GuestStore.open(new MemoryGuestStorage())
-  const account = { service, options: await service.options(), account: shallowRef(await service.current()) }
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest }: MountOptions = {}) {
+  const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
+  const { account, workspace } = await startSession({ service, guest: store, api })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
   await router.push(path)
   const wrapper: VueWrapper = mount(App, {
     attachTo: document.body,
     global: {
       plugins: [router],
-      provide: { [GUEST_STORE_KEY as symbol]: store, [ACCOUNT_KEY as symbol]: account },
+      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account },
     },
   })
 
@@ -67,7 +77,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
   }
 
   await settle()
-  return { store, account, router, wrapper, settle, waitFor, click, fill, submit, unmount }
+  return { store, account, workspace, router, wrapper, settle, waitFor, click, fill, submit, unmount }
 }
 
 export type WebApp = Awaited<ReturnType<typeof mountWebApp>>
