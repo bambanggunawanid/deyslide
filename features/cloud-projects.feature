@@ -35,7 +35,7 @@ Feature: Projects and decks saved to an account
     Given Ana has the project "Algorithms 101" with the deck "Sorting"
     And Budi is signed in on another browser
     Then Budi has no projects
-    And Budi cannot rename, delete or download Ana's project and deck
+    And Budi cannot rename, delete, download or save Ana's project and deck
 
   Scenario: Guests cannot use the API
     Given a guest who is not signed in
@@ -58,3 +58,15 @@ Feature: Projects and decks saved to an account
     When Ana imports a browser project with the same id "shared-id" named "Mine"
     Then Ana's project "Mine" gets a new id
     And Budi's project keeps the id "shared-id"
+
+  Scenario: Save new content for a deck
+    Given Ana has the project "Algorithms 101" with the deck "Sorting"
+    When she saves the deck with a blank deck titled "Rewritten"
+    Then downloading the deck gives 1 slide
+    And the project lists the deck "Sorting" with 1 slide
+
+  Scenario: Saved content must be a valid deck
+    Given Ana has the project "Algorithms 101" with the deck "Sorting"
+    When she saves the deck with content that is not a Yjs document
+    Then it is refused with "The deck content is not a valid deck"
+    And the project lists the deck "Sorting" with 5 slides

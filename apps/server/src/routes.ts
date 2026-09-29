@@ -15,6 +15,7 @@ class BadRequest extends Error {}
 const Base64Schema = z.base64('The deck content must be base64').transform(value => new Uint8Array(Buffer.from(value, 'base64')))
 const NameBody = z.object({ name: NameSchema })
 const NewDeckBody = z.object({ name: NameSchema, state: Base64Schema })
+const StateBody = z.object({ state: Base64Schema })
 const TimeSchema = z.number().int().nonnegative()
 const IdSchema = z.string().min(1).max(100)
 const ImportBody = z.object({
@@ -99,6 +100,11 @@ export function projectRoutes(auth: Auth, store: ProjectStore) {
     if (!state)
       return notFound(c)
     return c.body(state.slice().buffer, 200, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store' })
+  })
+
+  api.put('/decks/:id/state', signedIn, async (c) => {
+    const { state } = await body(c, StateBody)
+    return await store.saveDeckState(c.var.userId, c.req.param('id'), state) ? c.body(null, 204) : notFound(c)
   })
 
   api.post('/import', signedIn, async (c) => {

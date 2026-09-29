@@ -3,7 +3,7 @@ import type { Project } from '../apps/server/src/projects'
 import type { TestBrowser, TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect } from 'vitest'
-import { demoDeckState, slidesIn } from './support/deck-content'
+import { blankDeckState, demoDeckState, slidesIn } from './support/deck-content'
 import { createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./cloud-projects.feature')
@@ -143,7 +143,7 @@ describeFeature(feature, ({ Background, Scenario }) => {
     Then('Budi has no projects', async () => {
       expect(await projectsOf(budi)).toEqual([])
     })
-    And('Budi cannot rename, delete or download Ana\'s project and deck', async () => {
+    And('Budi cannot rename, delete, download or save Ana\'s project and deck', async () => {
       const project = await onlyProject()
       const deckId = project.decks[0].id
       const attempts = await Promise.all([
@@ -153,8 +153,9 @@ describeFeature(feature, ({ Background, Scenario }) => {
         budi.json(`/api/decks/${deckId}`, { method: 'PATCH', json: { name: 'Taken' } }),
         budi.json(`/api/decks/${deckId}`, { method: 'DELETE' }),
         budi.json(`/api/decks/${deckId}/state`),
+        budi.json(`/api/decks/${deckId}/state`, { method: 'PUT', json: { state: demoDeckState() } }),
       ])
-      expect(attempts.map(attempt => attempt.status)).toEqual([404, 404, 404, 404, 404, 404])
+      expect(attempts.map(attempt => attempt.status)).toEqual([404, 404, 404, 404, 404, 404, 404])
       expect(summary(await projectsOf(ana))).toEqual([['Algorithms 101', 1]])
     })
   })
@@ -212,6 +213,36 @@ describeFeature(feature, ({ Background, Scenario }) => {
     And('Budi\'s project keeps the id "shared-id"', async () => {
       const [project] = await projectsOf(budi)
       expect([project.id, project.name, project.decks[0].id]).toEqual(['shared-id', 'Budi\'s', 'shared-id-deck'])
+    })
+  })
+
+  Scenario('Save new content for a deck', ({ Given, When, Then, And }) => {
+    Given('Ana has the project "Algorithms 101" with the deck "Sorting"', projectWithDeck)
+    When('she saves the deck with a blank deck titled "Rewritten"', async () => {
+      const deckId = (await onlyProject()).decks[0].id
+      result = await ana.json(`/api/decks/${deckId}/state`, { method: 'PUT', json: { state: blankDeckState('Rewritten') } })
+      expect(result.status).toBe(204)
+    })
+    Then('downloading the deck gives 1 slide', async () => {
+      const response = await ana.request(`/api/decks/${(await onlyProject()).decks[0].id}/state`)
+      expect(slidesIn(new Uint8Array(await response.arrayBuffer()))).toBe(1)
+    })
+    And('the project lists the deck "Sorting" with 1 slide', async () => {
+      expect((await onlyProject()).decks.map(deck => [deck.name, deck.slideCount])).toEqual([['Sorting', 1]])
+    })
+  })
+
+  Scenario('Saved content must be a valid deck', ({ Given, When, Then, And }) => {
+    Given('Ana has the project "Algorithms 101" with the deck "Sorting"', projectWithDeck)
+    When('she saves the deck with content that is not a Yjs document', async () => {
+      const deckId = (await onlyProject()).decks[0].id
+      result = await ana.json(`/api/decks/${deckId}/state`, { method: 'PUT', json: { state: Buffer.from('nope').toString('base64') } })
+    })
+    Then('it is refused with "The deck content is not a valid deck"', () => {
+      expect(result).toEqual({ status: 400, body: { error: 'The deck content is not a valid deck' } })
+    })
+    And('the project lists the deck "Sorting" with 5 slides', async () => {
+      expect((await onlyProject()).decks.map(deck => [deck.name, deck.slideCount])).toEqual([['Sorting', 5]])
     })
   })
 })

@@ -176,6 +176,20 @@ export class ProjectStore {
     return true
   }
 
+  /** Replaces a deck's content. Returns false when the deck is missing or not the user's. */
+  async saveDeckState(userId: string, deckId: string, state: Uint8Array) {
+    const { slideCount } = readDeckState(state)
+    const projectId = await this.ownedDeckProject(userId, deckId)
+    if (!projectId)
+      return false
+    const now = new Date()
+    await this.db.transaction().execute(async (trx) => {
+      await trx.updateTable('deck').set({ state, slide_count: slideCount, updated_at: now }).where('id', '=', deckId).execute()
+      await trx.updateTable('project').set({ updated_at: now }).where('id', '=', projectId).execute()
+    })
+    return true
+  }
+
   async deckState(userId: string, deckId: string): Promise<Uint8Array | undefined> {
     const row = await this.db.selectFrom('deck')
       .innerJoin('project', 'project.id', 'deck.project_id')
