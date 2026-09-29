@@ -44,7 +44,7 @@ export async function createServer({ config, db, mailer, assistantModel, now, re
     : undefined
   const mcp = { decks: new MarkdownDecks(projects, config.publicUrl), renderer, version: SERVER_VERSION }
   const storage = mediaStorage ?? (config.r2 && new R2MediaStorage(config.r2))
-  const media = storage && new MediaStore(db, storage, { now })
+  const media = storage && new MediaStore(db, storage, projects, { accountLimitBytes: config.mediaAccountLimitBytes, now })
   const app = createApp({ config, auth, projects, sharing, emailEnabled: Boolean(mailer), assistant, mcp, media })
   return { app, auth, projects, sharing, usage, media }
 }

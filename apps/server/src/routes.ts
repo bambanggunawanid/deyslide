@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import type { Auth } from './auth.ts'
+import type { MediaStore } from './media/store.ts'
 import type { ProjectStore } from './projects.ts'
 import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
@@ -57,8 +58,8 @@ export function signedInOnly(auth: Auth) {
   })
 }
 
-/** Projects and decks of the signed in user, under /api. */
-export function projectRoutes(auth: Auth, store: ProjectStore) {
+/** Projects and decks of the signed in user, under /api. With media on, deleting a project deletes its stored files too. */
+export function projectRoutes(auth: Auth, store: ProjectStore, media?: MediaStore) {
   const signedIn = signedInOnly(auth)
 
   const api = new Hono<Env>()
@@ -84,7 +85,13 @@ export function projectRoutes(auth: Auth, store: ProjectStore) {
   })
 
   api.delete('/projects/:id', signedIn, async (c) => {
-    return await store.deleteProject(c.var.userId, c.req.param('id')) ? c.body(null, 204) : notFound(c)
+    const id = c.req.param('id')
+    const stored = await media?.keysOf(id)
+    if (!(await store.deleteProject(c.var.userId, id)))
+      return notFound(c)
+    if (stored)
+      await media!.deleteStored(stored)
+    return c.body(null, 204)
   })
 
   api.post('/projects/:id/decks', signedIn, async (c) => {

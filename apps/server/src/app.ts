@@ -52,7 +52,7 @@ export function createApp({ config, auth, projects, sharing, emailEnabled, assis
 
   app.on(['GET', 'POST'], '/auth/*', c => auth.handler(c.req.raw))
 
-  app.route('/', projectRoutes(auth, projects))
+  app.route('/', projectRoutes(auth, projects, media))
   app.route('/', sharingRoutes(auth, projects, sharing))
   if (assistant)
     app.route('/', assistantRoutes({ ...assistant, auth, projects }))

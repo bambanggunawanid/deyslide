@@ -31,6 +31,8 @@ const EnvSchema = z.object({
   CLOUDFLARE_R2_ACCESS_KEY_ID: optional,
   CLOUDFLARE_R2_ACCESS_KEY_SECRET: optional,
   R2_BUCKET: optional,
+  /** Storage for all of one account's projects, in megabytes. */
+  MEDIA_ACCOUNT_LIMIT_MB: z.preprocess(unsetIfEmpty, z.coerce.number().int().positive().default(1024)),
   /** An S3 endpoint in place of R2's, for tests. */
   R2_ENDPOINT: optional,
 })
@@ -56,6 +58,8 @@ export interface ServerConfig {
   rendererUrl?: string
   /** Present when media uploads are on. */
   r2?: R2Settings
+  /** Storage for all of one account's projects, in bytes. */
+  mediaAccountLimitBytes: number
 }
 
 /** Development only. Production refuses to start without a real secret. */
@@ -103,5 +107,6 @@ export function readConfig(env: Record<string, string | undefined> = process.env
           endpoint: values.R2_ENDPOINT,
         }
       : undefined,
+    mediaAccountLimitBytes: values.MEDIA_ACCOUNT_LIMIT_MB * 1024 * 1024,
   }
 }

@@ -3,6 +3,7 @@ import type { Env } from '../routes.ts'
 import type { MediaStore } from './store.ts'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { ForbiddenError } from '../projects.ts'
 import { BadRequest, body, notFound, signedInOnly } from '../routes.ts'
 import { MediaError } from './store.ts'
 
@@ -13,8 +14,9 @@ const UploadBody = z.object({
 })
 
 /**
- * Media files under /api/media. Files go straight between the browser and
- * storage through signed links; the API only hands out links it checked.
+ * Each project's media library under /api/projects/:id/media, and single
+ * files under /api/media. Files go straight between the browser and storage
+ * through signed links; the API only hands out links it checked.
  */
 export function mediaRoutes(auth: Auth, media: MediaStore) {
   const signedIn = signedInOnly(auth)
@@ -23,13 +25,19 @@ export function mediaRoutes(auth: Auth, media: MediaStore) {
   api.onError((error, c) => {
     if (error instanceof BadRequest || error instanceof MediaError)
       return c.json({ error: error.message }, 400)
+    if (error instanceof ForbiddenError)
+      return c.json({ error: error.message }, 403)
     throw error
   })
 
-  api.get('/media', signedIn, async c => c.json(await media.list(c.var.userId)))
+  api.get('/projects/:id/media', signedIn, async (c) => {
+    const library = await media.list(c.var.userId, c.req.param('id'))
+    return library ? c.json(library) : notFound(c)
+  })
 
-  api.post('/media', signedIn, async (c) => {
-    return c.json(await media.startUpload(c.var.userId, await body(c, UploadBody)), 201)
+  api.post('/projects/:id/media', signedIn, async (c) => {
+    const ticket = await media.startUpload(c.var.userId, c.req.param('id'), await body(c, UploadBody))
+    return ticket ? c.json(ticket, 201) : notFound(c)
   })
 
   api.post('/media/:id/finish', signedIn, async (c) => {

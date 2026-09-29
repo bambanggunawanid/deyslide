@@ -173,13 +173,15 @@ The browser sends the deck's Markdown and the chat with each message (`apps/web/
 
 ## Media uploads
 
-Signed in people can upload images, video and audio for their slides. Every file is private to the person who uploaded it, in a private Cloudflare R2 bucket under `users/<account id>/`. The editor starts using this in phase 4; for now it is an API.
+Every project has a media library: images, video and audio for its slides. Files are private, in a private Cloudflare R2 bucket under `projects/<project id>/`, and there is no public address for them. The editor starts using this in phase 4; for now it is an API.
 
+- Everyone the project is shared with can see and open its files. Editors add files, and only the owner deletes them. Someone given a single deck can open only the files that deck's slides use through `/api/media/<id>/file`.
+- Each account has 1 GB (`MEDIA_ACCOUNT_LIMIT_MB`) for the files in all the projects it owns. A file an editor adds counts toward the project owner's storage.
 - Accepted: PNG, JPEG, GIF, WebP, AVIF, MP4, WebM, MOV, MP3, M4A, OGG and WAV, up to 100 MB each. SVG is refused, since it can carry scripts.
 - Uploads go straight from the browser to R2 with a signed link that works for 15 minutes and only for the declared type and size, so large files never pass through the API or the tunnel.
 - Finishing an upload checks the stored size and the file's first bytes against its type. A file that is not what it claims is deleted.
-- Downloads use signed links that work for an hour. `GET /api/media/:id/file` redirects to a fresh one, so pages can use a stable address.
-- Uploads never finished are cleaned up after a day.
+- Downloads use signed links that also work for 15 minutes, so removing someone from a project soon ends their access. `GET /api/media/:id/file` redirects to a fresh one, so slides can use a stable address.
+- Deleting a project deletes its files. Uploads never finished are cleaned up after a day.
 
 The browser talks to R2 directly, so the bucket needs a CORS policy. In the Cloudflare dashboard, open the bucket, then **Settings**, **CORS policy**, and add:
 
@@ -272,6 +274,7 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `ASSISTANT_ENABLED` | on with an API key | `true` turns the assistant on with an `ant auth login` profile instead of a key, `false` turns it off |
 | `RENDERER_URL` | none | The slide renderer for the MCP server: `http://host:port` or `unix:/path/to/socket`. Without it, `render_slides` says images are unavailable |
 | `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_SECRET`, `R2_BUCKET` | none | Media uploads to Cloudflare R2, with `CLOUDFLARE_ACCOUNT_ID`. Without all four, media is off |
+| `MEDIA_ACCOUNT_LIMIT_MB` | `1024` | Storage for the files in all of one account's projects, in megabytes |
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -286,8 +289,9 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `PATCH`, `DELETE .../sharing/members/:userId` and `.../sharing/invites/:inviteId` | Change a role or remove someone (owner), or leave (yourself) |
 | `GET /api/assistant` | How much of this month's assistant allowance is used, and when it starts again |
 | `/mcp` | The MCP server for Claude Code and other agents (see "Claude Code") |
-| `POST /api/media`, then `POST /api/media/:id/finish` | Upload a file: ask for a signed upload link, PUT the file to it, then finish (see "Media uploads") |
-| `GET /api/media`, `GET /api/media/:id`, `GET /api/media/:id/file`, `DELETE /api/media/:id` | The person's files, a download link for one (as JSON, or a redirect), and deleting one |
+| `POST /api/projects/:id/media`, then `POST /api/media/:id/finish` | Add a file to a project: ask for a signed upload link, PUT the file to it, then finish (see "Media uploads") |
+| `GET /api/projects/:id/media` | The project's files, and how much of its owner's storage is used |
+| `GET /api/media/:id`, `GET /api/media/:id/file`, `DELETE /api/media/:id` | A download link for one file (as JSON, or a redirect), and deleting it (owner) |
 | `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 
 Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything not shared with the person reads as not found, and a change their role does not allow is refused with 403 and a reason.
@@ -356,6 +360,7 @@ The `Production` environment holds:
 | `ASSISTANT_MONTHLY_LIMIT_USD` | Variable | The assistant's allowance per account and month, in US dollars (optional, default 3) |
 | `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_SECRET` | Secrets | Media uploads (optional), an R2 API token with Object Read & Write on the bucket. Needs `CLOUDFLARE_ACCOUNT_ID` too |
 | `R2_BUCKET` | Variable | The private R2 bucket for media (optional, default `deyslide-private-assets`) |
+| `MEDIA_ACCOUNT_LIMIT_MB` | Variable | Media storage per account, in megabytes (optional, default 1024) |
 
 OAuth apps use these callback URLs: `https://deyslide.bambanggunawan.id/api/auth/callback/google` and `https://deyslide.bambanggunawan.id/api/auth/callback/github`.
 
