@@ -1,6 +1,8 @@
 import type { Auth } from './auth.ts'
 import type { ServerConfig } from './config.ts'
+import type { ProjectStore } from './projects.ts'
 import { Hono } from 'hono'
+import { projectRoutes } from './routes.ts'
 
 /** What the web app may offer on its sign in page. */
 export interface PublicConfig {
@@ -12,10 +14,11 @@ export interface PublicConfig {
 export interface AppDependencies {
   config: ServerConfig
   auth: Auth
+  projects: ProjectStore
   emailEnabled: boolean
 }
 
-export function createApp({ config, auth, emailEnabled }: AppDependencies) {
+export function createApp({ config, auth, projects, emailEnabled }: AppDependencies) {
   const app = new Hono().basePath('/api')
 
   app.get('/health', c => c.json({ ok: true }))
@@ -27,6 +30,8 @@ export function createApp({ config, auth, emailEnabled }: AppDependencies) {
   }))
 
   app.on(['GET', 'POST'], '/auth/*', c => auth.handler(c.req.raw))
+
+  app.route('/', projectRoutes(auth, projects))
 
   app.notFound(c => c.json({ error: 'Not found' }, 404))
 

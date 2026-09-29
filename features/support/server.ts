@@ -85,16 +85,35 @@ export class TestBrowser {
   constructor(private readonly server: TestServer) {}
 
   async request(path: string, init: { method?: string, json?: unknown } = {}) {
+    return this.send(path, {
+      method: init.method ?? (init.json === undefined ? 'GET' : 'POST'),
+      body: init.json === undefined ? undefined : JSON.stringify(init.json),
+      headers: init.json === undefined ? {} : { 'content-type': 'application/json' },
+    })
+  }
+
+  async json<T>(path: string, init: { method?: string, json?: unknown } = {}): Promise<{ status: number, body: T }> {
+    const response = await this.request(path, init)
+    const text = await response.text()
+    return { status: response.status, body: (text ? JSON.parse(text) : undefined) as T }
+  }
+
+  /** A `fetch` for code under test, such as the web app's API client, that goes through this browser. */
+  readonly fetch = ((input: RequestInfo | URL, init: RequestInit = {}) => this.send(String(input), {
+    method: init.method ?? 'GET',
+    body: typeof init.body === 'string' ? init.body : undefined,
+    headers: Object.fromEntries(new Headers(init.headers)),
+  })) as typeof fetch
+
+  private async send(path: string, init: { method: string, body?: string, headers: Record<string, string> }) {
     const url = path.startsWith('http') ? path : `${TEST_ORIGIN}${path}`
-    const headers = new Headers({ origin: TEST_ORIGIN })
+    const headers = new Headers({ ...init.headers, origin: TEST_ORIGIN })
     if (this.cookies.size)
       headers.set('cookie', [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; '))
-    if (init.json !== undefined)
-      headers.set('content-type', 'application/json')
     const response = await this.server.app.request(url, {
-      method: init.method ?? (init.json === undefined ? 'GET' : 'POST'),
+      method: init.method,
       headers,
-      body: init.json === undefined ? undefined : JSON.stringify(init.json),
+      body: init.body,
       redirect: 'manual',
     })
     for (const cookie of response.headers.getSetCookie()) {
@@ -115,4 +134,16 @@ export class TestBrowser {
     const session = await response.json() as { user?: { email: string } } | null
     return session?.user?.email
   }
+}
+
+/** A browser signed in as a confirmed account, made through the real sign up flow. */
+export async function signedInBrowser(server: TestServer, email: string) {
+  const browser = new TestBrowser(server)
+  const signUp = await browser.request('/api/auth/sign-up/email', { json: { email, password: 'correct horse', name: email.split('@')[0] } })
+  if (signUp.status !== 200)
+    throw new Error(`Sign up for ${email} failed with ${signUp.status}`)
+  await browser.request(MemoryMailer.link(server.mailer!.last(email)))
+  if (await browser.signedInEmail() !== email)
+    throw new Error(`${email} is not signed in`)
+  return browser
 }

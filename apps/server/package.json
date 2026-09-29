@@ -9,11 +9,13 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@deyslide/deck-model": "workspace:*",
     "@hono/node-server": "^2.1.1",
     "better-auth": "^1.7.6",
     "hono": "^4.13.10",
     "kysely": "^0.29.6",
     "pg": "^8.23.0",
+    "yjs": "^13.6.33",
     "zod": "^4.6.5"
   },
   "devDependencies": {

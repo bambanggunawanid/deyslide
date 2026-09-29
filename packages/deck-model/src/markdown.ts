@@ -8,11 +8,11 @@ import type {
   Scene3DElement,
   ShapeElement,
   Slide,
-} from './schema'
+} from './schema.ts'
 import { parseSync, stringify } from '@slidev/parser/core'
 import { NodeTypes, parse as parseTemplate } from '@vue/compiler-dom'
 import { stringify as stringifyYaml } from 'yaml'
-import { formatPos, parsePos } from './position'
+import { formatPos, parsePos } from './position.ts'
 import {
   AlgoPlayerElementSchema,
   DECK_VERSION,
@@ -21,7 +21,7 @@ import {
   SandboxElementSchema,
   Scene3DElementSchema,
   ShapeElementSchema,
-} from './schema'
+} from './schema.ts'
 
 /**
  * Components the model understands, keyed by tag. Each one maps to an

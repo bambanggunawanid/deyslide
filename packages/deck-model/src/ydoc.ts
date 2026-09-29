@@ -1,6 +1,6 @@
-import type { Deck, DeckElement, Position, Slide } from './schema'
+import type { Deck, DeckElement, Position, Slide } from './schema.ts'
 import * as Y from 'yjs'
-import { DECK_VERSION, DeckSchema } from './schema'
+import { DECK_VERSION, DeckSchema } from './schema.ts'
 
 /**
  * Shape of the live document:
