@@ -6,7 +6,7 @@ import { useAccount } from '../composables/useAccount'
 import { useProjects, useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 
-const { store, projects } = useProjects()
+const { store, projects, shared } = useProjects()
 const { account } = useAccount()
 const { notice } = useWorkspace()
 const router = useRouter()
@@ -59,6 +59,28 @@ async function createProject(name: string) {
         </RouterLink>
       </li>
     </ul>
+
+    <template v-if="shared.length">
+      <h2 class="m-0 mt-10 text-xl font-semibold">
+        Shared with you
+      </h2>
+      <ul class="m-0 mt-4 grid list-none gap-3 p-0 sm:grid-cols-2" data-testid="shared-list">
+        <li v-for="project in shared" :key="project.id">
+          <RouterLink
+            :to="{ name: 'project', params: { projectId: project.id } }"
+            class="dey-panel block transition-colors hover:border-dey-accent"
+            :data-shared-project="project.name"
+          >
+            <span class="block text-lg font-medium">{{ project.name }}</span>
+            <span class="mt-1 block text-sm text-dey-muted">
+              {{ project.shared?.owner.name }} ·
+              {{ project.shared?.role === 'editor' ? 'you can edit' : project.shared?.role === 'viewer' ? 'view only' : plural(project.decks.length, 'deck') + ' shared' }}
+              · changed {{ timeAgo(project.updatedAt) }}
+            </span>
+          </RouterLink>
+        </li>
+      </ul>
+    </template>
 
     <NameDialog
       v-model:open="creating"

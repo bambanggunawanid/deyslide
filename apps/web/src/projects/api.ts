@@ -1,11 +1,14 @@
-import type { DeckSummary, Project } from '../guest/types'
+import type { DeckSummary, Person, Project, SharedRole } from '../guest/types'
+import type { ListEntry, SharingApi, ShareList, ShareTarget } from './sharing'
 import type { ExportedProject } from './types'
 import { toBase64 } from './base64'
 import { StoreError } from './names'
 
 /** The Deyslide API for the signed in person's projects. */
-export interface ProjectApi {
+export interface ProjectApi extends SharingApi {
   list: () => Promise<Project[]>
+  /** Projects and decks other people shared with the person. */
+  shared: () => Promise<Project[]>
   createProject: (name: string) => Promise<Project>
   renameProject: (projectId: string, name: string) => Promise<void>
   deleteProject: (projectId: string) => Promise<void>
@@ -24,6 +27,15 @@ const MESSAGES: Record<number, string> = {
   413: 'That deck is too large to save.',
 }
 
+/** A shared project as the API sends it. */
+interface SharedProjectResponse extends Omit<Project, 'shared'> {
+  owner: Person
+  role: SharedRole | null
+}
+
+const targetPath = (target: ShareTarget) => `/${target.type === 'project' ? 'projects' : 'decks'}/${encodeURIComponent(target.id)}/sharing`
+const entryPath = (entry: ListEntry) => 'userId' in entry ? `/members/${encodeURIComponent(entry.userId)}` : `/invites/${encodeURIComponent(entry.inviteId)}`
+
 export class HttpProjectApi implements ProjectApi {
   private readonly fetchImpl: typeof fetch
 
@@ -33,6 +45,27 @@ export class HttpProjectApi implements ProjectApi {
 
   list() {
     return this.json<Project[]>('GET', '/projects')
+  }
+
+  async shared() {
+    const projects = await this.json<SharedProjectResponse[]>('GET', '/shared')
+    return projects.map(({ owner, role, ...project }) => ({ ...project, shared: { owner, role } }))
+  }
+
+  members(target: ShareTarget) {
+    return this.json<ShareList>('GET', targetPath(target))
+  }
+
+  share(target: ShareTarget, email: string, role: SharedRole) {
+    return this.json<ShareList>('POST', targetPath(target), { email, role })
+  }
+
+  async changeRole(target: ShareTarget, entry: ListEntry, role: SharedRole) {
+    await this.send('PATCH', `${targetPath(target)}${entryPath(entry)}`, { role })
+  }
+
+  async remove(target: ShareTarget, entry: ListEntry) {
+    await this.send('DELETE', `${targetPath(target)}${entryPath(entry)}`)
   }
 
   createProject(name: string) {
@@ -92,7 +125,8 @@ export class HttpProjectApi implements ProjectApi {
     if (response.ok)
       return response
     const reason = await response.json().then((data: { error?: string }) => data.error, () => undefined)
-    const badRequest = response.status === 400 ? reason : undefined
-    throw new StoreError(MESSAGES[response.status] ?? badRequest ?? 'Deyslide could not do that. Try again.')
+    // The server words refusals for people: bad input, and changes a role does not allow.
+    const explained = response.status === 400 || response.status === 403 ? reason : undefined
+    throw new StoreError(MESSAGES[response.status] ?? explained ?? 'Deyslide could not do that. Try again.')
   }
 }

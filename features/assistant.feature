@@ -76,6 +76,17 @@ Feature: Deck assistant
     Then it is refused with 404 "Not found"
     And Claude received 0 requests
 
+  Scenario: A viewer of a shared deck cannot ask for changes
+    Given Ana shared the deck with Budi as a viewer
+    When Budi asks the assistant about Ana's deck
+    Then it is refused with 403 "You can view this deck but not change it, so the assistant cannot work on it."
+    And Claude received 0 requests
+
+  Scenario: An editor of a shared deck can
+    Given Ana shared the deck with Budi as an editor
+    When Budi asks the assistant about Ana's deck
+    Then the stream ends with the reply "Done."
+
   Scenario: Guests cannot use the assistant
     When a guest asks the assistant about Ana's deck
     Then it is refused with 401 "Sign in first"

@@ -72,10 +72,17 @@ Feature: Deyslide MCP server
     Then the answer says slide images are not available
 
   Scenario: Other accounts stay out of reach
-    Given Budi connects Claude Code to his own account
+    Given Budi connects Claude Code to Budi's account
     When Budi's Claude Code reads Ana's deck "Sorting"
     Then it is told "There is no deck with that id in this account. Call list_decks to see the decks."
     And Budi's list_decks is empty
+
+  Scenario: Decks shared with you follow your role
+    Given Ana shared the project "Talks" with Budi as a viewer
+    And Budi connects Claude Code to Budi's account
+    Then Budi's list_decks shows "Sorting" shared by Ana as view only
+    And Budi's Claude Code can read the deck "Sorting"
+    But writing it is refused with "Nothing was saved. You can view this deck but not change it."
 
   Scenario: A token from somewhere else is refused
     When Claude Code calls the MCP server with a made up token

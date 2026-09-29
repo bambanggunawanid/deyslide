@@ -23,9 +23,9 @@ const error = ref('')
 const answered = ref<'allowed' | 'denied'>()
 
 const PERMISSIONS = [
-  'See your projects and decks',
+  'See your projects and decks, and those shared with you',
   'Create projects and decks',
-  'Change the slides in your decks',
+  'Change the slides in decks you can edit',
 ]
 
 onMounted(async () => {
@@ -67,7 +67,7 @@ async function answer(accept: boolean) {
             {{ permission }}
           </li>
         </ul>
-        <span class="text-dey-muted">It cannot delete projects or decks, or see anyone else's work.</span>
+        <span class="text-dey-muted">It cannot delete projects or decks, and it reaches only what you can open in Deyslide.</span>
       </div>
       <p v-if="host" class="m-0 text-xs text-dey-muted" data-testid="consent-host">
         The app named itself. Allow it only if you just started connecting from an app on this computer: it will get the answer at {{ host }}.

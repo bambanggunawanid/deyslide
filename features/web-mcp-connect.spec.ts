@@ -126,7 +126,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     })
     And('it lists what the app may do and that the answer goes to "localhost:33418"', () => {
       const permissions = [...find('[data-testid="consent-permissions"]')!.querySelectorAll('li')].map(item => item.textContent!.trim())
-      expect(permissions).toEqual(['See your projects and decks', 'Create projects and decks', 'Change the slides in your decks'])
+      expect(permissions).toEqual(['See your projects and decks, and those shared with you', 'Create projects and decks', 'Change the slides in decks you can edit'])
       expect(text('[data-testid="consent-host"]')).toContain('localhost:33418')
     })
   })

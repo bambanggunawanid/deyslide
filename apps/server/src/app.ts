@@ -3,10 +3,12 @@ import type { Auth } from './auth.ts'
 import type { ServerConfig } from './config.ts'
 import type { McpDependencies } from './mcp/tools.ts'
 import type { ProjectStore } from './projects.ts'
+import type { SharingStore } from './sharing.ts'
 import { Hono } from 'hono'
 import { assistantRoutes } from './assistant/routes.ts'
 import { mcpRoutes } from './mcp/routes.ts'
 import { projectRoutes } from './routes.ts'
+import { sharingRoutes } from './sharing-routes.ts'
 
 /** What the web app may offer on its sign in page. */
 export interface PublicConfig {
@@ -21,6 +23,7 @@ export interface AppDependencies {
   config: ServerConfig
   auth: Auth
   projects: ProjectStore
+  sharing: SharingStore
   emailEnabled: boolean
   /** The deck assistant, when it is on. */
   assistant?: Omit<AssistantDependencies, 'auth' | 'projects'>
@@ -28,7 +31,7 @@ export interface AppDependencies {
   mcp: McpDependencies
 }
 
-export function createApp({ config, auth, projects, emailEnabled, assistant, mcp }: AppDependencies) {
+export function createApp({ config, auth, projects, sharing, emailEnabled, assistant, mcp }: AppDependencies) {
   const app = new Hono().basePath('/api')
 
   app.get('/health', c => c.json({ ok: true }))
@@ -43,6 +46,7 @@ export function createApp({ config, auth, projects, emailEnabled, assistant, mcp
   app.on(['GET', 'POST'], '/auth/*', c => auth.handler(c.req.raw))
 
   app.route('/', projectRoutes(auth, projects))
+  app.route('/', sharingRoutes(auth, projects, sharing))
   if (assistant)
     app.route('/', assistantRoutes({ ...assistant, auth, projects }))
 

@@ -4,16 +4,21 @@ import { fromMarkdown, slideAtLine, splitSlides, toMarkdown } from '@deyslide/de
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import AssistantPanel from '../assistant/AssistantPanel.vue'
+import ShareDialog from '../components/ShareDialog.vue'
 import { useProjects } from '../composables/useProjects'
 import { useAutosave } from '../editor/autosave'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
+import { canEdit, deckRole } from '../projects/roles'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
 
 const props = defineProps<{ projectId: string, deckId: string }>()
 
-const { store, projects } = useProjects()
-const project = computed(() => projects.value.find(item => item.id === props.projectId))
+const { store, projects, shared } = useProjects()
+const project = computed(() => [...projects.value, ...shared.value].find(item => item.id === props.projectId))
 const summary = computed(() => project.value?.decks.find(deck => deck.id === props.deckId))
+/** Viewers of a shared deck read it; nothing they do is saved. */
+const viewOnly = computed(() => Boolean(project.value && summary.value && !canEdit(deckRole(project.value, summary.value))))
+const sharing = ref(false)
 
 const text = ref('')
 const loaded = ref(false)
@@ -176,13 +181,28 @@ onBeforeUnmount(() => {
       <h1 class="m-0 text-2xl font-semibold" data-testid="deck-name">
         {{ summary.name }}
       </h1>
-      <span class="text-sm" :class="status === 'failed' ? 'text-rose-300' : 'text-dey-muted'" role="status" data-testid="save-status">
+      <span v-if="viewOnly" class="rounded-full border border-dey-line px-2 py-0.5 text-xs text-dey-muted" data-testid="view-only">
+        View only
+      </span>
+      <span v-else class="text-sm" :class="status === 'failed' ? 'text-rose-300' : 'text-dey-muted'" role="status" data-testid="save-status">
         {{ statusLabel }}
       </span>
-      <button class="dey-btn ml-auto text-sm" :disabled="!loaded" data-testid="download-markdown" @click="downloadMarkdown">
+      <span class="ml-auto" />
+      <button v-if="store.sharing && !viewOnly" class="dey-btn text-sm" data-testid="share-deck" @click="sharing = true">
+        Share
+      </button>
+      <button class="dey-btn text-sm" :disabled="!loaded" data-testid="download-markdown" @click="downloadMarkdown">
         Download Markdown
       </button>
     </div>
+
+    <ShareDialog
+      v-if="store.sharing"
+      v-model:open="sharing"
+      :target="{ type: 'deck', id: summary.id }"
+      :name="summary.name"
+      :sharing="store.sharing"
+    />
 
     <p v-if="loadError" class="m-0 text-rose-300" role="alert">
       {{ loadError }}
@@ -206,7 +226,7 @@ onBeforeUnmount(() => {
 
       <div class="grid gap-4 md:grid-cols-2">
         <div class="h-[calc(100dvh-14rem)] min-h-96" :class="view === 'write' ? 'block' : 'hidden md:block'">
-          <MarkdownEditor ref="editor" v-model="text" :readonly="assistantBusy" @cursor="onCursor" />
+          <MarkdownEditor ref="editor" v-model="text" :readonly="assistantBusy || viewOnly" @cursor="onCursor" />
         </div>
 
         <div class="flex flex-col gap-3" :class="view === 'preview' ? 'flex' : 'hidden md:flex'">
@@ -231,7 +251,7 @@ onBeforeUnmount(() => {
           <p v-if="previewError" class="m-0 rounded-md bg-rose-950 p-2 font-mono text-xs text-rose-200" role="alert" data-testid="slide-error">
             {{ previewError }}
           </p>
-          <AssistantPanel :deck-id="deckId" :markdown="text" @update="applyMarkdown" @busy="assistantBusy = $event" />
+          <AssistantPanel v-if="!viewOnly" :deck-id="deckId" :markdown="text" @update="applyMarkdown" @busy="assistantBusy = $event" />
         </div>
       </div>
     </template>

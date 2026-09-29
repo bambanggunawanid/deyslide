@@ -4,7 +4,7 @@ import type { ProjectStore } from './projects.ts'
 import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
-import { DeckContentError, NameSchema } from './projects.ts'
+import { DeckContentError, ForbiddenError, NameSchema } from './projects.ts'
 
 export interface Env {
   Variables: { userId: string }
@@ -66,6 +66,8 @@ export function projectRoutes(auth: Auth, store: ProjectStore) {
   api.onError((error, c) => {
     if (error instanceof BadRequest || error instanceof DeckContentError)
       return c.json({ error: error.message }, 400)
+    if (error instanceof ForbiddenError)
+      return c.json({ error: error.message }, 403)
     throw error
   })
 

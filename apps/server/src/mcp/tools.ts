@@ -5,7 +5,7 @@ import { splitSlides } from '@deyslide/deck-model'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { DeckDraft, EditError } from '../assistant/draft.ts'
-import { NameSchema } from '../projects.ts'
+import { ForbiddenError, NameSchema } from '../projects.ts'
 import { DeckInputError } from './decks.ts'
 import { MCP_GUIDE, MCP_INSTRUCTIONS } from './guide.ts'
 import { RendererUnavailableError } from './renderer.ts'
@@ -72,7 +72,7 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
 
   server.registerTool('list_decks', {
     title: 'List projects and decks',
-    description: 'Lists the person\'s projects and the decks in each, with deck ids, slide counts and editor links.',
+    description: 'Lists the person\'s projects and the decks in each, then projects and decks other people shared with them and the role they have. Includes deck ids, slide counts and editor links.',
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
     const projects = (await decks.list(userId)).map(project => ({
@@ -86,15 +86,36 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
         editorUrl: decks.editorUrl(project.id, deck.id),
       })),
     }))
-    if (projects.length === 0)
-      return text('This account has no projects yet. Create one with create_project.', { projects })
+    const shared = (await decks.shared(userId)).map(project => ({
+      id: project.id,
+      name: project.name,
+      owner: project.owner,
+      role: project.role,
+      decks: project.decks.map(deck => ({
+        id: deck.id,
+        name: deck.name,
+        slideCount: deck.slideCount,
+        updatedAt: new Date(deck.updatedAt).toISOString(),
+        role: deck.role,
+        editorUrl: decks.editorUrl(project.id, deck.id),
+      })),
+    }))
+    if (projects.length === 0 && shared.length === 0)
+      return text('This account has no projects yet. Create one with create_project.', { projects, shared })
     const lines = projects.flatMap(project => [
       `Project "${project.name}" (id ${project.id})`,
       ...(project.decks.length
         ? project.decks.map(deck => `  - Deck "${deck.name}" (id ${deck.id}), ${deck.slideCount} slides, ${deck.editorUrl}`)
         : ['  (no decks)']),
     ])
-    return text(lines.join('\n'), { projects })
+    if (shared.length) {
+      lines.push('', 'Shared with you:')
+      for (const project of shared) {
+        lines.push(`Project "${project.name}" (id ${project.id}) by ${project.owner.name}${project.role ? `, you are ${project.role === 'editor' ? 'an editor' : 'a viewer'}` : ', some decks only'}`)
+        lines.push(...project.decks.map(deck => `  - Deck "${deck.name}" (id ${deck.id}), ${deck.slideCount} slides, ${deck.role === 'editor' ? 'you can edit' : 'view only'}, ${deck.editorUrl}`))
+      }
+    }
+    return text(lines.join('\n'), { projects, shared })
   })
 
   server.registerTool('create_project', {
@@ -128,7 +149,7 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
       })
     }
     catch (error) {
-      if (error instanceof DeckInputError)
+      if (error instanceof DeckInputError || error instanceof ForbiddenError)
         return problem(error.message)
       throw error
     }
@@ -164,7 +185,7 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
       await decks.save(userId, deckId, markdown)
     }
     catch (error) {
-      if (error instanceof DeckInputError)
+      if (error instanceof DeckInputError || error instanceof ForbiddenError)
         return problem(`Nothing was saved. ${error.message}`)
       throw error
     }
@@ -202,7 +223,7 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
       await decks.save(userId, deckId, draft.markdown)
     }
     catch (error) {
-      if (error instanceof DeckInputError)
+      if (error instanceof DeckInputError || error instanceof ForbiddenError)
         return problem(`Nothing was saved. ${error.message}`)
       throw error
     }

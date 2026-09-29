@@ -6,15 +6,17 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NameDialog from '../components/NameDialog.vue'
+import ShareDialog from '../components/ShareDialog.vue'
 import { useProjects } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import { TEMPLATES } from '../guest/templates'
+import { canEdit, deckRole, projectRole } from '../projects/roles'
 
 const props = defineProps<{ projectId: string }>()
 
-const { store, projects } = useProjects()
+const { store, projects, shared } = useProjects()
 const router = useRouter()
-const project = computed(() => projects.value.find(item => item.id === props.projectId))
+const project = computed(() => [...projects.value, ...shared.value].find(item => item.id === props.projectId))
 
 const addingDeck = ref(false)
 const template = ref<DeckTemplate>('blank')
@@ -22,6 +24,13 @@ const renamingProject = ref(false)
 const deletingProject = ref(false)
 const renamingDeck = ref<DeckSummary>()
 const deletingDeck = ref<DeckSummary>()
+const sharing = ref(false)
+
+// Owners do everything. On a shared project, editors add and rename, and viewers only open decks.
+const role = computed(() => project.value && projectRole(project.value))
+const isOwner = computed(() => role.value === 'owner')
+const editable = computed(() => canEdit(role.value))
+const ROLE_NAMES = { owner: 'owner', editor: 'an editor', viewer: 'a viewer' }
 
 async function addDeck(name: string) {
   const deck = await store.value.createDeck(props.projectId, name, template.value)
@@ -46,16 +55,24 @@ async function deleteProject() {
       <h1 class="m-0 text-2xl font-semibold" data-testid="project-name">
         {{ project.name }}
       </h1>
-      <button class="dey-btn ml-auto text-sm" @click="renamingProject = true">
+      <span class="ml-auto" />
+      <button v-if="store.sharing && role" class="dey-btn text-sm" data-testid="share-project" @click="sharing = true">
+        Share
+      </button>
+      <button v-if="editable" class="dey-btn text-sm" @click="renamingProject = true">
         Rename
       </button>
-      <button class="dey-btn text-sm" data-testid="delete-project" @click="deletingProject = true">
+      <button v-if="isOwner" class="dey-btn text-sm" data-testid="delete-project" @click="deletingProject = true">
         Delete
       </button>
-      <button class="dey-btn-primary" data-testid="new-deck" @click="template = 'blank'; addingDeck = true">
+      <button v-if="editable" class="dey-btn-primary" data-testid="new-deck" @click="template = 'blank'; addingDeck = true">
         New deck
       </button>
     </div>
+    <p v-if="project.shared" class="m-0 mt-1 text-sm text-dey-muted" data-testid="shared-by">
+      Shared by {{ project.shared.owner.name }}.
+      {{ project.shared.role ? `You are ${ROLE_NAMES[project.shared.role]}.` : 'Only some of its decks are shared with you.' }}
+    </p>
 
     <div v-if="project.decks.length === 0" class="dey-panel mt-6 text-center" data-testid="empty-decks">
       <p class="m-0 text-lg">
@@ -72,10 +89,13 @@ async function deleteProject() {
           <span class="block text-lg font-medium">{{ deck.name }}</span>
           <span class="block text-sm text-dey-muted">{{ plural(deck.slideCount, 'slide') }} · changed {{ timeAgo(deck.updatedAt) }}</span>
         </RouterLink>
-        <button class="dey-btn ml-auto text-sm" @click="renamingDeck = deck">
+        <span v-if="project.shared" class="ml-auto text-xs text-dey-muted" :data-deck-role="deck.name">
+          {{ deckRole(project, deck) === 'editor' ? 'Can edit' : 'View only' }}
+        </span>
+        <button v-if="canEdit(deckRole(project, deck))" class="dey-btn text-sm" :class="!project.shared && 'ml-auto'" @click="renamingDeck = deck">
           Rename
         </button>
-        <button class="dey-btn text-sm" @click="deletingDeck = deck">
+        <button v-if="isOwner" class="dey-btn text-sm" @click="deletingDeck = deck">
           Delete
         </button>
       </li>
@@ -125,6 +145,14 @@ async function deleteProject() {
       :initial-name="renamingDeck?.name"
       :action="name => store.renameDeck(project!.id, renamingDeck!.id, name)"
       @update:open="value => { if (!value) renamingDeck = undefined }"
+    />
+
+    <ShareDialog
+      v-if="store.sharing"
+      v-model:open="sharing"
+      :target="{ type: 'project', id: project.id }"
+      :name="project.name"
+      :sharing="store.sharing"
     />
 
     <ConfirmDialog

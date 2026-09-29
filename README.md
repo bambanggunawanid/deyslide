@@ -133,6 +133,22 @@ Anyone can start right away, with no account. As a guest, the project list is ke
 
 Signed in, projects and decks live in the account and open on any device. Signing in moves the browser's projects into the account, keeping their ids so old links still work, and then clears them from the browser. If the move fails, they stay in the browser and the move is tried again at the next sign in.
 
+### Sharing
+
+Signed in people share a project, or a single deck, from its **Share** button, by email:
+
+| Role | Can |
+| --- | --- |
+| Owner | Everything: share, change roles, remove people, delete |
+| Editor | Open, edit, rename, add decks to a shared project, and share with others |
+| Viewer | Open and read. The deck page says "View only" and nothing is saved |
+
+- A deck's role is the higher of its own and its project's, so a viewer of a project can be an editor of one deck in it.
+- Only the owner changes roles and removes people. Anyone else can leave.
+- Someone with an account gets a "shared with you" email and finds the work under **Shared with you** on the home page. An address without an account gets an invite, which turns into access when someone signs up with that address and confirms it.
+- The deck assistant and the MCP server follow the same roles: viewers can read a deck, not change it.
+- Deleting a project or deck ends its sharing and cancels its invites. Each project or deck holds at most 50 people and invites.
+
 The pages talk to one `ProjectStore` interface (`apps/web/src/projects/`): `GuestStore` for the browser and `CloudStore` for the account. `startSession` picks the right one at startup, and `Workspace` switches it on sign in and sign out.
 
 The sign in page offers only what the API reports as configured at `/api/config`, so a missing Google app hides the Google button instead of breaking it.
@@ -239,11 +255,14 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `PATCH` and `DELETE /api/decks/:id` | Rename, delete a deck |
 | `GET /api/decks/:id/state` | The deck's Yjs document, as binary |
 | `POST /api/import` | Move browser projects into the account. Running it twice adds nothing |
+| `GET /api/shared` | Projects and single decks other people shared with the signed in person, with the owner and the role |
+| `GET`, `POST /api/projects/:id/sharing` and `/api/decks/:id/sharing` | Who has access, and sharing with an email address as `editor` or `viewer` |
+| `PATCH`, `DELETE .../sharing/members/:userId` and `.../sharing/invites/:inviteId` | Change a role or remove someone (owner), or leave (yourself) |
 | `GET /api/assistant` | How much of this month's assistant allowance is used, and when it starts again |
 | `/mcp` | The MCP server for Claude Code and other agents (see "Claude Code") |
 | `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 
-Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything the person does not own reads as not found.
+Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything not shared with the person reads as not found, and a change their role does not allow is refused with 403 and a reason.
 
 The BDD scenarios run the whole API on [PGlite](https://pglite.dev), Postgres compiled to WebAssembly, so `pnpm test` needs no database.
 

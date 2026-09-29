@@ -36,3 +36,25 @@ export function magicLinkEmail(to: string, url: string): Email {
 export function resetPasswordEmail(to: string, url: string): Email {
   return actionEmail(to, 'Reset your Deyslide password', 'Use this link to choose a new password for Deyslide. It expires in 1 hour.', 'Reset password', url, IGNORE)
 }
+
+/** Names people chose go into subjects, so they stay on one line. */
+function oneLine(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+const ROLE_WORDS = {
+  editor: 'You can view and edit it.',
+  viewer: 'You can view it.',
+}
+
+export function sharedEmail(to: string, sharer: string, target: string, role: keyof typeof ROLE_WORDS, url: string): Email {
+  const who = oneLine(sharer)
+  const what = oneLine(target)
+  return actionEmail(to, `${who} shared ${what} with you`, `${who} shared "${what}" with you on Deyslide. ${ROLE_WORDS[role]}`, 'Open in Deyslide', url, 'You get this email because someone shared their work with this address.')
+}
+
+export function inviteEmail(to: string, sharer: string, target: string, role: keyof typeof ROLE_WORDS, url: string): Email {
+  const who = oneLine(sharer)
+  const what = oneLine(target)
+  return actionEmail(to, `${who} invited you to ${what} on Deyslide`, `${who} invited you to "${what}" on Deyslide, an app for presentations. ${ROLE_WORDS[role]} Create an account with this email address to open it.`, 'Create an account', url, 'If you do not want to join, you can ignore this email.')
+}

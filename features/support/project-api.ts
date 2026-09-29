@@ -1,5 +1,6 @@
-import type { DeckSummary, Project } from '../../apps/web/src/guest/types'
+import type { DeckSummary, Project, SharedRole } from '../../apps/web/src/guest/types'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
+import type { ListEntry, ShareList, ShareTarget } from '../../apps/web/src/projects/sharing'
 import type { ExportedProject } from '../../apps/web/src/projects/types'
 import * as Y from 'yjs'
 import { StoreError } from '../../apps/web/src/projects/names'
@@ -90,6 +91,71 @@ export class FakeProjectApi implements ProjectApi {
       throw new StoreError('That project or deck no longer exists.')
     deck.slideCount = this.slides(state)
     this.states.set(deckId, state)
+  }
+
+  /** Stores a deck's content directly, for decks scenarios set up by hand. */
+  putDeckState(deckId: string, state: Uint8Array) {
+    this.states.set(deckId, state)
+  }
+
+  /** Projects other people shared with the signed in person. Scenarios put them here. */
+  readonly sharedProjects: Project[] = []
+  /** Who has access to each project or deck, by target id. Scenarios set the starting lists. */
+  readonly shareLists = new Map<string, ShareList>()
+  /** Accounts that exist, so sharing with them adds a member instead of an invite. */
+  readonly accounts = new Map<string, string>()
+
+  async shared() {
+    this.check()
+    return structuredClone(this.sharedProjects)
+  }
+
+  private shareList(target: ShareTarget) {
+    const list = this.shareLists.get(target.id)
+    if (!list)
+      throw new StoreError('That project or deck no longer exists.')
+    return list
+  }
+
+  async members(target: ShareTarget) {
+    this.check()
+    return structuredClone(this.shareList(target))
+  }
+
+  async share(target: ShareTarget, email: string, role: SharedRole) {
+    this.check()
+    const list = this.shareList(target)
+    if (list.role === 'viewer')
+      throw new StoreError('Only the owner and editors can share.')
+    if (list.members.some(member => member.email === email) || list.invites.some(invite => invite.email === email))
+      throw new StoreError(`${email} already has access. Change the role in the list instead.`)
+    const name = this.accounts.get(email)
+    if (name)
+      list.members.push({ userId: `user-${email}`, name, email, role })
+    else
+      list.invites.push({ id: `invite-${this.nextId++}`, email, role })
+    return structuredClone(list)
+  }
+
+  async changeRole(target: ShareTarget, entry: ListEntry, role: SharedRole) {
+    this.check()
+    const list = this.shareList(target)
+    if (list.role !== 'owner')
+      throw new StoreError('Only the owner can change roles.')
+    const found = 'userId' in entry ? list.members.find(member => member.userId === entry.userId) : list.invites.find(invite => invite.id === entry.inviteId)
+    if (found)
+      found.role = role
+  }
+
+  async remove(target: ShareTarget, entry: ListEntry) {
+    this.check()
+    const list = this.shareList(target)
+    list.members = list.members.filter(member => !('userId' in entry && member.userId === entry.userId))
+    list.invites = list.invites.filter(invite => !('inviteId' in entry && invite.id === entry.inviteId))
+    // Leaving a shared project takes it off the list.
+    const index = this.sharedProjects.findIndex(project => project.id === target.id)
+    if (index !== -1)
+      this.sharedProjects.splice(index, 1)
   }
 
   async importProjects(projects: ExportedProject[]) {

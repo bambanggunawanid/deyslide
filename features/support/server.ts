@@ -143,9 +143,9 @@ export class TestBrowser {
 }
 
 /** A browser signed in as a confirmed account, made through the real sign up flow. */
-export async function signedInBrowser(server: TestServer, email: string) {
+export async function signedInBrowser(server: TestServer, email: string, name = email.split('@')[0]) {
   const browser = new TestBrowser(server)
-  const signUp = await browser.request('/api/auth/sign-up/email', { json: { email, password: 'correct horse', name: email.split('@')[0] } })
+  const signUp = await browser.request('/api/auth/sign-up/email', { json: { email, password: 'correct horse', name } })
   if (signUp.status !== 200)
     throw new Error(`Sign up for ${email} failed with ${signUp.status}`)
   await browser.request(MemoryMailer.link(server.mailer!.last(email)))
