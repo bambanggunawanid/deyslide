@@ -69,6 +69,19 @@ export interface AssistantUsageTable {
   cost_micros: number
 }
 
+/** A file someone uploaded. It is `pending` until the upload is checked, then `ready`. */
+export interface MediaTable {
+  id: string
+  owner_id: string
+  /** Where the file lives in storage. */
+  key: string
+  name: string
+  type: string
+  size: number
+  status: 'pending' | 'ready'
+  created_at: Timestamp
+}
+
 /** The app's own tables, plus Better Auth's `user` for reading names and emails. */
 export interface Database {
   project: ProjectTable
@@ -77,6 +90,7 @@ export interface Database {
   deck_member: DeckMemberTable
   invite: InviteTable
   assistant_usage: AssistantUsageTable
+  media: MediaTable
   user: UserTable
 }
 
@@ -143,13 +157,29 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute()
     },
   },
+  '2026-09-29-media': {
+    async up(db) {
+      await db.schema.createTable('media')
+        .addColumn('id', 'text', column => column.primaryKey())
+        .addColumn('owner_id', 'text', column => column.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('key', 'text', column => column.notNull().unique())
+        .addColumn('name', 'text', column => column.notNull())
+        .addColumn('type', 'text', column => column.notNull())
+        .addColumn('size', 'integer', column => column.notNull())
+        .addColumn('status', 'text', column => column.notNull().check(sql`status in ('pending', 'ready')`))
+        .addColumn('created_at', 'timestamptz', column => column.notNull().defaultTo(sql`now()`))
+        .execute()
+      await db.schema.createIndex('media_owner_id_index').on('media').column('owner_id').execute()
+    },
+  },
 }
 
 export class MigrationError extends Error {}
 
 /** Brings the app's tables up to date. Runs after Better Auth's, since projects reference users. */
 export async function migrateApp(db: Kysely<any>) {
-  const migrator = new Migrator({ db, provider: { getMigrations: async () => MIGRATIONS } })
+  // Migrations run in name order, and ones added later with an earlier name still run once.
+  const migrator = new Migrator({ db, provider: { getMigrations: async () => MIGRATIONS }, allowUnorderedMigrations: true })
   const { error } = await migrator.migrateToLatest()
   if (error)
     throw new MigrationError(`Database migration failed: ${error instanceof Error ? error.message : String(error)}`)

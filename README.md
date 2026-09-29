@@ -171,6 +171,31 @@ Signed in people can ask Claude to change the open deck from a chat under the pr
 
 The browser sends the deck's Markdown and the chat with each message (`apps/web/src/assistant/`). On the server (`apps/server/src/assistant/`), Claude gets that Markdown with numbered slides and four tools: `replace_slide`, `insert_slide`, `delete_slide` and `move_slide`. The tools change a copy of the Markdown in memory, and a change that would split a slide in two, break its frontmatter YAML or make an unreadable deck goes back to Claude as an error instead. Claude has no tool that reads the database or any other deck, and a request for a deck the person does not own is refused before Claude sees anything.
 
+## Media uploads
+
+Signed in people can upload images, video and audio for their slides. Every file is private to the person who uploaded it, in a private Cloudflare R2 bucket under `users/<account id>/`. The editor starts using this in phase 4; for now it is an API.
+
+- Accepted: PNG, JPEG, GIF, WebP, AVIF, MP4, WebM, MOV, MP3, M4A, OGG and WAV, up to 100 MB each. SVG is refused, since it can carry scripts.
+- Uploads go straight from the browser to R2 with a signed link that works for 15 minutes and only for the declared type and size, so large files never pass through the API or the tunnel.
+- Finishing an upload checks the stored size and the file's first bytes against its type. A file that is not what it claims is deleted.
+- Downloads use signed links that work for an hour. `GET /api/media/:id/file` redirects to a fresh one, so pages can use a stable address.
+- Uploads never finished are cleaned up after a day.
+
+The browser talks to R2 directly, so the bucket needs a CORS policy. In the Cloudflare dashboard, open the bucket, then **Settings**, **CORS policy**, and add:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://deyslide.bambanggunawan.id"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+For local development, add `http://localhost:5173` to `AllowedOrigins`.
+
 ## Claude Code
 
 People who use [Claude Code](https://claude.com/claude-code) can build and edit their Deyslide decks from it, with their own Claude plan: no API key and nothing to buy on Deyslide. Install the plugin, which brings the MCP server and a skill on writing good decks:
@@ -246,6 +271,7 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `ASSISTANT_MONTHLY_LIMIT_USD` | `3` | What each account may spend on the assistant per month, in US dollars |
 | `ASSISTANT_ENABLED` | on with an API key | `true` turns the assistant on with an `ant auth login` profile instead of a key, `false` turns it off |
 | `RENDERER_URL` | none | The slide renderer for the MCP server: `http://host:port` or `unix:/path/to/socket`. Without it, `render_slides` says images are unavailable |
+| `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_SECRET`, `R2_BUCKET` | none | Media uploads to Cloudflare R2, with `CLOUDFLARE_ACCOUNT_ID`. Without all four, media is off |
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -260,6 +286,8 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `PATCH`, `DELETE .../sharing/members/:userId` and `.../sharing/invites/:inviteId` | Change a role or remove someone (owner), or leave (yourself) |
 | `GET /api/assistant` | How much of this month's assistant allowance is used, and when it starts again |
 | `/mcp` | The MCP server for Claude Code and other agents (see "Claude Code") |
+| `POST /api/media`, then `POST /api/media/:id/finish` | Upload a file: ask for a signed upload link, PUT the file to it, then finish (see "Media uploads") |
+| `GET /api/media`, `GET /api/media/:id`, `GET /api/media/:id/file`, `DELETE /api/media/:id` | The person's files, a download link for one (as JSON, or a redirect), and deleting one |
 | `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 
 Every deck written is checked with `@deyslide/deck-model` before it is saved, and at most 5 MB is accepted. Anything not shared with the person reads as not found, and a change their role does not allow is refused with 403 and a reason.
@@ -326,6 +354,8 @@ The `Production` environment holds:
 | `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` | Secrets | GitHub sign in (optional). GitHub reserves the `GITHUB_` prefix |
 | `ANTHROPIC_API_KEY` | Secret | The deck assistant (optional) |
 | `ASSISTANT_MONTHLY_LIMIT_USD` | Variable | The assistant's allowance per account and month, in US dollars (optional, default 3) |
+| `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_SECRET` | Secrets | Media uploads (optional), an R2 API token with Object Read & Write on the bucket. Needs `CLOUDFLARE_ACCOUNT_ID` too |
+| `R2_BUCKET` | Variable | The private R2 bucket for media (optional, default `deyslide-private-assets`) |
 
 OAuth apps use these callback URLs: `https://deyslide.bambanggunawan.id/api/auth/callback/google` and `https://deyslide.bambanggunawan.id/api/auth/callback/github`.
 
