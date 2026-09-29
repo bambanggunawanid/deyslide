@@ -24,6 +24,8 @@ const EnvSchema = z.object({
   ASSISTANT_ENABLED: z.preprocess(unsetIfEmpty, z.enum(['true', 'false']).optional()),
   /** What each account may spend on the assistant per calendar month, in US dollars. */
   ASSISTANT_MONTHLY_LIMIT_USD: z.preprocess(unsetIfEmpty, z.coerce.number().positive().default(3)),
+  /** The slide renderer for the MCP server: an http URL, or unix:/path/to/socket. */
+  RENDERER_URL: optional,
 })
 
 export interface OAuthCredentials {
@@ -43,6 +45,8 @@ export interface ServerConfig {
   github?: OAuthCredentials
   /** Present when the assistant is on. */
   assistant?: { monthlyLimitUsd: number }
+  /** Where the slide renderer listens, when there is one. */
+  rendererUrl?: string
 }
 
 /** Development only. Production refuses to start without a real secret. */
@@ -80,5 +84,6 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     assistant: values.ASSISTANT_ENABLED === 'true' || (values.ASSISTANT_ENABLED !== 'false' && values.ANTHROPIC_API_KEY)
       ? { monthlyLimitUsd: values.ASSISTANT_MONTHLY_LIMIT_USD }
       : undefined,
+    rendererUrl: values.RENDERER_URL,
   }
 }

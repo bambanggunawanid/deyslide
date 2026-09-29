@@ -24,10 +24,15 @@ export interface AccountService {
   /** Creates the account and sends the confirmation email. */
   signUp: (input: { name: string, email: string, password: string }) => Promise<void>
   signIn: (input: { email: string, password: string }) => Promise<Account>
-  sendMagicLink: (email: string) => Promise<void>
-  /** Leaves the page for the provider's sign in screen. */
-  signInWith: (provider: SocialProvider) => Promise<void>
+  /** `next` is where the link leads after signing in. */
+  sendMagicLink: (email: string, next?: string) => Promise<void>
+  /** Leaves the page for the provider's sign in screen. `next` is where it leads after signing in. */
+  signInWith: (provider: SocialProvider, next?: string) => Promise<void>
   requestPasswordReset: (email: string) => Promise<void>
   resetPassword: (input: { token: string, password: string }) => Promise<void>
   signOut: () => Promise<void>
+  /** The name an app asking for access gave itself, for the consent page. */
+  oauthClientName: (clientId: string) => Promise<string | undefined>
+  /** Answers an app's request for access. Returns where to send the browser: back to the app. */
+  answerConsent: (signedQuery: string, accept: boolean) => Promise<string>
 }

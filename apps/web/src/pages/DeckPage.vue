@@ -91,8 +91,8 @@ function showSlide(index: number) {
 /** True while the assistant edits the deck. The editor is read only until it finishes. */
 const assistantBusy = ref(false)
 
-/** Takes the assistant's Markdown and shows the slide it changed, or the nearest slide that still exists. */
-function applyAssistant(markdown: string, slideIndex?: number) {
+/** Puts new Markdown in the editor and shows the given slide, or the nearest slide that still exists. */
+function applyMarkdown(markdown: string, slideIndex?: number) {
   text.value = markdown
   current.value = Math.max(0, Math.min(slideIndex ?? current.value, splitSlides(markdown).length - 1))
 }
@@ -120,6 +120,25 @@ function downloadMarkdown() {
   URL.revokeObjectURL(url)
 }
 
+/**
+ * Takes changes made somewhere else, such as by Claude Code through the MCP
+ * server, when the tab comes back into view. Unsaved typing is never replaced.
+ */
+async function refreshFromStore() {
+  if (!loaded.value || status.value !== 'saved' || assistantBusy.value || document.visibilityState !== 'visible')
+    return
+  try {
+    const markdown = toMarkdown(await store.value.readDeck(props.deckId), { ids: false })
+    if (markdown !== text.value && status.value === 'saved') {
+      markSaved(markdown)
+      applyMarkdown(markdown)
+    }
+  }
+  catch {
+    // The next focus tries again.
+  }
+}
+
 // Save what is left before leaving the page or closing the tab.
 onBeforeRouteLeave(() => flush())
 function warnBeforeUnload(event: BeforeUnloadEvent) {
@@ -128,9 +147,15 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
     event.preventDefault()
   }
 }
-onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
+onMounted(() => {
+  window.addEventListener('beforeunload', warnBeforeUnload)
+  window.addEventListener('focus', refreshFromStore)
+  document.addEventListener('visibilitychange', refreshFromStore)
+})
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
+  window.removeEventListener('focus', refreshFromStore)
+  document.removeEventListener('visibilitychange', refreshFromStore)
   clearTimeout(previewTimer)
 })
 </script>
@@ -206,7 +231,7 @@ onBeforeUnmount(() => {
           <p v-if="previewError" class="m-0 rounded-md bg-rose-950 p-2 font-mono text-xs text-rose-200" role="alert" data-testid="slide-error">
             {{ previewError }}
           </p>
-          <AssistantPanel :deck-id="deckId" :markdown="text" @update="applyAssistant" @busy="assistantBusy = $event" />
+          <AssistantPanel :deck-id="deckId" :markdown="text" @update="applyMarkdown" @busy="assistantBusy = $event" />
         </div>
       </div>
     </template>

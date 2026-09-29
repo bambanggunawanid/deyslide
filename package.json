@@ -36,6 +36,7 @@
     "@anthropic-ai/sdk": "^0.129.0",
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@motion-canvas/player": "^3.17.2",
     "@playwright/test": "1.63.0",
     "@slidev/parser": "53.0.0",

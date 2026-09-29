@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { browser, oauthContinueUrl } from '../account/oauth'
 import { runForm } from '../account/run'
 import AuthCard from '../components/AuthCard.vue'
 import FormError from '../components/FormError.vue'
@@ -24,15 +25,27 @@ const LINK_ERRORS: Record<string, string> = {
 const linkError = computed(() => LINK_ERRORS[String(route.query.error)] ?? '')
 const anyOption = computed(() => options.email || options.google || options.github)
 
+// An app such as Claude Code sent the person here. After signing in, its request carries on.
+const next = computed(() => oauthContinueUrl(route.query))
+const { account } = useAccount()
+
+onMounted(async () => {
+  if (next.value && account.value)
+    browser.leave(next.value)
+})
+
 async function signIn() {
   await runForm(busy, error, async () => {
     await setAccount(await service.signIn({ email: email.value, password: password.value }))
-    await router.push('/')
+    if (next.value)
+      browser.leave(next.value)
+    else
+      await router.push('/')
   })
 }
 
 async function sendLink() {
-  if (await runForm(busy, error, () => service.sendMagicLink(email.value)))
+  if (await runForm(busy, error, () => service.sendMagicLink(email.value, next.value)))
     mode.value = 'link-sent'
 }
 </script>
@@ -46,13 +59,17 @@ async function sendLink() {
       </RouterLink>
     </p>
 
+    <p v-if="next" class="m-0 rounded-md border border-dey-line p-3 text-sm" data-testid="oauth-sign-in">
+      An app wants to connect to your Deyslide account. Sign in, then choose whether to allow it.
+    </p>
+
     <FormError :message="linkError" />
 
     <p v-if="!anyOption" class="m-0" data-testid="sign-in-unavailable">
       Sign in is unavailable right now. Your projects stay safe in this browser.
     </p>
 
-    <SocialButtons />
+    <SocialButtons :next="next" />
 
     <template v-if="options.email">
       <p v-if="options.google || options.github" class="m-0 text-center text-sm text-dey-muted">

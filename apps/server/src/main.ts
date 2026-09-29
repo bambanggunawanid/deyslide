@@ -6,6 +6,7 @@ import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
 import { ClaudeModel } from './assistant/model.ts'
 import { readConfig } from './config.ts'
+import { HttpSlideRenderer } from './mcp/renderer.ts'
 import { CloudflareMailer, ConsoleMailer } from './mailer.ts'
 import { createServer } from './server.ts'
 
@@ -26,7 +27,9 @@ else
 // The SDK reads ANTHROPIC_API_KEY, or a local `ant auth login` profile.
 const assistantModel = config.assistant ? new ClaudeModel(new Anthropic()) : undefined
 
-const { app } = await createServer({ config, db, mailer, assistantModel })
+const renderer = config.rendererUrl ? new HttpSlideRenderer(config.rendererUrl) : undefined
+
+const { app } = await createServer({ config, db, mailer, assistantModel, renderer })
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.info(`Deyslide API listening on http://${info.address}:${info.port}`)
