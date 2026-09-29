@@ -1,77 +1,43 @@
-import type { VueWrapper } from '@vue/test-utils'
-import type { Router } from 'vue-router'
+import type { GuestStore } from '../apps/web/src/guest/store'
+import type { WebApp } from './support/web'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
-import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
-import { createMemoryHistory } from 'vue-router'
-import App from '../apps/web/src/App.vue'
-import { GUEST_STORE_KEY } from '../apps/web/src/composables/useGuestStore'
-import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
-import { GuestStore } from '../apps/web/src/guest/store'
-import { createAppRouter } from '../apps/web/src/router'
+import { find, findAll, mountWebApp, text } from './support/web'
 
 const feature = await loadFeature('./web-app.feature')
 
 describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
-  let wrapper: VueWrapper
-  let router: Router
+  let web: WebApp
   let store: GuestStore
 
-  // Dialogs render in a portal on document.body, outside the wrapper.
-  const find = (selector: string) => document.body.querySelector<HTMLElement>(selector)
-  const findAll = (selector: string) => [...document.body.querySelectorAll<HTMLElement>(selector)]
-  const text = (selector: string) => find(selector)?.textContent?.trim() ?? ''
-
-  async function settle() {
-    await flushPromises()
-    await router.isReady()
-    await flushPromises()
-  }
-
-  async function click(selector: string) {
-    await vi.waitFor(() => expect(find(selector)).not.toBeNull())
-    find(selector)!.click()
-    await settle()
-  }
+  const click = (selector: string) => web.click(selector)
+  const router = () => web.router
 
   async function submitName(name: string) {
-    await vi.waitFor(() => expect(find('[data-testid="name-input"]')).not.toBeNull())
-    const input = find('[data-testid="name-input"]') as HTMLInputElement
-    input.value = name
-    input.dispatchEvent(new Event('input'))
-    await settle()
+    await web.fill('[data-testid="name-input"]', name)
     await click('[data-testid="name-submit"]')
   }
 
   async function createProject(name: string) {
     await click('[data-testid="new-project"]')
     await submitName(name)
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('project'))
+    await vi.waitFor(() => expect(router().currentRoute.value.name).toBe('project'))
   }
 
   async function addDeck(name: string, template: string) {
     await click('[data-testid="new-deck"]')
     await click(`[data-template="${template}"]`)
     await submitName(name)
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('deck'))
+    await vi.waitFor(() => expect(router().currentRoute.value.name).toBe('deck'))
     await vi.waitFor(() => expect(find('[data-testid="slide-outline"]')).not.toBeNull())
   }
 
-  AfterEachScenario(() => {
-    wrapper?.unmount()
-    document.body.innerHTML = ''
-  })
+  AfterEachScenario(() => web?.unmount())
 
   Background(({ Given }) => {
     Given('the web app opened at "/"', async () => {
-      store = await GuestStore.open(new MemoryGuestStorage())
-      router = createAppRouter(createMemoryHistory())
-      await router.push('/')
-      wrapper = mount(App, {
-        attachTo: document.body,
-        global: { plugins: [router], provide: { [GUEST_STORE_KEY as symbol]: store } },
-      })
-      await settle()
+      web = await mountWebApp()
+      store = web.store
     })
   })
 
@@ -89,7 +55,7 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       await createProject('Algorithms 101')
     })
     Then('the project page for "Algorithms 101" is open', () => {
-      expect(router.currentRoute.value.params.projectId).toBe(store.listProjects()[0].id)
+      expect(router().currentRoute.value.params.projectId).toBe(store.listProjects()[0].id)
       expect(text('[data-testid="project-name"]')).toBe('Algorithms 101')
     })
     And('it says the project has no decks', () => {
@@ -153,8 +119,8 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
 
   Scenario('A link to a project from another browser', ({ When, Then }) => {
     When('they open "/p/unknown-project"', async () => {
-      await router.push('/p/unknown-project')
-      await settle()
+      await router().push('/p/unknown-project')
+      await web.settle()
     })
     Then('the page says the project is not in this browser', () => {
       expect(text('[data-testid="missing-project"]')).toContain('not in this browser')
