@@ -1,3 +1,4 @@
+import type { R2Settings } from './media/storage.ts'
 import { z } from 'zod'
 
 const optional = z.string().trim().optional().transform(value => value || undefined)
@@ -26,6 +27,14 @@ const EnvSchema = z.object({
   ASSISTANT_MONTHLY_LIMIT_USD: z.preprocess(unsetIfEmpty, z.coerce.number().positive().default(3)),
   /** The slide renderer for the MCP server: an http URL, or unix:/path/to/socket. */
   RENDERER_URL: optional,
+  /** Cloudflare R2, where media uploads live. Media is on when the keys and the bucket are set. */
+  CLOUDFLARE_R2_ACCESS_KEY_ID: optional,
+  CLOUDFLARE_R2_ACCESS_KEY_SECRET: optional,
+  R2_BUCKET: optional,
+  /** Storage for all of one account's projects, in megabytes. */
+  MEDIA_ACCOUNT_LIMIT_MB: z.preprocess(unsetIfEmpty, z.coerce.number().int().positive().default(1024)),
+  /** An S3 endpoint in place of R2's, for tests. */
+  R2_ENDPOINT: optional,
 })
 
 export interface OAuthCredentials {
@@ -47,6 +56,10 @@ export interface ServerConfig {
   assistant?: { monthlyLimitUsd: number }
   /** Where the slide renderer listens, when there is one. */
   rendererUrl?: string
+  /** Present when media uploads are on. */
+  r2?: R2Settings
+  /** Storage for all of one account's projects, in bytes. */
+  mediaAccountLimitBytes: number
 }
 
 /** Development only. Production refuses to start without a real secret. */
@@ -85,5 +98,15 @@ export function readConfig(env: Record<string, string | undefined> = process.env
       ? { monthlyLimitUsd: values.ASSISTANT_MONTHLY_LIMIT_USD }
       : undefined,
     rendererUrl: values.RENDERER_URL,
+    r2: values.CLOUDFLARE_ACCOUNT_ID && values.CLOUDFLARE_R2_ACCESS_KEY_ID && values.CLOUDFLARE_R2_ACCESS_KEY_SECRET && values.R2_BUCKET
+      ? {
+          accountId: values.CLOUDFLARE_ACCOUNT_ID,
+          accessKeyId: values.CLOUDFLARE_R2_ACCESS_KEY_ID,
+          secretAccessKey: values.CLOUDFLARE_R2_ACCESS_KEY_SECRET,
+          bucket: values.R2_BUCKET,
+          endpoint: values.R2_ENDPOINT,
+        }
+      : undefined,
+    mediaAccountLimitBytes: values.MEDIA_ACCOUNT_LIMIT_MB * 1024 * 1024,
   }
 }

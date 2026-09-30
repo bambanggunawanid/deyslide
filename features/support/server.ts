@@ -1,6 +1,7 @@
 import type { AssistantModel } from '../../apps/server/src/assistant/model'
 import type { ServerConfig } from '../../apps/server/src/config'
 import type { Email, Mailer } from '../../apps/server/src/mailer'
+import type { MediaStorage } from '../../apps/server/src/media/storage'
 import type { SlideRenderer } from '../../apps/server/src/mcp/renderer'
 import { PGlite } from '@electric-sql/pglite'
 import { Kysely } from 'kysely'
@@ -41,6 +42,7 @@ export interface TestServerOptions {
   assistantModel?: AssistantModel
   now?: () => Date
   renderer?: SlideRenderer
+  mediaStorage?: MediaStorage
 }
 
 let template: Promise<PGlite> | undefined
@@ -69,13 +71,13 @@ export async function warmUpDatabase() {
 }
 
 /** A full API on an in-memory Postgres (PGlite), with an empty database. */
-export async function createTestServer({ email = true, env = {}, assistantModel, now, renderer }: TestServerOptions = {}) {
+export async function createTestServer({ email = true, env = {}, assistantModel, now, renderer, mediaStorage }: TestServerOptions = {}) {
   const config: ServerConfig = readConfig({ PUBLIC_URL: TEST_ORIGIN, ...(assistantModel ? { ASSISTANT_ENABLED: 'true' } : {}), ...env })
   // clone() returns a full PGlite, typed only as its interface.
   const pglite = await (await migratedTemplate()).clone() as PGlite
   const db = new Kysely<any>({ dialect: new PGliteDialect(pglite) })
   const mailer = email ? new MemoryMailer() : undefined
-  const { app } = await createServer({ config, db, mailer, assistantModel, now, renderer })
+  const { app } = await createServer({ config, db, mailer, assistantModel, now, renderer, mediaStorage })
   return { app, db, mailer, config }
 }
 

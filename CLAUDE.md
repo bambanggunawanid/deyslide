@@ -53,7 +53,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | Path | Purpose |
 | --- | --- |
 | `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`) and the assistant chat (`src/assistant/`), sign in pages, guest storage in the browser |
-| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, the Claude deck assistant (`src/assistant/`) and the MCP server for Claude Code (`src/mcp/`), bundled into one file for production |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, the Claude deck assistant (`src/assistant/`), the MCP server for Claude Code (`src/mcp/`) and private media uploads to Cloudflare R2 (`src/media/`), bundled into one file for production |
 | `apps/renderer/` | Draws slides to PNG with the web app's preview in headless Chromium, for the MCP server |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |

@@ -69,6 +69,25 @@ export interface AssistantUsageTable {
   cost_micros: number
 }
 
+/**
+ * A file in a project's media library. It is `pending` until the upload is
+ * checked, then `ready`. Everyone the project is shared with can open it,
+ * and it counts toward the project owner's storage.
+ */
+export interface MediaTable {
+  id: string
+  project_id: string
+  /** Who uploaded it, or null once that account is gone. */
+  uploaded_by: string | null
+  /** Where the file lives in storage. */
+  key: string
+  name: string
+  type: string
+  size: number
+  status: 'pending' | 'ready'
+  created_at: Timestamp
+}
+
 /** The app's own tables, plus Better Auth's `user` for reading names and emails. */
 export interface Database {
   project: ProjectTable
@@ -77,6 +96,7 @@ export interface Database {
   deck_member: DeckMemberTable
   invite: InviteTable
   assistant_usage: AssistantUsageTable
+  media: MediaTable
   user: UserTable
 }
 
@@ -141,6 +161,22 @@ const MIGRATIONS: Record<string, Migration> = {
         .addColumn('cost_micros', 'integer', column => column.notNull())
         .addPrimaryKeyConstraint('assistant_usage_primary_key', ['user_id', 'month'])
         .execute()
+    },
+  },
+  '2026-09-30-media': {
+    async up(db) {
+      await db.schema.createTable('media')
+        .addColumn('id', 'text', column => column.primaryKey())
+        .addColumn('project_id', 'text', column => column.notNull().references('project.id').onDelete('cascade'))
+        .addColumn('uploaded_by', 'text', column => column.references('user.id').onDelete('set null'))
+        .addColumn('key', 'text', column => column.notNull().unique())
+        .addColumn('name', 'text', column => column.notNull())
+        .addColumn('type', 'text', column => column.notNull())
+        .addColumn('size', 'integer', column => column.notNull())
+        .addColumn('status', 'text', column => column.notNull().check(sql`status in ('pending', 'ready')`))
+        .addColumn('created_at', 'timestamptz', column => column.notNull().defaultTo(sql`now()`))
+        .execute()
+      await db.schema.createIndex('media_project_id_index').on('media').column('project_id').execute()
     },
   },
 }

@@ -1,10 +1,13 @@
 import type { Kysely } from 'kysely'
 import type { AssistantModel } from './assistant/model.ts'
+import type { MediaStorage } from './media/storage.ts'
 import type { SlideRenderer } from './mcp/renderer.ts'
 import type { ServerConfig } from './config.ts'
 import type { Mailer } from './mailer.ts'
 import { createApp } from './app.ts'
 import { UsageStore } from './assistant/usage.ts'
+import { R2MediaStorage } from './media/storage.ts'
+import { MediaStore } from './media/store.ts'
 import { MarkdownDecks } from './mcp/decks.ts'
 import { createAuth, migrateAuth } from './auth.ts'
 import { migrateApp } from './db.ts'
@@ -24,10 +27,12 @@ export interface ServerDependencies {
   now?: () => Date
   /** Draws slides for the MCP server's render_slides tool. */
   renderer?: SlideRenderer
+  /** Storage for media uploads in place of R2, for tests. Without it, R2 is used when the settings name it. */
+  mediaStorage?: MediaStorage
 }
 
 /** Wires the pieces together and brings the database schema up to date. */
-export async function createServer({ config, db, mailer, assistantModel, now, renderer }: ServerDependencies) {
+export async function createServer({ config, db, mailer, assistantModel, now, renderer, mediaStorage }: ServerDependencies) {
   const projects = new ProjectStore(db)
   const sharing = new SharingStore({ db, projects, publicUrl: config.publicUrl, mailer })
   const auth = createAuth({ config, db, mailer, onConfirmedSignIn: user => sharing.claimInvites(user.id, user.email) })
@@ -38,6 +43,8 @@ export async function createServer({ config, db, mailer, assistantModel, now, re
     ? { model: assistantModel, usage, monthlyLimitUsd: config.assistant.monthlyLimitUsd, now }
     : undefined
   const mcp = { decks: new MarkdownDecks(projects, config.publicUrl), renderer, version: SERVER_VERSION }
-  const app = createApp({ config, auth, projects, sharing, emailEnabled: Boolean(mailer), assistant, mcp })
-  return { app, auth, projects, sharing, usage }
+  const storage = mediaStorage ?? (config.r2 && new R2MediaStorage(config.r2))
+  const media = storage && new MediaStore(db, storage, projects, { accountLimitBytes: config.mediaAccountLimitBytes, now })
+  const app = createApp({ config, auth, projects, sharing, emailEnabled: Boolean(mailer), assistant, mcp, media })
+  return { app, auth, projects, sharing, usage, media }
 }

@@ -75,6 +75,11 @@ jobs:
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASSISTANT_MONTHLY_LIMIT_USD: ${{ vars.ASSISTANT_MONTHLY_LIMIT_USD }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_ACCESS_KEY_SECRET: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_SECRET }}
+          # Project files are private, in the private bucket.
+          R2_BUCKET: ${{ vars.R2_BUCKET || 'deyslide-private-assets' }}
+          MEDIA_ACCOUNT_LIMIT_MB: ${{ vars.MEDIA_ACCOUNT_LIMIT_MB }}
         run: |
           ssh_opts=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=20)
           ssh "${ssh_opts[@]}" "$SERVER" 'mkdir -p ~/deyslide'
@@ -83,7 +88,7 @@ jobs:
             | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/.env'
           {
             printf 'PUBLIC_URL=%s\n' "$PUBLIC_URL"
-            for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET ANTHROPIC_API_KEY ASSISTANT_MONTHLY_LIMIT_USD; do
+            for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET ANTHROPIC_API_KEY ASSISTANT_MONTHLY_LIMIT_USD CLOUDFLARE_R2_ACCESS_KEY_ID CLOUDFLARE_R2_ACCESS_KEY_SECRET R2_BUCKET MEDIA_ACCOUNT_LIMIT_MB; do
               printf '%s=%s\n' "$name" "${!name}"
             done
           } | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/server.env'

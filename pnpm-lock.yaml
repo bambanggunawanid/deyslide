@@ -91,7 +91,7 @@ importers:
         version: link:../../packages/components
       '@slidev/cli':
         specifier: ^53.0.0
-        version: 53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
+        version: 53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)
       '@slidev/theme-default':
         specifier: ^0.25.0
         version: 0.25.0
@@ -151,6 +151,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(zod@4.6.5)
+      aws4fetch:
+        specifier: ^1.0.20
+        version: 1.0.20
       better-auth:
         specifier: ^1.7.6
         version: 1.7.6(pg@8.23.0)(vitest@5.0.2(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.1)))(vue@3.5.43(typescript@6.0.3))
@@ -1811,6 +1814,9 @@ packages:
   ast-walker-scope@0.9.0:
     resolution: {integrity: sha512-IJdzo2vLiElBxKzwS36VsCue/62d6IdWjnPB2v3nuPKeWGynp6FF/CYoLa5i/3jXH/z97ZDdsXz6abpgM6w07A==}
     engines: {node: '>=20.19.0'}
+
+  aws4fetch@1.0.20:
+    resolution: {integrity: sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g==}
 
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
@@ -5404,7 +5410,7 @@ snapshots:
 
   '@shikijs/vscode-textmate@10.0.2': {}
 
-  '@slidev/cli@53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(oxc-parser@0.150.0)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)':
+  '@slidev/cli@53.0.0(@nuxt/kit@3.21.11)(@types/markdown-it@14.2.0)(@types/node@26.6.3)(@vue/compiler-sfc@3.5.43)(cac@7.0.0)(hono@4.13.10)(markdown-it@14.3.2)(playwright-chromium@1.63.0)(postcss@8.5.28)(rolldown@1.2.11)(srvx@1.0.5)':
     dependencies:
       '@antfu/ni': 30.6.0
       '@antfu/utils': 9.3.0
@@ -6488,6 +6494,8 @@ snapshots:
       '@babel/parser': 7.29.9
       '@babel/types': 7.29.8
       ast-kit: 2.2.0
+
+  aws4fetch@1.0.20: {}
 
   balanced-match@4.0.4: {}
 
