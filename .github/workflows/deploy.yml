@@ -106,9 +106,9 @@ jobs:
           cp release.new/up.sh release.new/nginx.conf .
           rm -f compose.yaml
 
-          # up.sh recreates the app and server containers, so their bind
-          # mounts pick up the new folders.
-          for folder in site server; do
+          # up.sh recreates the app, server and renderer containers, so their
+          # bind mounts pick up the new folders.
+          for folder in site server renderer; do
             rm -rf "$folder.old"
             if [ -d "$folder" ]; then mv "$folder" "$folder.old"; fi
             mv "release.new/$folder" "$folder"
@@ -116,7 +116,7 @@ jobs:
           rm -rf release.new
 
           ./up.sh
-          rm -rf site.old server.old
+          rm -rf site.old server.old renderer.old
           SCRIPT
 
       - name: Check the public site
