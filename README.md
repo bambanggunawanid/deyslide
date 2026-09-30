@@ -352,7 +352,7 @@ The `Production` environment holds:
 | `TAILSCALE_CLIENT_ID`, `TAILSCALE_CLIENT_KEY` | Secrets | Reaching the server |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Secret | Publishing the site |
 | `TAILSCALE_SERVER_IP` | Variable | Reaching the server |
-| `CLOUDFLARE_ACCOUNT_ID` | Variable | Email sign in (optional) |
+| `CLOUDFLARE_ACCOUNT_ID` | Variable or secret | Email sign in and media uploads (optional) |
 | `CLOUDFLARE_EMAIL_TOKEN` | Secret | Email sign in (optional), a token with Email Sending: Edit |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Secrets | Google sign in (optional) |
 | `GH_OAUTH_CLIENT_ID`, `GH_OAUTH_CLIENT_SECRET` | Secrets | GitHub sign in (optional). GitHub reserves the `GITHUB_` prefix |
