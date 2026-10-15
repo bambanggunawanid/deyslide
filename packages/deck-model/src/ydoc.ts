@@ -1,6 +1,7 @@
-import type { Deck, DeckElement, Position, Slide } from './schema.ts'
+import type { Deck, DeckElement, Slide } from './schema.ts'
 import * as Y from 'yjs'
 import { DECK_VERSION, DeckSchema } from './schema.ts'
+import { DECK_KEY, elementValues, slidesOf, slideToY } from './y-shape.ts'
 
 /**
  * Shape of the live document:
@@ -17,40 +18,7 @@ import { DECK_VERSION, DeckSchema } from './schema.ts'
  *                                           concurrent typing merges
  *         every other field as plain JSON
  */
-export const DECK_KEY = 'deck'
-
-const TEXT_FIELDS = new Set(['markdown'])
-
-function positionToY(pos: Position) {
-  const map = new Y.Map<number | null>()
-  for (const [key, value] of Object.entries(pos))
-    map.set(key, value)
-  return map
-}
-
-function elementToY(element: DeckElement) {
-  const map = new Y.Map<unknown>()
-  for (const [key, value] of Object.entries(element)) {
-    if (key === 'pos')
-      map.set(key, positionToY(value as Position))
-    else if (TEXT_FIELDS.has(key))
-      map.set(key, new Y.Text(value as string))
-    else
-      map.set(key, value)
-  }
-  return map
-}
-
-function slideToY(slide: Slide) {
-  const map = new Y.Map<unknown>()
-  map.set('id', slide.id)
-  map.set('frontmatter', slide.frontmatter)
-  map.set('notes', new Y.Text(slide.notes ?? ''))
-  const elements = new Y.Array<Y.Map<unknown>>()
-  elements.push(slide.elements.map(elementToY))
-  map.set('elements', elements)
-  return map
-}
+export { DECK_KEY, DeckNotLoadedError } from './y-shape.ts'
 
 /** Fills `doc` with the deck. The doc should be empty. */
 export function deckToYDoc(deck: Deck, doc: Y.Doc = new Y.Doc()): Y.Doc {
@@ -65,32 +33,22 @@ export function deckToYDoc(deck: Deck, doc: Y.Doc = new Y.Doc()): Y.Doc {
   return doc
 }
 
-function yToElement(map: Y.Map<unknown>): DeckElement {
-  const element: Record<string, unknown> = {}
-  for (const [key, value] of map.entries()) {
-    if (value instanceof Y.Map)
-      element[key] = value.toJSON()
-    else if (value instanceof Y.Text)
-      element[key] = value.toString()
-    else
-      element[key] = value
-  }
-  return element as DeckElement
-}
-
 function yToSlide(map: Y.Map<unknown>): Slide {
   const notes = (map.get('notes') as Y.Text).toString()
   const slide: Slide = {
     id: map.get('id') as string,
     frontmatter: map.get('frontmatter') as Record<string, unknown>,
-    elements: (map.get('elements') as Y.Array<Y.Map<unknown>>).map(yToElement),
+    elements: (map.get('elements') as Y.Array<Y.Map<unknown>>).map(element => elementValues(element) as DeckElement),
   }
   if (notes)
     slide.notes = notes
   return slide
 }
 
-/** Reads the live document back into a validated deck. */
+/**
+ * Reads the live document back into a validated deck. It throws when
+ * anything in it is not valid; views use the lenient `readDeckDoc`.
+ */
 export function yDocToDeck(doc: Y.Doc): Deck {
   const root = doc.getMap<unknown>(DECK_KEY)
   const slides = root.get('slides') as Y.Array<Y.Map<unknown>> | undefined
@@ -101,26 +59,14 @@ export function yDocToDeck(doc: Y.Doc): Deck {
 }
 
 export function findSlide(doc: Y.Doc, slideId: string): Y.Map<unknown> | undefined {
-  const slides = doc.getMap<unknown>(DECK_KEY).get('slides') as Y.Array<Y.Map<unknown>> | undefined
-  return slides?.toArray().find(slide => slide.get('id') === slideId)
+  return slidesOf(doc)?.toArray().find((slide): slide is Y.Map<unknown> => slide instanceof Y.Map && slide.get('id') === slideId)
 }
 
 export function findElement(doc: Y.Doc, slideId: string, elementId: string): Y.Map<unknown> | undefined {
-  const elements = findSlide(doc, slideId)?.get('elements') as Y.Array<Y.Map<unknown>> | undefined
-  return elements?.toArray().find(element => element.get('id') === elementId)
-}
-
-/** Moves an element. Only the fields given change, so concurrent edits to other fields survive. */
-export function moveElement(doc: Y.Doc, slideId: string, elementId: string, change: Partial<Position>) {
-  const pos = findElement(doc, slideId, elementId)?.get('pos') as Y.Map<number | null> | undefined
-  if (!pos)
-    throw new Error(`No positioned element "${elementId}" on slide "${slideId}"`)
-  doc.transact(() => {
-    for (const [key, value] of Object.entries(change)) {
-      if (value !== undefined)
-        pos.set(key, value)
-    }
-  })
+  const elements = findSlide(doc, slideId)?.get('elements')
+  if (!(elements instanceof Y.Array))
+    return undefined
+  return elements.toArray().find((element): element is Y.Map<unknown> => element instanceof Y.Map && element.get('id') === elementId)
 }
 
 /** The shared text of a text or raw element, for editors to bind to. */

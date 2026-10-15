@@ -146,6 +146,59 @@ describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
     })
   })
 
+  ScenarioOutline('A v-drag block with an attribute the model does not read stays raw', ({ Given, When, Then, And }, variables) => {
+    const attributes: Record<string, string> = {
+      'a class': 'class="text-red-500"',
+      'a data-type other than text': 'data-type="note"',
+    }
+    let block: string
+    let markdown: string
+    let deck: Deck
+    Given('a v-drag block whose opening tag has <attribute>', () => {
+      block = `<v-drag pos="10,10,200,NaN,0" data-id="warning" ${attributes[variables.attribute]}>\n\nWarning\n\n</v-drag>`
+      markdown = `---\nid: s1\n---\n\n${block}\n`
+    })
+    When('the Markdown is converted to a deck and back', () => {
+      deck = fromMarkdown(markdown)
+    })
+    Then('the whole v-drag block is kept as one raw element', () => {
+      expect(deck.slides[0].elements).toEqual([{ id: 's1:raw:1', type: 'raw', markdown: block }])
+    })
+    And('the Markdown is written back unchanged', () => {
+      expect(toMarkdown(deck)).toBe(markdown)
+    })
+  })
+
+  Scenario('A v-drag whose opening tag spans two lines is read as a box', ({ Given, When, Then }) => {
+    let markdown: string
+    let deck: Deck
+    Given('a v-drag block whose opening tag puts its position on a second line', () => {
+      markdown = '---\nid: s1\n---\n\n<v-drag\n  pos="10,20,300,NaN,0">\n\nHello\n\n</v-drag>\n'
+    })
+    When('the Markdown is converted to a deck', () => {
+      deck = fromMarkdown(markdown)
+    })
+    Then('the block is one text box at that position', () => {
+      expect(deck.slides[0].elements).toEqual([{ id: 's1:el:1', type: 'text', pos: { x: 10, y: 20, w: 300, h: null, rotate: 0 }, markdown: 'Hello' }])
+    })
+  })
+
+  Scenario('A Magic Move whose step holds a fence line reads as a text box', ({ Given, When, Then, And }) => {
+    const fence = '````md magic-move\n```js\nlet a = 1\n```\n```js\nconst b = 2\n```js\n```\n````'
+    const markdown = `---\nid: s1\n---\n\n<v-drag pos="10,10,200,NaN,0" data-id="steps">\n\n${fence}\n\n</v-drag>\n`
+    let deck: Deck
+    Given('a v-drag block with a Magic Move whose second step holds a line "```js"', () => {})
+    When('the Markdown is converted to a deck and back', () => {
+      deck = fromMarkdown(markdown)
+    })
+    Then('the block is one text box holding the whole fence', () => {
+      expect(deck.slides[0].elements).toEqual([{ id: 'steps', type: 'text', pos: { x: 10, y: 10, w: 200, h: null, rotate: 0 }, markdown: fence }])
+    })
+    And('the Markdown is written back unchanged', () => {
+      expect(toMarkdown(deck)).toBe(markdown)
+    })
+  })
+
   Scenario('Hand written Markdown gets stable ids', ({ Given, When, Then, And }) => {
     let markdown: string
     let first: Deck

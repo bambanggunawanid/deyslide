@@ -137,10 +137,45 @@ export const ElementSchema = z.discriminatedUnion('type', [
   RawElementSchema,
 ])
 
+/** How deep frontmatter lists and maps may nest. */
+const FRONTMATTER_DEPTH = 64
+
+function isPlainObject(value: object) {
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * Whether a frontmatter value is one YAML writes and reads back: text,
+ * numbers, true or false, null, and lists and maps of these. A live document
+ * can hold other values (a BigInt or bytes from a peer), which are not.
+ */
+export function isFrontmatterValue(value: unknown, depth = 0): boolean {
+  if (value === null || value === undefined)
+    return true
+  switch (typeof value) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return true
+    case 'object':
+      if (depth >= FRONTMATTER_DEPTH)
+        return false
+      if (Array.isArray(value))
+        return value.every(item => isFrontmatterValue(item, depth + 1))
+      return isPlainObject(value) && Object.values(value).every(item => isFrontmatterValue(item, depth + 1))
+    default:
+      return false
+  }
+}
+
 export const SlideSchema = z.strictObject({
   id: IdSchema,
   /** Slidev frontmatter. On the first slide it also holds the deck headmatter. */
-  frontmatter: z.record(z.string(), z.unknown()),
+  frontmatter: z.record(z.string(), z.unknown()).refine(
+    frontmatter => Object.values(frontmatter).every(value => isFrontmatterValue(value)),
+    'Frontmatter can only hold text, numbers, true or false, null, lists and maps',
+  ),
   elements: z.array(ElementSchema),
   notes: z.string().optional(),
 })
