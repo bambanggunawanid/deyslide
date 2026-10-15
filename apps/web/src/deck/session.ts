@@ -69,6 +69,8 @@ export interface DeckSession {
   ready: Readonly<Ref<boolean>>
   /** The store's status, and `saving` while a Markdown view waits to merge typing into a saved deck. */
   status: Readonly<Ref<SessionStatus>>
+  /** True while a Markdown view has typing the deck does not have yet, also when a problem in the Markdown holds it back. */
+  typingPending: Readonly<Ref<boolean>>
   error: Readonly<Ref<string>>
   peers: Readonly<Ref<Peer[]>>
   /**
@@ -178,9 +180,10 @@ export function createDeckSession(doc: Y.Doc, awareness: Awareness, source: Sess
   /** After a flush: typing still held back by a problem in its Markdown. */
   const heldTyping = () => typing.value.filter(state => state.pending.value)
 
+  const typingPending = computed(() => typing.value.some(state => state.pending.value))
   const status = computed<SessionStatus>(() => {
     const stored = source.status.value
-    return stored === 'saved' && typing.value.some(state => state.pending.value) ? 'saving' : stored
+    return stored === 'saved' && typingPending.value ? 'saving' : stored
   })
 
   let groups = 0
@@ -192,6 +195,7 @@ export function createDeckSession(doc: Y.Doc, awareness: Awareness, source: Sess
     readOnly,
     ready: source.ready,
     status,
+    typingPending,
     error: source.error,
     peers,
     undo,

@@ -73,7 +73,10 @@ export class Workspace {
     }
     catch {
       this.signedOut()
-      this.notice.value = 'Your account\'s projects could not be loaded. Reload the page to try again. Until then, new projects stay in this browser.'
+      // New projects go where they go signed out: the browser on the website, the device in the apps.
+      this.notice.value = this.guest
+        ? 'Your account\'s projects could not be loaded. Reload the page to try again. Until then, new projects stay in this browser.'
+        : 'Your account\'s projects could not be loaded. Close and open Deyslide to try again. Until then, new projects are saved on this device.'
       return
     }
     await this.moveBrowserProjects(cloud)

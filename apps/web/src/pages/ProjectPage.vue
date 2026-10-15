@@ -2,19 +2,22 @@
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary } from '../guest/types'
 import { RadioGroupIndicator, RadioGroupItem, RadioGroupRoot } from 'reka-ui'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NameDialog from '../components/NameDialog.vue'
 import ShareDialog from '../components/ShareDialog.vue'
-import { useProjects } from '../composables/useProjects'
+import { useProjects, useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import { TEMPLATES } from '../guest/templates'
+import { isAndroidApp } from '../platform/platform'
 import { canEdit, deckRole, projectRole } from '../projects/roles'
+import { LOCAL_ID_PREFIX } from '../projects/workspace'
 
 const props = defineProps<{ projectId: string }>()
 
-const { store, projects, shared } = useProjects()
+const { store, projects, shared } = useProjects(() => props.projectId)
+const workspace = useWorkspace()
 const router = useRouter()
 const project = computed(() => [...projects.value, ...shared.value].find(item => item.id === props.projectId))
 
@@ -24,6 +27,12 @@ const renamingProject = ref(false)
 const deletingProject = ref(false)
 const renamingDeck = ref<DeckSummary>()
 const deletingDeck = ref<DeckSummary>()
+/** The deck the question is about. The question closes just before it confirms, which clears `deletingDeck`. */
+let questionedDeck: DeckSummary | undefined
+watch(deletingDeck, (deck) => {
+  if (deck)
+    questionedDeck = deck
+})
 const sharing = ref(false)
 
 // Owners do everything. On a shared project, editors add and rename, and viewers only open decks.
@@ -31,6 +40,14 @@ const role = computed(() => project.value && projectRole(project.value))
 const isOwner = computed(() => role.value === 'owner')
 const editable = computed(() => canEdit(role.value))
 const ROLE_NAMES = { owner: 'owner', editor: 'an editor', viewer: 'a viewer' }
+// A device project is a folder: deleting moves it to the system's trash, or deletes it where the system has none.
+const removal = computed(() => {
+  if (props.projectId.startsWith(LOCAL_ID_PREFIX))
+    return isAndroidApp() ? 'will be deleted from this device. This cannot be undone.' : 'will go to the trash, or be deleted for good where the system has none.'
+  return store.value === workspace.stores.value.cloud
+    ? 'will be deleted from your account. This cannot be undone.'
+    : 'will be removed from this browser. This cannot be undone.'
+})
 
 async function addDeck(name: string) {
   const deck = await store.value.createDeck(props.projectId, name, template.value)
@@ -158,7 +175,7 @@ async function deleteProject() {
     <ConfirmDialog
       v-model:open="deletingProject"
       title="Delete this project?"
-      :description="`${project.name} and its ${plural(project.decks.length, 'deck')} will be removed from this browser. This cannot be undone.`"
+      :description="`${project.name} and its ${plural(project.decks.length, 'deck')} ${removal}`"
       confirm-label="Delete project"
       @confirm="deleteProject"
     />
@@ -166,10 +183,10 @@ async function deleteProject() {
     <ConfirmDialog
       :open="Boolean(deletingDeck)"
       title="Delete this deck?"
-      :description="`${deletingDeck?.name} will be removed from this browser. This cannot be undone.`"
+      :description="`${deletingDeck?.name} ${removal}`"
       confirm-label="Delete deck"
       @update:open="value => { if (!value) deletingDeck = undefined }"
-      @confirm="store.deleteDeck(project!.id, deletingDeck!.id)"
+      @confirm="store.deleteDeck(project!.id, questionedDeck!.id)"
     />
   </section>
 

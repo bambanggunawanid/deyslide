@@ -3,7 +3,7 @@ import type { WebApp } from './support/web'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { previewRequests, resetEditorDoubles } from './support/editor-doubles'
-import { find, mountWebApp, text } from './support/web'
+import { find, findAll, mountWebApp, text } from './support/web'
 
 const feature = await loadFeature('./web-app.feature')
 
@@ -107,6 +107,34 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('the browser saves the file "Sorting.md"', () => {
       expect(saved).toEqual({ name: 'Sorting.md', type: 'text/markdown' })
       vi.restoreAllMocks()
+    })
+  })
+
+  Scenario('Delete a deck from the project page', ({ Given, When, Then, And }) => {
+    let graphsId: string
+    Given('the project "Algorithms 101" with the decks "Graphs" and "Sorting" is open', async () => {
+      const project = await store.createProject('Algorithms 101')
+      graphsId = (await store.createDeck(project.id, 'Graphs', 'blank')).id
+      await store.createDeck(project.id, 'Sorting', 'blank')
+      await router().push({ name: 'project', params: { projectId: project.id } })
+      await web.waitFor('[data-deck="Graphs"]')
+    })
+    When('they delete the deck "Graphs" from the project page', async () => {
+      const item = find('[data-deck="Graphs"]')!.closest('li')!
+      const remove = [...item.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Delete')!
+      remove.click()
+      await web.settle()
+    })
+    Then('the question said "Graphs will be removed from this browser. This cannot be undone."', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="confirm-dialog"]')).toContain('Graphs will be removed from this browser. This cannot be undone.'))
+      await click('[data-testid="confirm-action"]')
+    })
+    And('the project page lists only the deck "Sorting"', async () => {
+      await vi.waitFor(() => expect(findAll('[data-deck]').map(link => link.dataset.deck)).toEqual(['Sorting']))
+    })
+    And('the browser no longer holds the deck "Graphs"', async () => {
+      expect(store.listProjects()[0].decks.map(deck => deck.name)).toEqual(['Sorting'])
+      await expect(store.readDeck(graphsId)).rejects.toThrow()
     })
   })
 

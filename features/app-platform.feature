@@ -195,11 +195,12 @@ Feature: The web app inside the Deyslide app
     Then the header has a "Sign in" link
 
   Scenario: A sign in that finishes while a deck is open keeps what was typed
-    Given the app on a computer, signed out, with the deck "Intro" in the project "Talks"
+    Given the app on a computer, signed out, with the deck "Intro" in the project "Talks" on this device
     And they open the deck "Intro" and type a slide "Typed while signing in"
     When the browser sign in as "Ana" finishes before the deck saves
     Then they are on the home page
-    And the deck "Intro" in Ana's account has the slide "Typed while signing in"
+    And the file of the deck "Intro" has the slide "Typed while signing in"
+    And Ana's account has no deck "Intro"
 
   Scenario: Signing out from an open deck saves what was typed first
     Given the app on a computer, signed in as "Ana", with the deck "Intro" in the project "Talks"

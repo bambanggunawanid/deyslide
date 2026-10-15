@@ -37,3 +37,11 @@ Feature: Projects follow the account in the web app
     When she signs out
     Then the home page says there are no projects yet
     And the guest banner is back
+
+  Scenario: Deleting an account deck asks first, then removes it
+    Given Ana's account holds the project "Algorithms 101" with the decks "Graphs" and "Sorting"
+    And Ana opens that project signed in
+    When she deletes the deck "Graphs" from the project page
+    Then the question said "Graphs will be deleted from your account. This cannot be undone."
+    And the project page lists only the deck "Sorting"
+    And Ana's account holds "Algorithms 101" with the deck "Sorting"

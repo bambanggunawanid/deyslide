@@ -113,18 +113,35 @@ interface SentPresentSync<T> extends PresentSyncEvent<T> {
 /** The header that carries {@link saveFile}'s path. */
 export const SAVE_PATH_HEADER = 'x-deyslide-path'
 
+/**
+ * Loads a module on first use, once: calls made at the same time share the
+ * load. (Vitest's module mocks also only hold for imports that do not
+ * overlap.) A failed load is tried again on the next call.
+ */
+function once<T>(load: () => Promise<T>) {
+  let loading: Promise<T> | undefined
+  return () => loading ??= load().catch((error) => {
+    loading = undefined
+    throw error
+  })
+}
+
+const tauriCore = once(() => import('@tauri-apps/api/core'))
+const tauriEvent = once(() => import('@tauri-apps/api/event'))
+const tauriWindow = once(() => import('@tauri-apps/api/webviewWindow'))
+
 async function call<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
-  const { invoke } = await import('@tauri-apps/api/core')
+  const { invoke } = await tauriCore()
   return invoke<T>(command, args, options)
 }
 
 async function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
-  const { listen } = await import('@tauri-apps/api/event')
+  const { listen } = await tauriEvent()
   return listen<T>(event, (received: Event<T>) => handler(received.payload))
 }
 
 async function currentWindow() {
-  const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+  const { getCurrentWebviewWindow } = await tauriWindow()
   return getCurrentWebviewWindow()
 }
 
@@ -223,6 +240,33 @@ export function appInfo() {
   return call<AppInfo>('app_info')
 }
 
+/** The app's main window. Audience windows are `present-<deckId>`. */
+export const MAIN_WINDOW = 'main'
+
+/** The label of the window this page runs in. */
+export async function windowLabel() {
+  return (await currentWindow()).label
+}
+
+/**
+ * Runs `handler` when the person closes this window. The window closes once
+ * it resolves true and stays open when it resolves false. A handler that
+ * fails lets the window close.
+ */
+export async function onCloseRequested(handler: () => Promise<boolean>): Promise<UnlistenFn> {
+  return (await currentWindow()).onCloseRequested(async (event) => {
+    let close = true
+    try {
+      close = await handler()
+    }
+    catch (error) {
+      console.error('Deyslide could not get ready to close:', error)
+    }
+    if (!close)
+      event.preventDefault()
+  })
+}
+
 /** Projects or decks were added, removed, renamed or edited in the library folder. */
 export function onLibraryChanged(handler: () => void) {
   return on<null>('library-changed', () => handler())
@@ -269,7 +313,7 @@ export async function onPresentSync<T = unknown>(handler: (event: PresentSyncEve
 
 /** Tells the app's other windows, the audience window included. */
 export async function emitPresentSync<T>(event: PresentSyncEvent<T>) {
-  const [{ emit }, current] = await Promise.all([import('@tauri-apps/api/event'), currentWindow()])
+  const [{ emit }, current] = await Promise.all([tauriEvent(), currentWindow()])
   const sent: SentPresentSync<T> = { ...event, from: current.label }
   return emit('present-sync', sent)
 }

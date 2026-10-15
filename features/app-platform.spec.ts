@@ -7,12 +7,12 @@ import { AppAccountService, followAppAccount } from '../apps/web/src/account/app
 import { BetterAuthAccountService } from '../apps/web/src/account/better-auth'
 import { createAccountService } from '../apps/web/src/account/service'
 import { HttpAssistantApi } from '../apps/web/src/assistant/api'
-import { GuestStore } from '../apps/web/src/guest/store'
-import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { apiBase, apiFetch, collabToken, collabUrl, isApp, openExternal, routerHistory, saveFile, startPlatform } from '../apps/web/src/platform/platform'
 import { LATEST_RELEASE_API, RELEASES_PAGE } from '../apps/web/src/platform/releases'
 import { HttpProjectApi } from '../apps/web/src/projects/api'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
+import { LocalStore } from '../apps/web/src/projects/local-store'
+import { deckIdOf, FakeDeviceLibrary, projectIdOf } from './support/device-library'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, pageText, text } from './support/web'
 
@@ -42,6 +42,21 @@ vi.mock('@tauri-apps/api/event', () => ({
       fake.listeners.splice(fake.listeners.indexOf(listener), 1)
     }
   },
+}))
+
+// The pages start in the app's main window, which draws slides for Claude Code and saves before it closes.
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: () => ({
+    label: 'main',
+    listen: async (event: string, handler: FakeListener['handler']) => {
+      const listener = { event, handler }
+      fake.listeners.push(listener)
+      return () => {
+        fake.listeners.splice(fake.listeners.indexOf(listener), 1)
+      }
+    },
+    onCloseRequested: async () => () => {},
+  }),
 }))
 
 // The plugins are dependencies of apps/web only, so they are mocked by the
@@ -94,10 +109,13 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   let web: WebApp | undefined
   let stopFollowing: (() => void) | undefined
   let saved: boolean | undefined
+  /** The app's library folder of decks on the device. */
+  let library: FakeDeviceLibrary
+  let local: LocalStore | undefined
 
-  function emit(event: string) {
+  function emit(event: string, payload: unknown = null) {
     for (const listener of fake.listeners.filter(listener => listener.event === event))
-      listener.handler({ event, id: 1, payload: null })
+      listener.handler({ event, id: 1, payload })
   }
 
   BeforeEachScenario(() => {
@@ -108,8 +126,11 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     fake.listeners.length = 0
     for (const mock of [fake.httpFetch, fake.save, fake.writeFile, fake.openUrl, fake.createAuthClient])
       mock.mockClear()
+    library = new FakeDeviceLibrary(emit)
     fake.invoke.mockReset()
-    fake.invoke.mockImplementation(async (command: string) => {
+    fake.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (library.handles(command))
+        return library.invoke(command, args)
       switch (command) {
         case 'app_info':
           if (!app.platform)
@@ -146,6 +167,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
           emit('account-changed')
           return undefined
         case 'save_file':
+        case 'render_ready':
           return undefined
       }
       throw new Error(`The fake app has no command ${command}`)
@@ -171,6 +193,8 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     stopFollowing = undefined
     web?.unmount()
     web = undefined
+    local?.close()
+    local = undefined
     // The pages main.ts started, as the app shows them.
     const root = document.querySelector('#app') as (HTMLElement & { __vue_app__?: { unmount: () => void } }) | null
     root?.__vue_app__?.unmount()
@@ -196,9 +220,9 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   }
 
   /** Opens a page the way main.ts would, with the app's account service in the app. */
-  async function open(path: string, { wait, api, guest }: { wait?: number, api?: FakeProjectApi, guest?: GuestStore } = {}) {
-    // Deck pages open in the Markdown view, where these scenarios type.
-    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, guest, view: 'markdown' })
+  async function open(path: string, { wait, api }: { wait?: number, api?: FakeProjectApi } = {}) {
+    // Deck pages open in the Markdown view, where these scenarios type; the app's decks on the device come from `local`.
+    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, local, view: 'markdown' })
     if (isApp())
       stopFollowing = await followAppAccount(web.account, web.router)
   }
@@ -738,15 +762,15 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
 
   Scenario('A sign in that finishes while a deck is open keeps what was typed', ({ Given, And, When, Then }) => {
     const api = new FakeProjectApi()
-    Given('the app on a computer, signed out, with the deck "Intro" in the project "Talks"', async () => {
+    Given('the app on a computer, signed out, with the deck "Intro" in the project "Talks" on this device', async () => {
       await inApp('linux')
-      const guest = await GuestStore.open(new MemoryGuestStorage())
-      const project = await guest.createProject('Talks')
-      const deck = await guest.createDeck(project.id, 'Intro', 'blank')
-      await open(`/p/${project.id}/d/${deck.id}`, { api, guest })
+      library.put('Talks', 'Intro', '# Intro\n')
+      local = await LocalStore.open()
+      await open(`/p/${projectIdOf('Talks')}/d/${deckIdOf('Talks', 'Intro')}`, { api })
     })
     And('they open the deck "Intro" and type a slide "Typed while signing in"', () => typeSlide('Typed while signing in'))
     When('the browser sign in as "Ana" finishes before the deck saves', async () => {
+      expect(library.writes).toEqual([])
       await signedIn(ANA)
       emit('account-changed')
       await vi.waitFor(() => expect(web!.account.account.value?.id).toBe(ANA.id))
@@ -755,8 +779,11 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     Then('they are on the home page', () => {
       expect(web!.router.currentRoute.value.name).toBe('home')
     })
-    And('the deck "Intro" in Ana\'s account has the slide "Typed while signing in"', async () => {
-      expect(await accountDeck(api, 'Intro')).toContain('# Typed while signing in')
+    And('the file of the deck "Intro" has the slide "Typed while signing in"', async () => {
+      await vi.waitFor(() => expect(library.read('Talks', 'Intro')).toContain('# Typed while signing in'))
+    })
+    And('Ana\'s account has no deck "Intro"', () => {
+      expect(api.projects).toEqual([])
     })
   })
 

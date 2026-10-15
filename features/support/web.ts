@@ -4,6 +4,7 @@ import type { AccountService } from '../../apps/web/src/account/types'
 import type { AssistantApi } from '../../apps/web/src/assistant/api'
 import type { DeckView } from '../../apps/web/src/deck/view'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
+import type { ProjectStore } from '../../apps/web/src/projects/types'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
@@ -33,6 +34,8 @@ export interface MountOptions {
   api?: ProjectApi
   /** The browser's projects, for scenarios that start with some. */
   guest?: GuestStore
+  /** Decks on the device, as in the apps, which have no browser store. */
+  local?: ProjectStore
   /** The deck assistant. Off unless a scenario passes one. */
   assistant?: AssistantApi
   /** The view decks open in, as if chosen last time. Decks open in Design without one. */
@@ -40,13 +43,13 @@ export interface MountOptions {
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, assistant = new FakeAssistantApi({ on: false }), view }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view }: MountOptions = {}) {
   if (view)
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   else
     localStorage.removeItem(VIEW_STORAGE_KEY)
   const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
-  const { account, workspace } = await startSession({ service, guest: store, api })
+  const { account, workspace } = await startSession({ service, guest: local && !guest ? undefined : store, local, api })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
   await router.push(path)
   const wrapper: VueWrapper = mount(App, {

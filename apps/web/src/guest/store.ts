@@ -65,7 +65,10 @@ export class GuestStore implements ProjectStore {
   }
 
   listProjects(): Project[] {
-    return [...this.index.projects].sort((a, b) => b.updatedAt - a.updatedAt)
+    // Copies: the store changes its own objects in place, and pages must see each listing as new.
+    return this.index.projects
+      .map(project => ({ ...project, decks: project.decks.map(deck => ({ ...deck })) }))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   getProject(projectId: string): Project | undefined {
