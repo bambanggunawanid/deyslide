@@ -32,7 +32,7 @@ const assistantModel = config.assistant ? new ClaudeModel(new Anthropic()) : und
 
 const renderer = config.rendererUrl ? new HttpSlideRenderer(config.rendererUrl) : undefined
 
-const { app, collab } = await createServer({ config, db, mailer, assistantModel, renderer })
+const { app, collab, exports } = await createServer({ config, db, mailer, assistantModel, renderer })
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.info(`Deyslide API listening on http://${info.address}:${info.port}`)
@@ -46,10 +46,13 @@ async function shutdown() {
   if (stopping)
     return
   stopping = true
+  // Exports in progress stop and their temp files go; people can start them again.
+  const exportsClosed = exports?.close()
   const unsaved = await storeAllRooms(collab)
   if (unsaved.length)
     console.error(`These live decks were not saved before stopping: ${unsaved.join(', ')}`)
   sockets.close()
+  await exportsClosed
   server.close(() => {
     void db.destroy().finally(() => process.exit(0))
   })

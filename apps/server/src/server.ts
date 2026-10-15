@@ -12,6 +12,7 @@ import { UsageStore } from './assistant/usage.ts'
 import { LiveDeckDocuments } from './collab/documents.ts'
 import { createCollab } from './collab/hocuspocus.ts'
 import { revokeRooms } from './collab/rooms.ts'
+import { ExportJobs } from './exports/jobs.ts'
 import { R2MediaStorage } from './media/storage.ts'
 import { MediaStore } from './media/store.ts'
 import { MarkdownDecks } from './mcp/decks.ts'
@@ -31,7 +32,7 @@ export interface ServerDependencies {
   assistantModel?: AssistantModel
   /** The clock for the assistant's monthly allowance. Tests move it. */
   now?: () => Date
-  /** Draws slides for the MCP server's render_slides tool. */
+  /** Draws slides for the MCP server's render_slides tool, and for PDF and video exports. */
   renderer?: SlideRenderer
   /** Storage for media uploads in place of R2, for tests. Without it, R2 is used when the settings name it. */
   mediaStorage?: MediaStorage
@@ -68,6 +69,7 @@ export async function createServer({ config, db, mailer, assistantModel, now, re
   const mcp = { decks: new MarkdownDecks(projects, documents, config.publicUrl), renderer, version: SERVER_VERSION }
   const storage = mediaStorage ?? (config.r2 && new R2MediaStorage(config.r2))
   const media = storage && new MediaStore(db, storage, projects, { accountLimitBytes: config.mediaAccountLimitBytes, now })
-  const app = createApp({ config, auth, projects, sharing, documents, emailEnabled: Boolean(mailer), assistant, mcp, media })
-  return { app, auth, projects, sharing, usage, media, collab }
+  const exports = renderer && new ExportJobs({ renderer, decks: mcp.decks, projects, media })
+  const app = createApp({ config, auth, projects, sharing, documents, emailEnabled: Boolean(mailer), assistant, mcp, media, exports })
+  return { app, auth, projects, sharing, usage, media, collab, exports }
 }

@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.0",
   "private": true,
-  "description": "Draws Deyslide slides to PNG with the web app's preview in headless Chromium, for the MCP server.",
+  "description": "Draws Deyslide slides to PNG and records them to WebM with the web app's preview in headless Chromium, for the MCP server and exports.",
   "scripts": {
     "dev": "RENDERER_SITE_DIR=${RENDERER_SITE_DIR:-../web/dist} node src/main.ts",
     "build": "vite build"

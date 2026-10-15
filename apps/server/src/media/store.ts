@@ -187,6 +187,19 @@ export class MediaStore {
     return { media: toFile(row), url, expiresAt: new Date(this.now().getTime() + DOWNLOAD_LINK_SECONDS * 1000).toISOString() }
   }
 
+  /**
+   * A file's type and size, and a way to read it, for anyone who may open
+   * it. Exports put the files slides use into the slides themselves, since
+   * the slide renderer has no network.
+   */
+  async contents(userId: string, mediaId: string): Promise<{ type: string, size: number, read: () => Promise<Uint8Array> } | undefined> {
+    const row = await this.row(mediaId)
+    if (!row || row.status !== 'ready' || !(await this.canOpen(userId, row.project_id, mediaId)))
+      return undefined
+    // The file's first `size` bytes are all of it.
+    return { type: row.type, size: row.size, read: () => this.storage.head(row.key, row.size) }
+  }
+
   /** The project owner only. */
   async delete(userId: string, mediaId: string): Promise<boolean> {
     const row = await this.row(mediaId)

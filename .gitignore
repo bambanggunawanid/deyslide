@@ -4,7 +4,7 @@ node_modules/
 # Build and export output
 dist/
 dist-app/
-exports/
+/exports/
 apps/deck/public/animations/
 
 # Motion Canvas editor output
