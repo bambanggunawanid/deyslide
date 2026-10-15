@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { expect, test } from '@playwright/test'
 import { FakeClaudeCodeAuth } from '../features/support/claude-code-auth.ts'
-import { signUp, slide, uniqueEmail } from './helpers'
+import { openMarkdownView, signUp, slide, uniqueEmail } from './helpers'
 
 const WEB_URL = 'http://127.0.0.1:4180'
 const CALLBACK = 'http://127.0.0.1:33418/callback'
@@ -95,9 +95,9 @@ test('Claude Code signs in, builds a deck and sees it rendered', async ({ page, 
   await expect(page.getByTestId('slide-position')).toHaveText('Slide 1 of 2')
   await expect(slide(page).locator('h1')).toHaveText('Recursion')
 
-  // Claude Code fixes the crowded slide while the deck is open. Coming back to the tab shows it.
+  // Claude Code fixes the crowded slide while the deck is open. The page shows it at once.
+  await openMarkdownView(page)
   await call(claude, 'edit_slides', { deckId, edits: [{ action: 'replace', slide: 2, text: '# Base case\n\nStop when the input is small' }] })
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.locator('.cm-content')).toContainText('# Base case')
   const fixed = await call(claude, 'render_slides', { deckId, slides: [2] })
   expect(text(fixed)).toContain('Slide 2: 0 clicks, fits the slide.')

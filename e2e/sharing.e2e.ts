@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addDeck, createProject, emailLink, replaceMarkdown, signUp, uniqueEmail } from './helpers'
+import { addDeck, createProject, emailLink, openMarkdownView, replaceMarkdown, signUp, uniqueEmail } from './helpers'
 
 test('Ana shares a project; Budi edits it, then only views it; an invited address joins', async ({ browser, isMobile }) => {
   test.skip(isMobile, 'Sharing works the same on phones; one run is enough')
@@ -36,6 +36,7 @@ test('Ana shares a project; Budi edits it, then only views it; an invited addres
   await replaceMarkdown(budi, '# Edited by Budi')
   await expect(budi.getByTestId('save-status')).toHaveText('Saved')
   await ana.goto(budi.url())
+  await openMarkdownView(ana)
   await expect(ana.locator('.cm-content')).toContainText('# Edited by Budi')
 
   // Ana makes Budi a viewer; Budi's deck turns read only.

@@ -5,7 +5,7 @@ import * as Y from 'yjs'
 import { browser } from '../apps/web/src/account/oauth'
 import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../apps/web/src/guest/store'
-import { deckToYDoc, fromMarkdown, splitSlides } from '../packages/deck-model/src'
+import { deckMarkdown, deckToYDoc, fromMarkdown, splitSlides } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { resetEditorDoubles } from './support/editor-doubles'
 import { FakeProjectApi } from './support/project-api'
@@ -68,21 +68,24 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     return Y.encodeStateAsUpdate(doc)
   }
 
-  async function openDeck() {
+  async function openDeck(markdown?: string) {
     await signIn()
     const project = await api.createProject('Talks')
-    web = await mountWebApp({ service, api, guest: await GuestStore.open(new MemoryGuestStorage()) })
+    web = await mountWebApp({ service, api, guest: await GuestStore.open(new MemoryGuestStorage()), view: 'markdown' })
     deckId = (await web.workspace.store.value.createDeck(project.id, 'Graphs', 'blank')).id
+    if (markdown)
+      await api.saveDeckState(deckId, stateOf(markdown))
     await web.router.push({ name: 'deck', params: { projectId: project.id, deckId } })
     await vi.waitFor(() => expect(editor()).not.toBeNull())
     await web.settle()
   }
 
-  async function comeBack() {
-    window.dispatchEvent(new Event('focus'))
-    await web.settle()
-    await new Promise(resolve => setTimeout(resolve, 50))
-    await web.settle()
+  const slideContents = (markdown: string) => splitSlides(markdown).map(slide => slide.content)
+
+  async function accountSlides() {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, await api.deckState(deckId))
+    return slideContents(deckMarkdown(doc))
   }
 
   const leftForAuthorize = ({ Then }: { Then: (title: string, run: () => void) => void }) =>
@@ -164,32 +167,36 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     })
   })
 
-  Scenario('An open deck picks up changes made from Claude Code', ({ Given, When, And, Then }) => {
-    Given('I am signed in with the blank deck "Graphs" open', openDeck)
+  Scenario('An open deck shows changes from Claude Code at once', ({ Given, When, Then, And }) => {
+    Given('I am signed in with the blank deck "Graphs" open', () => openDeck())
     When('Claude Code saves a second slide to that deck', async () => {
       await api.saveDeckState(deckId, stateOf('# Graphs\n\n---\n\n# From Claude Code\n'))
     })
-    And('I come back to the tab', comeBack)
     Then('the editor holds the second slide', async () => {
-      await vi.waitFor(() => expect(splitSlides(editor().value).map(slide => slide.content)).toEqual(['# Graphs', '# From Claude Code']))
+      await vi.waitFor(() => expect(slideContents(editor().value)).toEqual(['# Graphs', '# From Claude Code']))
+    })
+    And('the page says "Saved"', () => {
       expect(text('[data-testid="save-status"]')).toBe('Saved')
     })
   })
 
-  Scenario('Unsaved typing is never replaced', ({ Given, And, When, Then }) => {
-    Given('I am signed in with the blank deck "Graphs" open', openDeck)
-    And('I typed a change that is not saved yet', async () => {
-      editor().value = '# Typed here\n'
+  Scenario('Typing on one slide and a Claude Code edit to another slide both survive', ({ Given, And, When, Then }) => {
+    Given('I am signed in with the deck "Graphs" open, its slides "# Graphs" and "# Second"', () => openDeck('# Graphs\n\n---\n\n# Second\n'))
+    And('I typed "# Graphs, typed" on the first slide a moment ago', async () => {
+      editor().value = editor().value.replace('# Graphs', '# Graphs, typed')
       editor().dispatchEvent(new Event('input'))
       await web.settle()
-      expect(text('[data-testid="save-status"]')).toBe('Unsaved changes')
+      // Typing merges a moment after the last key, so the account does not have it yet.
+      expect(await accountSlides()).toEqual(['# Graphs', '# Second'])
     })
-    When('Claude Code saves a second slide to that deck', async () => {
-      await api.saveDeckState(deckId, stateOf('# Graphs\n\n---\n\n# From Claude Code\n'))
+    When('Claude Code saves the deck with the second slide changed to "# Second, from Claude Code"', async () => {
+      await api.saveDeckState(deckId, stateOf('# Graphs\n\n---\n\n# Second, from Claude Code\n'))
     })
-    And('I come back to the tab', comeBack)
-    Then('the editor still holds my change', () => {
-      expect(editor().value).toBe('# Typed here\n')
+    Then('the editor holds "# Graphs, typed" and "# Second, from Claude Code"', async () => {
+      await vi.waitFor(() => expect(slideContents(editor().value)).toEqual(['# Graphs, typed', '# Second, from Claude Code']))
+    })
+    And('the account\'s deck holds both changes', async () => {
+      await vi.waitFor(async () => expect(await accountSlides()).toEqual(['# Graphs, typed', '# Second, from Claude Code']))
     })
   })
 })

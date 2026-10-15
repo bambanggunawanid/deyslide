@@ -167,7 +167,7 @@ A deck can run code, and decks will be shared, so the preview is its own page (`
 
 ### Deck assistant
 
-Signed in people can ask Claude to change the open deck from a chat under the preview: "Add a slide that compares bubble sort and merge sort", "Reveal the points on slide 3 one click at a time". Each change lands in the editor as Claude makes it, the preview jumps to the changed slide, and autosave keeps it like a typed change. The editor is read only while Claude works, and **Undo** takes back the whole reply. Guests see a link to sign in.
+Signed in people can ask Claude to change the open deck from a chat next to the slides: "Add a slide that compares bubble sort and merge sort", "Reveal the points on slide 3 one click at a time". Each change lands in the live deck as Claude makes it, for everyone who has it open, and the preview jumps to the slide it touched; in the Markdown view it goes back to following the cursor once you move it. Work other people do meanwhile is kept. Editing waits until the reply is done. **Undo** takes back the assistant's latest edits as one step and keeps anything typed elsewhere since. Once someone writes in a slide Claude added, the button goes away, since it would remove that text as well. Guests see a link to sign in.
 
 The browser sends the deck's Markdown and the chat with each message (`apps/web/src/assistant/`). On the server (`apps/server/src/assistant/`), Claude gets that Markdown with numbered slides and four tools: `replace_slide`, `insert_slide`, `delete_slide` and `move_slide`. The tools change a copy of the Markdown in memory, and a change that would split a slide in two, break its frontmatter YAML or make an unreadable deck goes back to Claude as an error instead. Claude has no tool that reads the database or any other deck, and a request for a deck the person does not own is refused before Claude sees anything.
 
@@ -225,7 +225,7 @@ The first tool call opens the browser: sign in to Deyslide and allow the app. Cl
 | `edit_slides` | Replace, insert, delete and move slides in one batch that saves all edits or none |
 | `render_slides` | PNG images of up to six slides, with each slide's click count, overflow and render errors |
 
-Everything is checked the way the web app checks it, and every call reaches only the signed in person's decks. There are no delete tools. A deck open in the browser picks up changes made from Claude Code when its tab comes back into view, unless it has unsaved typing.
+Everything is checked the way the web app checks it, and every call reaches only the signed in person's decks. There are no delete tools. A deck open in the browser shows changes made from Claude Code live, and typing on other slides at the same time is kept.
 
 How it fits together:
 

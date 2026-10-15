@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { addDeck, createProject, replaceMarkdown, signUp, slide, uniqueEmail } from './helpers'
+import { addDeck, createProject, openMarkdownView, replaceMarkdown, signUp, slide, uniqueEmail } from './helpers'
 
 test('the preview shows the slide being written', async ({ page, isMobile }) => {
   await createProject(page, 'Talks')
   await addDeck(page, 'Graphs', 'blank')
+  await openMarkdownView(page)
   if (isMobile)
     await page.getByTestId('tab-write').click()
   await replaceMarkdown(page, '# Hello\n\nA **bold** idea')
@@ -52,12 +53,35 @@ test('the demo deck renders the way Slidev does', async ({ page, isMobile }) => 
 test('changes are saved and survive a reload', async ({ page, isMobile }) => {
   await createProject(page, 'Talks')
   await addDeck(page, 'Notes', 'blank')
+  await openMarkdownView(page)
   if (isMobile)
     await page.getByTestId('tab-write').click()
   await replaceMarkdown(page, '# Saved heading')
+  // "Saved" only once the typing is in the deck and stored.
   await expect(page.getByTestId('save-status')).toHaveText('Saved')
   await page.reload()
+  await openMarkdownView(page)
   await expect(page.locator('.cm-content')).toContainText('# Saved heading')
+})
+
+test('undo in the editor takes back the last typing', async ({ page, isMobile }) => {
+  await createProject(page, 'Talks')
+  await addDeck(page, 'Notes', 'blank')
+  await openMarkdownView(page)
+  if (isMobile)
+    await page.getByTestId('tab-write').click()
+  await replaceMarkdown(page, '# First')
+  await expect(page.getByTestId('save-status')).toHaveText('Saved')
+  // Typing after a pause is an undo step of its own.
+  await page.waitForTimeout(700)
+  await page.keyboard.type(' and more')
+  await expect(page.locator('.cm-content')).toContainText('# First and more')
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator('.cm-content')).not.toContainText('and more')
+  await expect(page.locator('.cm-content')).toContainText('# First')
+  // A real keyboard sends a capital Z with Shift.
+  await page.keyboard.press('ControlOrMeta+Shift+Z')
+  await expect(page.locator('.cm-content')).toContainText('# First and more')
 })
 
 test('a deck cannot reach the app or the API from the preview', async ({ page, isMobile }) => {
@@ -65,6 +89,8 @@ test('a deck cannot reach the app or the API from the preview', async ({ page, i
   await signUp(page, 'Gita', uniqueEmail('gita'), 'correct horse')
   await createProject(page, 'Secret')
   await addDeck(page, 'Deck', 'blank')
+  // The frame appears with the slide controls and loads the preview page a moment later.
+  await expect(slide(page)).toBeAttached()
   const frame = page.frames().find(item => item.url().endsWith('/preview.html'))!
   const outcome = await frame.evaluate(async () => {
     const reachesParent = (() => {

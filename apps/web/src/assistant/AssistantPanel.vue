@@ -1,19 +1,25 @@
 <script setup lang="ts">
-import type { AssistantAllowance, AssistantStop, ChatMessage } from './api'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import type { MarkdownFork } from '@deyslide/deck-model'
+import type { DeckSession } from '../deck/session'
+import type { AssistantAllowance, AssistantEvent, AssistantStop, ChatMessage } from './api'
+import { DECK_KEY, deckMarkdown, forkMarkdown, readDeckDoc } from '@deyslide/deck-model'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import * as Y from 'yjs'
 import { useAccount } from '../composables/useAccount'
 import { useAssistantApi } from '../composables/useAssistant'
+import { ASSISTANT_ORIGIN } from '../deck/session'
 import { AssistantError } from './api'
 
 /**
- * A chat with Claude about the open deck. Claude's changes come back as new
- * Markdown through `update`, and the whole reply can be undone.
+ * A chat with Claude about the open deck. Claude's edits go straight into
+ * the live deck, merged with whatever anyone else does meanwhile, and Undo
+ * takes back the latest reply that changed the deck, and nothing else.
  */
-const props = defineProps<{ deckId: string, markdown: string }>()
+const props = defineProps<{ deckId: string, session: DeckSession }>()
 const emit = defineEmits<{
-  /** New Markdown for the editor. `slide` is the slide to show, counted from 0. */
-  update: [markdown: string, slide?: number]
-  /** True while Claude works, so the editor can stop typing from clashing with it. */
+  /** Claude changed this slide, so the page can show it. */
+  show: [slideId: string]
+  /** True while Claude works, so editing can wait until it finishes. */
   busy: [busy: boolean]
 }>()
 
@@ -45,9 +51,16 @@ const draft = ref('')
 const working = ref(false)
 const error = ref('')
 const allowance = ref<AssistantAllowance>()
-/** The Markdown from before the last reply that changed the deck. */
-const undoTo = ref<string>()
 const log = ref<HTMLElement>()
+/** A reply changed the deck, and its changes can still be undone. */
+const canUndo = ref(false)
+/**
+ * The assistant's own undo history. It tracks only what the assistant does,
+ * a whole reply as one step, so undoing a reply leaves typing and other
+ * people's edits, before or after it, as they are.
+ */
+const replies = shallowRef<Y.UndoManager>()
+let unmounted = false
 
 const resetsOn = computed(() => allowance.value && new Date(allowance.value.resetsAt)
   .toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' }))
@@ -73,8 +86,62 @@ watch([enabled, account], ([on, signedIn]) => {
 // A different deck starts a new chat.
 watch(() => props.deckId, () => {
   entries.value = []
-  undoTo.value = undefined
   error.value = ''
+})
+
+/** True when `type` is, or lies inside, something in `added`, such as a slide a reply added. */
+function within(type: { _item: Y.Item | null }, added: Parameters<typeof Y.isDeleted>[0]) {
+  for (let item = type._item; item; item = item.parent instanceof Y.AbstractType ? item.parent._item : null) {
+    if (Y.isDeleted(added, item.id))
+      return true
+  }
+  return false
+}
+
+watch(() => props.session, (session, _, onCleanup) => {
+  const manager = new Y.UndoManager(session.doc.getMap(DECK_KEY), {
+    trackedOrigins: new Set([ASSISTANT_ORIGIN]),
+    captureTimeout: Number.POSITIVE_INFINITY,
+  })
+  /**
+   * Someone changed what the reply added, such as a slide Claude wrote.
+   * Undoing the reply would remove their change with it, so Undo goes away.
+   */
+  let editedSince = false
+  const follow = () => {
+    canUndo.value = manager.undoStack.length > 0 && !editedSince
+  }
+  const watchEdits = (transaction: Y.Transaction) => {
+    const reply = manager.undoStack.at(-1)
+    if (editedSince || !reply || transaction.origin === ASSISTANT_ORIGIN || transaction.origin === manager)
+      return
+    if ([...transaction.changed.keys()].some(type => within(type, reply.insertions))) {
+      editedSince = true
+      follow()
+    }
+  }
+  manager.on('stack-item-added', follow)
+  manager.on('stack-item-popped', follow)
+  manager.on('stack-cleared', () => {
+    editedSince = false
+    follow()
+  })
+  session.doc.on('afterTransaction', watchEdits)
+  replies.value = manager
+  canUndo.value = false
+  onCleanup(() => {
+    session.doc.off('afterTransaction', watchEdits)
+    manager.destroy()
+    if (replies.value === manager)
+      replies.value = undefined
+  })
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  unmounted = true
+  // A reply still running changes nothing from now on, so editing need not wait for it.
+  if (working.value)
+    emit('busy', false)
 })
 
 function scrollToEnd() {
@@ -92,12 +159,32 @@ function history(): ChatMessage[] {
     .slice(-HISTORY_LIMIT)
 }
 
+/** The id of the slide at `index` (counted from 0) in the deck a fork holds. */
+function slideIdIn(fork: MarkdownFork, index: number) {
+  const doc = new Y.Doc()
+  try {
+    Y.applyUpdate(doc, fork.textBase())
+    const { slides } = readDeckDoc(doc)
+    return slides[Math.max(0, Math.min(index, slides.length - 1))]?.id
+  }
+  finally {
+    doc.destroy()
+  }
+}
+
 async function send() {
   const message = draft.value.trim()
+  const session = props.session
   if (!message || working.value)
     return
-  const before = props.markdown
-  const request = { markdown: before, message, history: history() }
+  // Typing waiting to merge goes into the deck first, so Claude sees what the editor shows.
+  void session.flush()
+  // Every version the reply sends builds on the deck as it is now. One fork
+  // of this state merges them all, so whatever anyone does meanwhile survives.
+  const base = Y.encodeStateAsUpdate(session.doc)
+  let fork: MarkdownFork | undefined
+  const request = { markdown: deckMarkdown(session.doc), message, history: history() }
+  const undoHistory = replies.value
   entries.value.push({ role: 'user', text: message, changes: [] })
   const reply: Entry = { role: 'assistant', text: '', changes: [] }
   entries.value.push(reply)
@@ -108,6 +195,30 @@ async function send() {
   emit('busy', true)
   scrollToEnd()
 
+  /** Merges a version from the reply, as long as the page still has this session open and may edit it. */
+  const change = (event: Extract<AssistantEvent, { type: 'deck' }>) => {
+    if (unmounted || props.session !== session || replies.value !== undoHistory || session.readOnly.value)
+      return
+    let merged: MarkdownFork
+    try {
+      if (!fork) {
+        // Undo takes back this reply alone from now on. A reply that only
+        // talks, or fails, leaves the Undo for the last change as it was.
+        undoHistory?.clear()
+        fork = forkMarkdown(session.doc, base, ASSISTANT_ORIGIN)
+      }
+      merged = fork
+      merged.apply(event.markdown)
+    }
+    catch {
+      // The assistant only sends Markdown that reads as a deck.
+      return
+    }
+    const slideId = slideIdIn(merged, event.slide - 1)
+    if (slideId)
+      emit('show', slideId)
+  }
+
   try {
     const done = await api.ask(props.deckId, request, (event) => {
       if (event.type === 'text') {
@@ -115,7 +226,7 @@ async function send() {
       }
       else {
         current.changes.push(event.change)
-        emit('update', event.markdown, event.slide - 1)
+        change(event)
       }
       scrollToEnd()
     })
@@ -131,8 +242,6 @@ async function send() {
     draft.value = draft.value || message
   }
   finally {
-    if (current.changes.length)
-      undoTo.value = before
     working.value = false
     emit('busy', false)
     scrollToEnd()
@@ -140,11 +249,14 @@ async function send() {
 }
 
 function undo() {
-  if (undoTo.value === undefined)
+  const session = props.session
+  const undoHistory = replies.value
+  if (!undoHistory || !canUndo.value || working.value || session.readOnly.value)
     return
-  emit('update', undoTo.value)
-  undoTo.value = undefined
-  entries.value.push({ role: 'assistant', text: 'Undid the last reply\'s changes.', changes: [] })
+  // Typing waiting to merge goes in first and stays.
+  void session.flush()
+  undoHistory.undo()
+  entries.value.push({ role: 'assistant', text: 'Undid Claude\'s last changes.', changes: [] })
   scrollToEnd()
 }
 
@@ -220,7 +332,7 @@ function onKeydown(event: KeyboardEvent) {
         />
         <div class="flex items-center gap-2">
           <button
-            v-if="undoTo !== undefined && !working"
+            v-if="canUndo && !working"
             type="button"
             class="dey-btn text-sm"
             data-testid="assistant-undo"

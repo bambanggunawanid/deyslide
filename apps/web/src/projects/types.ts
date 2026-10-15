@@ -1,4 +1,5 @@
 import type { Deck } from '@deyslide/deck-model'
+import type { DeckSession, OpenDeckOptions } from '../deck/session'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
 import type { SharingApi } from './sharing'
@@ -22,8 +23,14 @@ export interface ProjectStore {
   createDeck: (projectId: string, name: string, template: DeckTemplate) => Promise<DeckSummary>
   renameDeck: (projectId: string, deckId: string, name: string) => Promise<void>
   deleteDeck: (projectId: string, deckId: string) => Promise<void>
+  /**
+   * Opens a deck live, for editing or following along. Close the session
+   * when done. While a deck is open, the methods below read and change its
+   * live document.
+   */
+  openDeck: (projectId: string, deckId: string, options?: OpenDeckOptions) => Promise<DeckSession>
   readDeck: (deckId: string) => Promise<Deck>
-  /** Replaces a deck's content, for example after editing its Markdown. */
+  /** Makes a deck hold this content, changing only what differs. */
   saveDeck: (projectId: string, deckId: string, deck: Deck) => Promise<void>
   deckMarkdown: (deckId: string) => Promise<string>
   /** Sharing, for signed in people only. */

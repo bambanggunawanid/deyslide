@@ -2,6 +2,7 @@ import type { VueWrapper } from '@vue/test-utils'
 import type { Router } from 'vue-router'
 import type { AccountService } from '../../apps/web/src/account/types'
 import type { AssistantApi } from '../../apps/web/src/assistant/api'
+import type { DeckView } from '../../apps/web/src/deck/view'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
@@ -10,6 +11,7 @@ import App from '../../apps/web/src/App.vue'
 import { ACCOUNT_KEY } from '../../apps/web/src/composables/useAccount'
 import { ASSISTANT_KEY } from '../../apps/web/src/composables/useAssistant'
 import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
+import { VIEW_STORAGE_KEY } from '../../apps/web/src/deck/view'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
 import { createAppRouter } from '../../apps/web/src/router'
@@ -33,10 +35,16 @@ export interface MountOptions {
   guest?: GuestStore
   /** The deck assistant. Off unless a scenario passes one. */
   assistant?: AssistantApi
+  /** The view decks open in, as if chosen last time. Decks open in Design without one. */
+  view?: DeckView
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, assistant = new FakeAssistantApi({ on: false }) }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, assistant = new FakeAssistantApi({ on: false }), view }: MountOptions = {}) {
+  if (view)
+    localStorage.setItem(VIEW_STORAGE_KEY, view)
+  else
+    localStorage.removeItem(VIEW_STORAGE_KEY)
   const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
   const { account, workspace } = await startSession({ service, guest: store, api })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
@@ -82,6 +90,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
   function unmount() {
     wrapper.unmount()
     document.body.innerHTML = ''
+    localStorage.removeItem(VIEW_STORAGE_KEY)
   }
 
   await settle()

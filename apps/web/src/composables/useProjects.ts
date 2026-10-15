@@ -1,8 +1,8 @@
-import type { InjectionKey, ShallowRef } from 'vue'
+import type { InjectionKey, MaybeRefOrGetter, Ref, ShallowRef } from 'vue'
 import type { Project } from '../guest/types'
 import type { ProjectStore } from '../projects/types'
 import type { Workspace } from '../projects/workspace'
-import { inject, onScopeDispose, shallowRef, watch } from 'vue'
+import { computed, inject, onScopeDispose, shallowRef, toValue, watch } from 'vue'
 
 export const WORKSPACE_KEY: InjectionKey<Workspace> = Symbol('workspace')
 
@@ -14,11 +14,17 @@ export function useWorkspace(): Workspace {
 }
 
 /**
- * The active project store plus lists that refresh after every change: the
- * person's own projects, and the ones shared with them.
+ * The store for a project id (the primary store without one), plus lists
+ * that refresh after every change: the person's own projects, and the ones
+ * shared with them.
  */
-export function useProjects(): { store: ShallowRef<ProjectStore>, projects: ShallowRef<Project[]>, shared: ShallowRef<Project[]> } {
-  const { store } = useWorkspace()
+export function useProjects(projectId?: MaybeRefOrGetter<string | undefined>): { store: Readonly<Ref<ProjectStore>>, projects: ShallowRef<Project[]>, shared: ShallowRef<Project[]> } {
+  const workspace = useWorkspace()
+  const store = computed(() => {
+    // Both read the workspace's refs, so the choice follows signing in and out.
+    const id = toValue(projectId)
+    return id === undefined ? workspace.primary.value : workspace.storeFor(id)
+  })
   const projects = shallowRef<Project[]>([])
   const shared = shallowRef<Project[]>([])
   let stop = () => {}

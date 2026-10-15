@@ -27,6 +27,13 @@ Feature: Sharing in the web app
     And the editor is read only
     And there is no assistant and no Share button
 
+  Scenario: A viewer made an editor while the deck is open can write at once
+    Given Ana is signed in and Budi shared the project "Algorithms 101" with Ana as a viewer
+    And Ana has the deck "Sorting" open
+    When Budi makes Ana an editor
+    Then the editor can be changed, without a reload
+    And the deck page no longer says "View only"
+
   Scenario: Share a project from its page
     Given Ana is signed in with the project "Talks"
     And Budi has an account

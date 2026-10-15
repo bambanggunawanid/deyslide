@@ -1,8 +1,14 @@
+import type { Awareness } from 'y-protocols/awareness'
+import type * as Y from 'yjs'
 import type { DeckSummary, Person, Project, SharedRole } from '../guest/types'
+import type { DeckConnection } from './collab'
 import type { ListEntry, SharingApi, ShareList, ShareTarget } from './sharing'
 import type { ExportedProject } from './types'
 import { toBase64 } from './base64'
+import { collabUrl, connectLiveDeck } from './collab'
 import { StoreError } from './names'
+
+export type { DeckConnection } from './collab'
 
 /** The Deyslide API for the signed in person's projects. */
 export interface ProjectApi extends SharingApi {
@@ -19,6 +25,19 @@ export interface ProjectApi extends SharingApi {
   saveDeckState: (deckId: string, state: Uint8Array) => Promise<void>
   /** Returns how many projects were added. */
   importProjects: (projects: ExportedProject[]) => Promise<number>
+  /**
+   * Joins a deck's live room: `doc` and `awareness` stay in sync with
+   * everyone else who has the deck open. `token` is asked for on every
+   * connect.
+   */
+  connectDeck: (deckId: string, doc: Y.Doc, awareness: Awareness, token: () => Promise<string>) => DeckConnection
+}
+
+export interface HttpProjectApiOptions {
+  /** The live editing address. The page's own server by default. */
+  collabUrl?: () => string
+  /** A WebSocket class for places without one, such as Node. */
+  WebSocketPolyfill?: unknown
 }
 
 const MESSAGES: Record<number, string> = {
@@ -38,9 +57,11 @@ const entryPath = (entry: ListEntry) => 'userId' in entry ? `/members/${encodeUR
 
 export class HttpProjectApi implements ProjectApi {
   private readonly fetchImpl: typeof fetch
+  private readonly options: HttpProjectApiOptions
 
-  constructor(fetchImpl: typeof fetch = (...args) => fetch(...args)) {
+  constructor(fetchImpl: typeof fetch = (...args) => fetch(...args), options: HttpProjectApiOptions = {}) {
     this.fetchImpl = fetchImpl
+    this.options = options
   }
 
   list() {
@@ -103,6 +124,17 @@ export class HttpProjectApi implements ProjectApi {
 
   async importProjects(projects: ExportedProject[]) {
     return (await this.json<{ imported: number }>('POST', '/import', { projects })).imported
+  }
+
+  connectDeck(deckId: string, doc: Y.Doc, awareness: Awareness, token: () => Promise<string>) {
+    return connectLiveDeck({
+      url: this.options.collabUrl?.() ?? collabUrl(),
+      deckId,
+      doc,
+      awareness,
+      token,
+      WebSocketPolyfill: this.options.WebSocketPolyfill,
+    })
   }
 
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
