@@ -2,9 +2,9 @@ import type { Auth } from '../auth.ts'
 import type { ServerConfig } from '../config.ts'
 import type { McpDependencies } from './tools.ts'
 import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from '@better-auth/oauth-provider'
-import { verifyJwsAccessToken } from 'better-auth/oauth2'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { Hono } from 'hono'
+import { tokenUser } from '../access-token.ts'
 import { authIssuer, mcpUrl } from '../auth.ts'
 import { createMcpServer } from './tools.ts'
 
@@ -26,8 +26,6 @@ export function mcpRoutes({ config, auth, ...tools }: McpRouteDependencies) {
   const app = new Hono()
   const resource = mcpUrl(config)
   const issuer = authIssuer(config)
-  // Tokens carry Better Auth's base URL as issuer. It equals `issuer` on https and loopback hosts.
-  const tokenIssuer = `${config.publicUrl}/api/auth`
 
   const resourceMetadata = () => Response.json({
     resource,
@@ -50,27 +48,9 @@ export function mcpRoutes({ config, auth, ...tools }: McpRouteDependencies) {
   for (const path of ['/.well-known/openid-configuration/api/auth', '/.well-known/openid-configuration', '/api/auth/.well-known/openid-configuration'])
     app.get(path, c => openIdMetadata(c.req.raw))
 
-  /** The person an access token was issued to, when it is valid for this MCP endpoint. */
-  async function tokenUser(authorization: string | undefined) {
-    const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1]
-    if (!token)
-      return undefined
-    try {
-      const payload = await verifyJwsAccessToken(token, {
-        jwksFetch: async () => (await auth.api.getJwks()),
-        jwksCacheKey: auth,
-        verifyOptions: { issuer: tokenIssuer, audience: resource },
-      })
-      return typeof payload.sub === 'string' && payload.sub ? payload.sub : undefined
-    }
-    catch {
-      return undefined
-    }
-  }
-
   app.all('/mcp', async (c) => {
     const authorization = c.req.header('authorization')
-    const userId = await tokenUser(authorization)
+    const userId = await tokenUser(auth, config, authorization, resource)
     if (!userId) {
       // Tells the client where to start signing in (RFC 6750 and RFC 9728).
       const challenge = [`Bearer resource_metadata="${protectedResourceMetadataUrl(config)}"`]

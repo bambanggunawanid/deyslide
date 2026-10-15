@@ -5,6 +5,8 @@ import type { ProjectStore } from './projects.ts'
 import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
+import { bearerToken, verifyAccessToken } from './access-token.ts'
+import { apiUrl } from './auth.ts'
 import { DeckContentError, ForbiddenError, NameSchema } from './projects.ts'
 
 export interface Env {
@@ -47,9 +49,23 @@ export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<
 
 export const notFound = (c: Context) => c.json({ error: 'Not found' }, 404)
 
-/** Lets a request through only with a session, and names its user. */
+/**
+ * Lets a request through only with a session, or with an access token for
+ * the API (the Deyslide apps), and names its user.
+ */
 export function signedInOnly(auth: Auth) {
+  // createAuth sets Better Auth's base URL to the public URL.
+  const config = { publicUrl: String(auth.options.baseURL) }
+  const audience = apiUrl(config)
   return createMiddleware<Env>(async (c, next) => {
+    const token = bearerToken(c.req.header('authorization'))
+    if (token) {
+      const userId = await verifyAccessToken(auth, config, token, audience)
+      if (!userId)
+        return c.json({ error: 'Sign in first' }, 401, { 'www-authenticate': 'Bearer error="invalid_token"' })
+      c.set('userId', userId)
+      return next()
+    }
     const session = await auth.api.getSession({ headers: c.req.raw.headers })
     if (!session)
       return c.json({ error: 'Sign in first' }, 401)
@@ -70,6 +86,14 @@ export function projectRoutes(auth: Auth, store: ProjectStore, media?: MediaStor
     if (error instanceof ForbiddenError)
       return c.json({ error: error.message }, 403)
     throw error
+  })
+
+  /** Who is signed in. The apps ask, since they hold a token and no session. */
+  api.get('/me', signedIn, async (c) => {
+    const user = await (await auth.$context).internalAdapter.findUserById(c.var.userId)
+    if (!user)
+      return c.json({ error: 'Sign in first' }, 401)
+    return c.json({ id: user.id, name: user.name, email: user.email })
   })
 
   api.get('/projects', signedIn, async c => c.json(await store.list(c.var.userId)))
