@@ -797,7 +797,8 @@ impl State {
                 },
             ];
             if let Some(error) = &slide.error {
-                details.push(format!("render error: {error}"));
+                // The sentence below ends with its own period.
+                details.push(format!("render error: {}", error.trim_end_matches('.')));
             }
             content.push(ContentBlock::text(format!(
                 "Slide {number}: {}.",

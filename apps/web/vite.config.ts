@@ -15,7 +15,7 @@ const apiProxy = { '/api': apiUrl, '/mcp': apiUrl, '/.well-known': apiUrl }
 // scripts are cross origin requests, so the server must allow that origin.
 const previewCors = { origin: 'null' }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // TresJS elements and `motion-canvas-player` compile as native elements.
   plugins: [vue(vueOptions), unocss()],
   // The Motion Canvas bundles, so `/animations/...` works in slides as in the demo deck.
@@ -27,6 +27,8 @@ export default defineConfig({
     ],
   },
   build: {
+    // `vite build --mode app` builds the pages the Deyslide app (apps/native) bundles.
+    outDir: mode === 'app' ? 'dist-app' : 'dist',
     // three.js (for the 3D scene component) and some Shiki grammars are large
     // chunks that load only when a slide uses them.
     chunkSizeWarningLimit: 1000,
@@ -45,4 +47,4 @@ export default defineConfig({
     cors: previewCors,
     proxy: apiProxy,
   },
-})
+}))

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/deyslide-core"]
+members = ["crates/deyslide-core", "apps/native/src-tauri"]
 
 [workspace.package]
 version = "0.0.0"

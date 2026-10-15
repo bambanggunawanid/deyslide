@@ -1,0 +1,46 @@
+Feature: Releasing the apps
+  As the person who releases Deyslide
+  I want each release tag to give the apps a version every installer accepts
+  So that a release ships all its installers at once or waits as a draft
+
+  Scenario Outline: The tag sets the app version
+    When the release workflow reads the version for the tag "<tag>"
+    Then the apps are built as version "<version>"
+    And Windows gets an MSI installer: <msi>
+
+    Examples:
+      | tag            | version       | msi |
+      | v1.2.3         | 1.2.3         | yes |
+      | v1.2.3-4       | 1.2.3-4       | yes |
+      | v1.2.3-beta.1  | 1.2.3-beta.1  | no  |
+      | v1.2.3+7       | 1.2.3+7       | yes |
+      | v1.2.3+git.abc | 1.2.3+git.abc | no  |
+      | v1.2.3-70000   | 1.2.3-70000   | no  |
+      | v256.0.0       | 256.0.0       | no  |
+
+  Scenario Outline: A tag that is no version stops the release before any build
+    When the release workflow reads the version for the tag "<tag>"
+    Then it stops and says "<problem>"
+
+    Examples:
+      | tag     | problem                                                      |
+      | v1.2    | The version "1.2" is not a semantic version such as 1.2.3.   |
+      | v01.2.3 | The version "01.2.3" is not a semantic version such as 1.2.3. |
+      | v0.0.0  | The version 0.0.0 cannot be released: Android needs at least 0.0.1. |
+
+  Scenario: A run by hand builds a version Android accepts
+    When the release workflow runs by hand as run 42
+    Then the apps are built as version "0.0.42"
+
+  Scenario: The release waits as a draft until every installer is attached
+    Given the Release workflow
+    Then the release is created as a draft
+    And only the jobs that write to the release may write to the repository
+    And the app jobs keep no credentials in their checkout
+    And the publish job attaches what the Windows, macOS, Linux and Android jobs built
+    And it publishes the release only when all four builds passed
+
+  Scenario: Signing secrets reach the builds as they are
+    Given the Release workflow
+    Then no secret is written to a file the runner reads back
+    And the Android build reads its signing key from variables

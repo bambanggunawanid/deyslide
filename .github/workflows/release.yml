@@ -2,21 +2,333 @@ name: Release
 
 # Pushing a tag such as v0.1.0 publishes a GitHub Release. GitHub writes the
 # notes from the pull requests merged since the previous tag, grouped by the
-# labels in .github/release.yml.
+# labels in .github/release.yml. The release starts as a draft while the app
+# jobs build Deyslide for Windows, macOS, Linux and Android. The publish job
+# then attaches their installers and publishes it once every build passed,
+# so the latest release never links to files that are not there yet.
+#
+# Running the workflow by hand builds the same files as workflow artifacts
+# and publishes nothing.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
+# The app jobs run build code from many packages, so they only read. The
+# two jobs that write to the release run none of it.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
-    name: Publish GitHub Release
+    name: Draft GitHub Release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Create the release with generated notes
+      - name: Create a draft release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag --draft
+
+  windows:
+    name: Windows app
+    needs: release
+    # Also runs when the release job was skipped, in a manual run.
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the version from the tag
+        id: version
+        run: bash apps/native/scripts/app-version.sh
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the installers
+        env:
+          BUNDLES: ${{ steps.version.outputs.msi == 'true' && 'msi,nsis' || 'nsis' }}
+          VERSION_CONFIG: ${{ steps.version.outputs.config }}
+        run: pnpm --filter @deyslide/native tauri build --bundles "$BUNDLES" --config "$VERSION_CONFIG"
+
+      - name: Collect the installers
+        run: |
+          mkdir -p out
+          cp target/release/bundle/nsis/*-setup.exe out/
+          if [ -d target/release/bundle/msi ]; then cp target/release/bundle/msi/*.msi out/; fi
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deyslide-windows
+          path: out/*
+
+  macos:
+    name: macOS app
+    needs: release
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the version from the tag
+        id: version
+        run: bash apps/native/scripts/app-version.sh
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      # One app for Apple silicon and Intel Macs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      # Without the Apple secrets the app is signed ad hoc (signingIdentity
+      # "-" in tauri.conf.json), and people allow it once in System
+      # Settings. The secrets reach Tauri as they are, in this step's
+      # environment (a certificate in base64 spans many lines); the empty
+      # ones are removed, since Tauri would try to use them.
+      - name: Build the app
+        env:
+          VERSION_CONFIG: ${{ steps.version.outputs.config }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          apple=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "Signing with the Apple certificate"
+            for name in "${apple[@]}"; do
+              if [ -z "${!name}" ]; then unset "$name"; fi
+            done
+          else
+            echo "No Apple certificate: signing ad hoc"
+            unset "${apple[@]}"
+          fi
+          pnpm --filter @deyslide/native tauri build --target universal-apple-darwin --bundles app,dmg --config "$VERSION_CONFIG"
+
+      - name: Collect the disk image
+        run: |
+          mkdir -p out
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg out/
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deyslide-macos
+          path: out/*
+
+  linux:
+    name: Linux app
+    needs: release
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    # The oldest supported Ubuntu, so the AppImage and the .deb also run on
+    # Ubuntu 22.04 and Debian 12 (glibc 2.35 and newer).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the version from the tag
+        id: version
+        run: bash apps/native/scripts/app-version.sh
+
+      - name: Install WebKitGTK and the bundling tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the AppImage and the .deb
+        env:
+          VERSION_CONFIG: ${{ steps.version.outputs.config }}
+        run: pnpm --filter @deyslide/native tauri build --bundles deb,appimage --config "$VERSION_CONFIG"
+
+      - name: Collect the packages
+        run: |
+          mkdir -p out
+          cp target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb out/
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deyslide-linux
+          path: out/*
+
+  android:
+    name: Android app
+    needs: release
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the version from the tag
+        id: version
+        run: bash apps/native/scripts/app-version.sh
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install the Android NDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      # Phones: 64 bit and 32 bit ARM.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      # A release APK is signed with the project's own key, kept in four
+      # secrets. Without them the APK is unsigned and stays a workflow
+      # artifact: an update must carry the signature of the installed app,
+      # and reinstalling would delete the decks kept inside the app.
+      - name: Use the signing key when it is set
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ] && [ -n "$ANDROID_STORE_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/deyslide-release.jks"
+            echo "keystore=$RUNNER_TEMP/deyslide-release.jks" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No signing key: the APK stays a workflow artifact"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # app/build.gradle.kts reads the key from these variables as they
+      # are, so the passwords need no escaping. With no key file it signs
+      # nothing.
+      - name: Build the APK
+        env:
+          VERSION_CONFIG: ${{ steps.version.outputs.config }}
+          ANDROID_KEYSTORE_FILE: ${{ steps.signing.outputs.keystore }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: pnpm --filter @deyslide/native tauri android build --apk --target aarch64 --target armv7 --config "$VERSION_CONFIG"
+
+      - name: Collect the APK
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p out
+          apks=apps/native/src-tauri/gen/android/app/build/outputs/apk/universal/release
+          if [ "$SIGNED" = true ]; then
+            cp "$apks/app-universal-release.apk" "out/Deyslide_${VERSION}_android.apk"
+          else
+            cp "$apks/app-universal-release-unsigned.apk" "out/Deyslide_${VERSION}_android-unsigned.apk"
+          fi
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deyslide-android
+          path: out/*
+
+  publish:
+    name: Publish GitHub Release
+    needs: [release, windows, macos, linux, android]
+    # Attaches what was built even when a build failed, but publishes only
+    # when every build passed. Otherwise the release stays a draft for a
+    # person to finish.
+    if: ${{ github.event_name == 'push' && !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deyslide-*
+          path: out
+          merge-multiple: true
+
+      # An unsigned APK cannot be installed, so it stays a workflow artifact.
+      - name: Attach the installers
+        run: |
+          rm -f out/*-unsigned.apk
+          shopt -s nullglob
+          files=(out/*)
+          ls -l "${files[@]}"
+          if [ ${#files[@]} -gt 0 ]; then
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+      - name: Publish the release
+        if: needs.windows.result == 'success' && needs.macos.result == 'success' && needs.linux.result == 'success' && needs.android.result == 'success'
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: Keep the release a draft
+        if: needs.windows.result != 'success' || needs.macos.result != 'success' || needs.linux.result != 'success' || needs.android.result != 'success'
+        run: echo "::warning::A build failed, so $TAG stays a draft. Run the failed jobs again, or publish it by hand."

@@ -33,6 +33,11 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
 
+      # The scenarios run the on-device MCP server, built with cargo.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
       - run: pnpm install --frozen-lockfile
 
       - name: BDD scenarios

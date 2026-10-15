@@ -6,7 +6,9 @@
   "description": "The Deyslide web app: projects home page, decks, and later the editor.",
   "scripts": {
     "dev": "vite",
+    "dev:app": "vite --mode app",
     "build": "vite build",
+    "build:app": "vite build --mode app",
     "preview": "vite preview"
   },
   "dependencies": {
