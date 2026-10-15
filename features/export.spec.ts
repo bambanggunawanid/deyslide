@@ -911,7 +911,8 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScen
     })
     Then('the renderer never drew "Sorting"', async () => {
       await until(async () => (await budi.request(`/api/exports/${others.budi}`)).status === 404, 'Budi\'s export is gone')
-      expect(renderer!.calls.map(call => call.slides[0].headmatter.title)).toEqual(['Graphs', 'Trees'])
+      // The two exports run side by side, so either may reach the renderer first.
+      expect(renderer!.calls.map(call => call.slides[0].headmatter.title).sort()).toEqual(['Graphs', 'Trees'])
     })
     And('Budi can neither see the export nor download it', async () => {
       expect((await budi.request(`/api/exports/${others.budi}`)).status).toBe(404)

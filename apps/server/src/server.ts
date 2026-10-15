@@ -16,6 +16,7 @@ import { ExportJobs } from './exports/jobs.ts'
 import { R2MediaStorage } from './media/storage.ts'
 import { MediaStore } from './media/store.ts'
 import { MarkdownDecks } from './mcp/decks.ts'
+import { SlideMedia } from './mcp/slide-media.ts'
 import { createAuth, migrateAuth } from './auth.ts'
 import { migrateApp } from './db.ts'
 import { ProjectStore } from './projects.ts'
@@ -66,9 +67,9 @@ export async function createServer({ config, db, mailer, assistantModel, now, re
   const assistant = config.assistant && assistantModel
     ? { model: assistantModel, usage, monthlyLimitUsd: config.assistant.monthlyLimitUsd, now }
     : undefined
-  const mcp = { decks: new MarkdownDecks(projects, documents, config.publicUrl), renderer, version: SERVER_VERSION }
   const storage = mediaStorage ?? (config.r2 && new R2MediaStorage(config.r2))
-  const media = storage && new MediaStore(db, storage, projects, { accountLimitBytes: config.mediaAccountLimitBytes, now })
+  const media = storage && new MediaStore(db, storage, projects, documents, { accountLimitBytes: config.mediaAccountLimitBytes, now })
+  const mcp = { decks: new MarkdownDecks(projects, documents, config.publicUrl), renderer, media: media && new SlideMedia(media), version: SERVER_VERSION }
   const exports = renderer && new ExportJobs({ renderer, decks: mcp.decks, projects, media })
   const app = createApp({ config, auth, projects, sharing, documents, emailEnabled: Boolean(mailer), assistant, mcp, media, exports })
   return { app, auth, projects, sharing, usage, media, collab, exports }

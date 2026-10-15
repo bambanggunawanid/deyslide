@@ -31,7 +31,7 @@ export interface DeckDocuments {
    * but saving it failed; `DeckGoneError` when the deck no longer exists.
    */
   change: <T>(deckId: string, change: (doc: Y.Doc) => T, context: CollabContext) => Promise<T>
-  /** Runs `read` on the live deck. Throws `DeckGoneError` when the deck no longer exists. */
+  /** Runs `read` on the live deck, saving nothing. Throws `DeckGoneError` when the deck no longer exists. */
   read: <T>(deckId: string, read: (doc: Y.Doc) => T, context: CollabContext) => Promise<T>
   /** Whether someone has the deck open in an editor right now. */
   hasClients: (deckId: string) => boolean
@@ -87,6 +87,14 @@ export class LiveDeckDocuments implements DeckDocuments {
   }
 
   async read<T>(deckId: string, read: (doc: Y.Doc) => T, context: CollabContext): Promise<T> {
+    // A room that is open is read as it is. Closing a direct connection
+    // saves the room's unsaved changes at once, so reading through one
+    // would save a deck people edit on every read, ahead of its usual
+    // delay. A connection only loads a room nobody has open, and such a
+    // room has nothing unsaved.
+    const open = this.hocuspocus.documents.get(roomName(deckId))
+    if (open && !open.isDestroyed)
+      return read(open)
     const connection = await this.hocuspocus.openDirectConnection(roomName(deckId), context)
     try {
       return read(connection.document!)

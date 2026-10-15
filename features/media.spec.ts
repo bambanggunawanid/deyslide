@@ -3,10 +3,13 @@ import type { Project } from '../apps/server/src/projects'
 import type { MediaFile, UploadTicket, Usage } from '../apps/server/src/media/store'
 import type { TestBrowser, TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
-import { beforeAll, expect } from 'vitest'
+import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
+import { beforeAll, expect, vi } from 'vitest'
+import WebSocket from 'ws'
 import * as Y from 'yjs'
+import { roomName } from '../apps/server/src/collab/rooms'
 import { R2MediaStorage } from '../apps/server/src/media/storage'
-import { deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
+import { applyMarkdown, deckMarkdown, deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
 import { FakeMediaStorage, sampleFile } from './support/media-storage'
 import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
@@ -16,14 +19,52 @@ beforeAll(warmUpDatabase, DATABASE_WARM_UP_MS)
 
 const MB = 1024 * 1024
 const GB = 1024 * MB
+/** How long a scenario waits for something to arrive over a socket. */
+const SOON = { timeout: 4000, interval: 20 }
 
 /** A deck as the API stores it, in base64. */
 function stateOf(markdown: string) {
   return Buffer.from(Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown(markdown)))).toString('base64')
 }
 
+/** A deck open live in a browser: its document and connection. */
+interface LivePage {
+  doc: Y.Doc
+  provider: HocuspocusProvider
+  socket: HocuspocusProviderWebsocket
+}
+
+/** Opens the deck live, signed in with the browser's session cookie, as the web app does. */
+async function openLive(server: TestServer, browser: TestBrowser, deckId: string): Promise<LivePage> {
+  const { collabUrl } = await server.listen()
+  const headers = { cookie: browser.cookieHeader(), origin: server.config.publicUrl }
+  /** A WebSocket that sends what a browser would on the upgrade request. */
+  class PageSocket extends WebSocket {
+    constructor(address: string | URL) {
+      super(address, { headers })
+    }
+  }
+  const doc = new Y.Doc()
+  const socket = new HocuspocusProviderWebsocket({ url: collabUrl, WebSocketPolyfill: PageSocket })
+  const provider = new HocuspocusProvider({ websocketProvider: socket, name: roomName(deckId), document: doc, token: 'cookie' })
+  provider.attach()
+  await vi.waitFor(() => expect(provider.isSynced).toBe(true), SOON)
+  return { doc, provider, socket }
+}
+
 describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScenario }) => {
-  AfterEachScenario(closeTestServers)
+  let live: LivePage | undefined
+  /** Lets saves held by a scenario go through. */
+  let releaseSaves: (() => void) | undefined
+
+  AfterEachScenario(async () => {
+    releaseSaves?.()
+    releaseSaves = undefined
+    live?.provider.destroy()
+    live?.socket.destroy()
+    live = undefined
+    await closeTestServers()
+  })
 
   let server: TestServer
   let storage: FakeMediaStorage
@@ -288,6 +329,42 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScen
     But('Budi cannot open "secret.png" or list the project\'s media', async () => {
       expect(await opens(budi, 'secret.png')).toBe(404)
       expect(await status(budi, `/api/projects/${projectId}/media`)).toBe(404)
+    })
+  })
+
+  Scenario('Someone given one deck opens a file added to it a moment ago', ({ Given, And, When, Then }) => {
+    let deckId: string
+    const markdown = () => `# Sorting\n\n![Diagram](/api/media/${files['diagram.png']}/file)\n`
+    Given('Ana uploaded "diagram.png"', () => uploaded('diagram.png'))
+    And('Ana shares only the deck "Sorting" with Budi, which does not show "diagram.png" yet', async () => {
+      deckId = (await ana.json<{ id: string }>(`/api/projects/${projectId}/decks`, { json: { name: 'Sorting', state: stateOf('# Sorting\n') } })).body.id
+      budi = await signedInBrowser(server, 'budi@example.com', 'Budi')
+      expect((await ana.json(`/api/decks/${deckId}/sharing`, { json: { email: 'budi@example.com', role: 'viewer' } })).status).toBe(201)
+      expect(await opens(budi, 'diagram.png')).toBe(404)
+    })
+    And('Ana has "Sorting" open in the editor', async () => {
+      live = await openLive(server, ana, deckId)
+    })
+    And('writing decks to the database takes a while', () => {
+      // Saves wait until the scenario ends, so the saved deck cannot catch
+      // up with the live one in the meantime. A read that saved the deck
+      // first would wait as long.
+      const store = server.projects.storeState.bind(server.projects)
+      const saving = new Promise<void>(resolve => (releaseSaves = resolve))
+      server.projects.storeState = async (...args) => {
+        await saving
+        return store(...args)
+      }
+    })
+    When('Ana adds "diagram.png" to a slide', async () => {
+      applyMarkdown(live!.doc, markdown())
+      await vi.waitFor(() => expect(live!.provider.hasUnsyncedChanges).toBe(false), SOON)
+    })
+    Then('Budi can open "diagram.png" at once, before the change is saved', async () => {
+      const saved = new Y.Doc()
+      Y.applyUpdate(saved, (await server.projects.storedState(deckId))!)
+      expect(deckMarkdown(saved)).not.toContain(files['diagram.png'])
+      expect(await opens(budi, 'diagram.png')).toBe(302)
     })
   })
 

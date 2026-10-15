@@ -4,7 +4,7 @@ Feature: Deyslide MCP server
   So that I can build talks with my own Claude plan, without an API key
 
   Background:
-    Given the Deyslide API with a slide renderer
+    Given the Deyslide API with a slide renderer and media storage
     And Ana is signed in on her browser with the demo deck "Sorting" in the project "Talks"
 
   Scenario: Claude Code signs in through the browser
@@ -63,6 +63,59 @@ Feature: Deyslide MCP server
     Then it gets two PNG images with each slide's click count
     And slide 3 is reported as overflowing
     And the renderer drew slide 3 with the deck's headmatter at its last click
+
+  Scenario: Slide images show the project's media
+    Given Claude Code is connected as Ana
+    And Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it
+    When Claude Code renders slide 2 of "Sorting"
+    Then the renderer got "diagram.png" as a data URL with slide 2
+    And the answer leaves nothing out
+
+  Scenario: Files the person may not open stay out of slide images
+    Given Claude Code is connected as Ana
+    And Budi uploaded "secret.png" to a project of Budi's own
+    And Ana uploaded "diagram.png" to "Talks", and slide 2 of "Sorting" shows both files
+    When Claude Code renders slide 2 of "Sorting"
+    Then the renderer got "diagram.png" as a data URL with slide 2
+    And the answer leaves nothing out
+
+  Scenario: Someone given only one deck sees its media in slide images
+    Given Claude Code is connected as Ana
+    And Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it
+    And Ana shares only the deck "Sorting" with Budi
+    When Budi's Claude Code renders slide 2 of "Sorting"
+    Then the renderer got "diagram.png" as a data URL with slide 2
+
+  Scenario: Slide images carry at most 20 MB of media, pictures first, and name what they leave out
+    Given Claude Code is connected as Ana
+    And slide 2 of "Sorting" shows these files from "Talks":
+      | name       | type       | size  |
+      | poster.png | image/png  | 21 MB |
+      | photo.png  | image/png  | 12 MB |
+      | clip.mp4   | video/mp4  | 7 MB  |
+      | chart.png  | image/png  | 2 MB  |
+      | talk.mp3   | audio/mpeg | 1 MB  |
+    When Claude Code renders slide 2 of "Sorting"
+    Then the renderer drew slide 2 with "chart.png" and "photo.png" as data URLs
+    And the answer says "poster.png" is too big on its own and "clip.mp4" had no room left
+    And "talk.mp3" is neither sent nor named, since an image shows no sound
+
+  Scenario: A file storage cannot read is left out of slide images
+    Given Claude Code is connected as Ana
+    And Ana uploaded "diagram.png" and "chart.png" to "Talks", and slide 2 of "Sorting" shows both
+    But storage cannot read "chart.png" right now
+    When Claude Code renders slide 2 of "Sorting"
+    Then the renderer got "diagram.png" as a data URL with slide 2
+    And the answer says storage could not read "chart.png" just now
+
+  Scenario: Slide images carry media for a few calls at a time
+    Given Claude Code is connected as Ana
+    And Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it
+    And the renderer takes a while to answer
+    When Claude Code asks for slide 2 of "Sorting" 7 times at once
+    Then 2 of the calls reach the renderer and one is told "Slide images are busy right now. Try again in a minute."
+    When the renderer answers
+    Then the other 6 calls get their images, with never more than 2 at the renderer at once
 
   Scenario: No renderer, no images
     Given the Deyslide API without a slide renderer

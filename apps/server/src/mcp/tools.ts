@@ -1,16 +1,19 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { DeckWrite, MarkdownDecks } from './decks.ts'
-import type { SlideRenderer } from './renderer.ts'
+import type { RenderedSlide, SlideRenderer } from './renderer.ts'
+import type { LeftOut, LeftOutReason, SlideMedia } from './slide-media.ts'
 import { splitSlides } from '@deyslide/deck-model'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { DeckDraft, EditError } from '../assistant/draft.ts'
 import { DeckNotSavedError } from '../collab/documents.ts'
 import { DeckTooBigError } from '../collab/limits.ts'
+import { MAX_INLINE_MEDIA_BYTES } from '../exports/media.ts'
 import { ForbiddenError, NameSchema } from '../projects.ts'
 import { DeckInputError } from './decks.ts'
 import { MCP_GUIDE, MCP_INSTRUCTIONS } from './guide.ts'
 import { RendererUnavailableError } from './renderer.ts'
+import { MediaBusyError } from './slide-media.ts'
 
 /** Slides one render_slides call draws, so a result stays well inside client size limits. */
 export const MAX_RENDERED_SLIDES = 6
@@ -19,6 +22,8 @@ export interface McpDependencies {
   decks: MarkdownDecks
   /** Missing when no renderer is set up. render_slides then says so. */
   renderer?: SlideRenderer
+  /** The media library's files for slide images, when media is on. */
+  media?: SlideMedia
   version: string
 }
 
@@ -86,13 +91,25 @@ function outline(markdown: string) {
   return splitSlides(markdown).map((slide, index) => `${index + 1}. ${titleOf(slide.content)}`).join('\n')
 }
 
+const LEFT_OUT_BECAUSE: Record<LeftOutReason, string> = {
+  'too-big': 'larger than that on its own',
+  'no-room': 'no room left after the other files',
+  'unreadable': 'storage could not read it just now',
+}
+
+/** Which project files the images do not show, and why, so Claude does not take them for faults in the slides. */
+function leftOutNote(left: LeftOut[]) {
+  const files = left.map(file => `- ${file.link}: ${LEFT_OUT_BECAUSE[file.why]}`)
+  return [`Media left out of these images (one call carries at most ${MAX_INLINE_MEDIA_BYTES / 1024 / 1024} MB):`, ...files].join('\n')
+}
+
 /**
  * The MCP server for one signed in person. Every tool acts as that person
  * through the same store as the web app, so no call reaches another account.
  * `session` tells apart the person's Claude Code sessions (the MCP session
  * id), so each one's writes merge with what that session read.
  */
-export function createMcpServer(userId: string, { decks, renderer, version }: McpDependencies, session?: string) {
+export function createMcpServer(userId: string, { decks, renderer, media, version }: McpDependencies, session?: string) {
   const server = new McpServer({ name: 'deyslide', title: 'Deyslide', version }, { instructions: MCP_INSTRUCTIONS })
   const reader = { userId, session }
 
@@ -279,17 +296,26 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
     if (missing.length)
       return problem(`The deck has ${source.length} slides, so there is no slide ${missing.join(', ')}.`)
     const clicks = click === 'first' ? 0 : click === 'last' ? 1000 : click
-    let rendered
+    const drawing = numbers.map(number => ({
+      content: source[number - 1].content,
+      frontmatter: source[number - 1].frontmatter,
+      headmatter: source[0].frontmatter,
+      first: number === 1,
+      clicks,
+    }))
+    const draw = (links: Record<string, string>) => renderer.render(drawing, Object.keys(links).length ? { media: links } : undefined)
+    let rendered: RenderedSlide[]
+    let left: LeftOut[] = []
     try {
-      rendered = await renderer.render(numbers.map(number => ({
-        content: source[number - 1].content,
-        frontmatter: source[number - 1].frontmatter,
-        headmatter: source[0].frontmatter,
-        first: number === 1,
-        clicks,
-      })))
+      // The renderer has no network, so the project media these slides use goes inside the request.
+      if (media)
+        ({ drawn: rendered, left } = await media.draw(userId, drawing, draw))
+      else
+        rendered = await draw({})
     }
     catch (error) {
+      if (error instanceof MediaBusyError)
+        return problem(error.message)
       if (error instanceof RendererUnavailableError)
         return problem(`Slide images are unavailable right now (${error.message}). Try again in a minute.`)
       throw error
@@ -305,6 +331,8 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
       if (result.png)
         content.push({ type: 'image', data: result.png, mimeType: 'image/png' })
     }
+    if (left.length)
+      content.push({ type: 'text', text: leftOutNote(left) })
     const more = source.length > numbers.length && !slides ? `\n\nThe deck has ${source.length} slides. Ask for the others by number.` : ''
     content.push({ type: 'text', text: `Editor: ${decks.editorUrl(found.project.id, deckId)}${more}` })
     return {

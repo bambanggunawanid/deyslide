@@ -1,13 +1,16 @@
 // @vitest-environment node
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { RenderedSlide, SlideRenderer, SlideToRender } from '../apps/server/src/mcp/renderer'
+import type { UploadTicket } from '../apps/server/src/media/store'
+import type { RenderedSlide, RenderOptions, SlideRenderer, SlideToRender } from '../apps/server/src/mcp/renderer'
 import type { Project } from '../apps/server/src/projects'
 import type { TestBrowser, TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
-import { beforeAll, expect } from 'vitest'
+import { beforeAll, expect, vi } from 'vitest'
+import { StorageError } from '../apps/server/src/media/storage'
 import { splitSlides } from '../packages/deck-model/src'
 import { demoDeckState } from './support/deck-content'
+import { FakeMediaStorage, sampleFile } from './support/media-storage'
 import { approveConsent, CALLBACK_URL, connectMcp, FakeClaudeCodeAuth, followInBrowser } from './support/mcp-client'
 import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TEST_ORIGIN, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
@@ -20,21 +23,74 @@ const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAA
 
 class FakeRenderer implements SlideRenderer {
   readonly requests: SlideToRender[] = []
+  /** The options of each call, in order. */
+  readonly options: (RenderOptions | undefined)[] = []
   overflowing = new Set<string>()
+  /** Calls being drawn now, and the most there were at once. */
+  drawing = 0
+  mostAtOnce = 0
+  private held?: Promise<void>
+  private release?: () => void
 
-  async render(slides: SlideToRender[]): Promise<RenderedSlide[]> {
+  /** Keeps every call waiting until `answer`. */
+  hold() {
+    this.held = new Promise(resolve => (this.release = resolve))
+  }
+
+  answer() {
+    this.release?.()
+    this.held = undefined
+  }
+
+  async render(slides: SlideToRender[], options?: RenderOptions): Promise<RenderedSlide[]> {
     this.requests.push(...slides)
+    this.options.push(options)
+    this.drawing++
+    this.mostAtOnce = Math.max(this.mostAtOnce, this.drawing)
+    try {
+      await this.held
+    }
+    finally {
+      this.drawing--
+    }
     return slides.map(slide => ({ png: PIXEL, clicks: 2, overflow: [...this.overflowing].some(text => slide.content.includes(text)) }))
   }
 }
 
 const MCP_URL = `${TEST_ORIGIN}/mcp`
+const MB = 1024 * 1024
+/** How long a scenario waits for calls that run at the same time. */
+const SOON = { timeout: 4000, interval: 20 }
+
+/** A file in a project's media library, as a scenario uploaded it. */
+interface Upload {
+  /** The address slides use: `/api/media/<id>/file`. */
+  link: string
+  /** Where storage keeps it. */
+  key: string
+  type: string
+  bytes: Uint8Array
+}
+
+const SAMPLE_KINDS: Record<string, Parameters<typeof sampleFile>[0]> = { 'image/png': 'png', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3' }
+
+/** How a slide shows the file: pictures as images, the rest as players. */
+function shown(upload: Upload, name: string) {
+  if (upload.type.startsWith('image/'))
+    return `![${name}](${upload.link})`
+  return upload.type.startsWith('video/') ? `<video src="${upload.link}" />` : `<audio controls src="${upload.link}" />`
+}
 
 describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
-  AfterEachScenario(closeTestServers)
+  AfterEachScenario(async () => {
+    renderer?.answer()
+    vi.restoreAllMocks()
+    await closeTestServers()
+  })
 
   let server: TestServer
   let renderer: FakeRenderer
+  let storage: FakeMediaStorage
   let ana: TestBrowser
   let deckId: string
   let projectId: string
@@ -42,7 +98,10 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
   let auth: FakeClaudeCodeAuth
   let result: CallToolResult
   let response: Response
-
+  /** Files uploaded in this scenario, by name. */
+  let uploads: Record<string, Upload> = {}
+  /** Slide 2 as a scenario put it in "Sorting". */
+  let slide2: string
   const call = async (name: string, args: Record<string, unknown> = {}, client = claude) => {
     result = await client.callTool({ name, arguments: args }) as CallToolResult
     return result
@@ -69,6 +128,49 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     return (result.structuredContent as { markdown: string }).markdown
   }
 
+  /** Uploads a file to a project's media library, as the person's browser would. */
+  async function upload(browser: TestBrowser, project: string, name: string, size: number, type = 'image/png') {
+    const ticket = await browser.json<UploadTicket>(`/api/projects/${project}/media`, { json: { name, type, size } })
+    expect(ticket.status).toBe(201)
+    const id = ticket.body.media.id
+    const key = storage.links.find(link => link.kind === 'upload' && link.key.endsWith(`/${id}`))!.key
+    const bytes = sampleFile(SAMPLE_KINDS[type], size)
+    storage.put(key, bytes)
+    expect((await browser.request(`/api/media/${id}/finish`, { method: 'POST' })).status).toBe(200)
+    uploads[name] = { link: `/api/media/${id}/file`, key, type, bytes }
+  }
+
+  /** Puts a slide showing the files at position 2 of "Sorting". */
+  async function showOnSlide2(...names: string[]) {
+    slide2 = ['# Media', ...names.map(name => shown(uploads[name], name))].join('\n\n')
+    await call('edit_slides', { deckId, edits: [{ action: 'insert', position: 2, text: slide2 }] })
+    expect(result.isError).toBeFalsy()
+  }
+
+  /**
+   * The files the renderer got with call `index`, by name, sorted. Each
+   * must be the whole file as a `data:` URL.
+   */
+  function mediaWith(index: number) {
+    return Object.entries(renderer.options[index]?.media ?? {}).map(([link, url]) => {
+      const [name, file] = Object.entries(uploads).find(([, item]) => item.link === link) ?? [link]
+      const whole = file && url === `data:${file.type};base64,${Buffer.from(file.bytes).toString('base64')}`
+      expect(whole, `${name} is sent as its whole file`).toBe(true)
+      return name
+    }).sort()
+  }
+
+  /** Ana's diagram on slide 2 of "Sorting", the start of most media scenarios. */
+  async function diagramOnSlide2() {
+    await upload(ana, projectId, 'diagram.png', 2048)
+    await showOnSlide2('diagram.png')
+  }
+
+  const drewDiagram = () => {
+    expect(renderer.requests.map(slide => slide.content)).toEqual([slide2])
+    expect(mediaWith(0)).toEqual(['diagram.png'])
+  }
+
   function postMcp(headers: Record<string, string> = {}) {
     return server.app.request(MCP_URL, {
       method: 'POST',
@@ -78,9 +180,11 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
   }
 
   Background(({ Given, And }) => {
-    Given('the Deyslide API with a slide renderer', async () => {
+    Given('the Deyslide API with a slide renderer and media storage', async () => {
       renderer = new FakeRenderer()
-      server = await createTestServer({ renderer })
+      storage = new FakeMediaStorage()
+      uploads = {}
+      server = await createTestServer({ renderer, mediaStorage: storage })
     })
     And('Ana is signed in on her browser with the demo deck "Sorting" in the project "Talks"', signInAna)
   })
@@ -279,6 +383,152 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       expect(third.headmatter.title).toBe('Deyslide')
       expect(third.first).toBe(false)
       expect(third.clicks).toBeGreaterThanOrEqual(1000)
+    })
+  })
+
+  Scenario('Slide images show the project\'s media', ({ Given, And, When, Then }) => {
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it', diagramOnSlide2)
+    When('Claude Code renders slide 2 of "Sorting"', async () => {
+      await call('render_slides', { deckId, slides: [2] })
+      expect(result.isError).toBeFalsy()
+    })
+    Then('the renderer got "diagram.png" as a data URL with slide 2', drewDiagram)
+    And('the answer leaves nothing out', () => {
+      expect(resultText()).not.toContain('left out')
+    })
+  })
+
+  Scenario('Files the person may not open stay out of slide images', ({ Given, And, When, Then }) => {
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('Budi uploaded "secret.png" to a project of Budi\'s own', async () => {
+      const budi = await signedInBrowser(server, 'budi@example.com', 'Budi')
+      await upload(budi, (await budi.json<Project>('/api/projects', { json: { name: 'Private' } })).body.id, 'secret.png', 2048)
+    })
+    And('Ana uploaded "diagram.png" to "Talks", and slide 2 of "Sorting" shows both files', async () => {
+      await upload(ana, projectId, 'diagram.png', 2048)
+      await showOnSlide2('diagram.png', 'secret.png')
+    })
+    When('Claude Code renders slide 2 of "Sorting"', async () => {
+      await call('render_slides', { deckId, slides: [2] })
+      expect(result.isError).toBeFalsy()
+    })
+    Then('the renderer got "diagram.png" as a data URL with slide 2', drewDiagram)
+    And('the answer leaves nothing out', () => {
+      expect(resultText()).not.toContain('left out')
+    })
+  })
+
+  Scenario('Someone given only one deck sees its media in slide images', ({ Given, And, When, Then }) => {
+    let budi: Client
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it', diagramOnSlide2)
+    And('Ana shares only the deck "Sorting" with Budi', async () => {
+      const budiBrowser = await signedInBrowser(server, 'budi@example.com', 'Budi')
+      expect((await ana.json(`/api/decks/${deckId}/sharing`, { json: { email: 'budi@example.com', role: 'viewer' } })).status).toBe(201)
+      budi = await connectAs(budiBrowser)
+    })
+    When('Budi\'s Claude Code renders slide 2 of "Sorting"', async () => {
+      await call('render_slides', { deckId, slides: [2] }, budi)
+      expect(result.isError).toBeFalsy()
+    })
+    Then('the renderer got "diagram.png" as a data URL with slide 2', drewDiagram)
+  })
+
+  Scenario('Slide images carry at most 20 MB of media, pictures first, and name what they leave out', ({ Given, And, When, Then }) => {
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('slide 2 of "Sorting" shows these files from "Talks":', async (_, files: { name: string, type: string, size: string }[]) => {
+      for (const file of files)
+        await upload(ana, projectId, file.name, Number.parseInt(file.size) * MB, file.type)
+      await showOnSlide2(...files.map(file => file.name))
+    })
+    When('Claude Code renders slide 2 of "Sorting"', async () => {
+      await call('render_slides', { deckId, slides: [2] })
+      expect(result.isError).toBeFalsy()
+    })
+    Then('the renderer drew slide 2 with "chart.png" and "photo.png" as data URLs', () => {
+      expect(renderer.requests.map(slide => slide.content)).toEqual([slide2])
+      expect(mediaWith(0)).toEqual(['chart.png', 'photo.png'])
+    })
+    And('the answer says "poster.png" is too big on its own and "clip.mp4" had no room left', () => {
+      expect(resultText()).toContain([
+        'Media left out of these images (one call carries at most 20 MB):',
+        `- ${uploads['poster.png'].link}: larger than that on its own`,
+        `- ${uploads['clip.mp4'].link}: no room left after the other files`,
+        `Editor: `,
+      ].join('\n'))
+    })
+    And('"talk.mp3" is neither sent nor named, since an image shows no sound', () => {
+      expect(mediaWith(0)).not.toContain('talk.mp3')
+      expect(resultText()).not.toContain(uploads['talk.mp3'].link)
+    })
+  })
+
+  Scenario('A file storage cannot read is left out of slide images', ({ Given, And, When, Then, But }) => {
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('Ana uploaded "diagram.png" and "chart.png" to "Talks", and slide 2 of "Sorting" shows both', async () => {
+      await upload(ana, projectId, 'diagram.png', 2048)
+      await upload(ana, projectId, 'chart.png', 4096)
+      await showOnSlide2('diagram.png', 'chart.png')
+    })
+    But('storage cannot read "chart.png" right now', () => {
+      storage.unreadable.add(uploads['chart.png'].key)
+      // The server logs each failed read.
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+    When('Claude Code renders slide 2 of "Sorting"', async () => {
+      await call('render_slides', { deckId, slides: [2] })
+      expect(result.isError).toBeFalsy()
+    })
+    Then('the renderer got "diagram.png" as a data URL with slide 2', drewDiagram)
+    And('the answer says storage could not read "chart.png" just now', () => {
+      expect(resultText()).toContain(`Media left out of these images (one call carries at most 20 MB):\n- ${uploads['chart.png'].link}: storage could not read it just now\n`)
+      expect(console.error).toHaveBeenCalledWith(`Could not read ${uploads['chart.png'].link} for slide images:`, expect.any(StorageError))
+    })
+  })
+
+  Scenario('Slide images carry media for a few calls at a time', ({ Given, And, When, Then }) => {
+    let calls: Promise<CallToolResult>[]
+    const answered: CallToolResult[] = []
+    Given('Claude Code is connected as Ana', async () => {
+      claude = await connectAs(ana)
+    })
+    And('Ana uploaded "diagram.png" to "Talks" and slide 2 of "Sorting" shows it', diagramOnSlide2)
+    And('the renderer takes a while to answer', () => {
+      renderer.hold()
+    })
+    When('Claude Code asks for slide 2 of "Sorting" 7 times at once', () => {
+      calls = Array.from({ length: 7 }, async () => {
+        const answer = await claude.callTool({ name: 'render_slides', arguments: { deckId, slides: [2] } }) as CallToolResult
+        answered.push(answer)
+        return answer
+      })
+    })
+    Then('2 of the calls reach the renderer and one is told "Slide images are busy right now. Try again in a minute."', async () => {
+      await vi.waitFor(() => expect(answered).toHaveLength(1), SOON)
+      expect(answered[0]).toEqual({ content: [{ type: 'text', text: 'Slide images are busy right now. Try again in a minute.' }], isError: true })
+      await vi.waitFor(() => expect(renderer.drawing).toBe(2), SOON)
+      expect(answered).toHaveLength(1)
+    })
+    When('the renderer answers', () => {
+      renderer.answer()
+    })
+    Then('the other 6 calls get their images, with never more than 2 at the renderer at once', async () => {
+      const drawn = (await Promise.all(calls)).filter(answer => !answer.isError)
+      expect(drawn).toHaveLength(6)
+      expect(drawn.every(answer => answer.content.some(item => item.type === 'image'))).toBe(true)
+      expect(renderer.options.map((_, index) => mediaWith(index))).toEqual(Array.from({ length: 6 }, () => ['diagram.png']))
+      expect(renderer.mostAtOnce).toBe(2)
     })
   })
 

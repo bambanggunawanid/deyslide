@@ -92,6 +92,14 @@ Feature: Project media libraries
     Then Budi can open "diagram.png"
     But Budi cannot open "secret.png" or list the project's media
 
+  Scenario: Someone given one deck opens a file added to it a moment ago
+    Given Ana uploaded "diagram.png"
+    And Ana shares only the deck "Sorting" with Budi, which does not show "diagram.png" yet
+    And Ana has "Sorting" open in the editor
+    And writing decks to the database takes a while
+    When Ana adds "diagram.png" to a slide
+    Then Budi can open "diagram.png" at once, before the change is saved
+
   Scenario: Files are private
     Given Ana uploaded "diagram.png"
     And Budi is signed in on another browser
