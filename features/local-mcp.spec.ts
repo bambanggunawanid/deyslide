@@ -23,6 +23,15 @@ const FILE_PATH_TOOLS = ['create_deck', 'read_deck']
  */
 const HOSTED_LIST_DECKS = 'Lists the person\'s projects and the decks in each, then projects and decks other people shared with them and the role they have. Includes deck ids, slide counts and editor links.'
 const LOCAL_LIST_DECKS = 'Lists the projects in the Deyslide library folder on this computer and the decks in each. Includes deck ids, slide counts and file paths. Decks on this computer are not shared with anyone.'
+/**
+ * The same for write_deck: the hosted server merges a write with what
+ * people changed since Claude read the deck, while this one saves nothing
+ * over a file Claude has not read.
+ */
+const HOSTED_WRITE_DECK = 'Replaces all of a deck\'s Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: edits people make while you work are then kept. Writing a deck you have not read overwrites them. The first slide\'s frontmatter holds the deck settings.'
+const LOCAL_WRITE_DECK = 'Replaces all of a deck\'s Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: write_deck saves nothing until you have read the deck, and nothing over a file that changed on disk since you last read or wrote it. The first slide\'s frontmatter holds the deck settings.'
+/** Tools with a description of their own on this computer. */
+const OWN_DESCRIPTIONS = ['list_decks', 'write_deck']
 
 const NOT_FOUND = 'There is no deck with that id in this library. Call list_decks to see the decks.'
 const NO_PROJECT = 'There is no project with that id in this library. Call list_decks, or create_project first.'
@@ -101,8 +110,12 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScen
       expect(hosted('list_decks'), 'The hosted list_decks changed: update LOCAL_LIST_DECKS and HOSTED_LIST_DECKS here and in mcp.rs').toBe(HOSTED_LIST_DECKS)
       expect(local('list_decks')).toBe(LOCAL_LIST_DECKS)
     })
+    And('write_deck says a read comes first, written against today\'s hosted description', () => {
+      expect(hosted('write_deck'), 'The hosted write_deck changed: update LOCAL_WRITE_DECK and HOSTED_WRITE_DECK here and in mcp.rs').toBe(HOSTED_WRITE_DECK)
+      expect(local('write_deck')).toBe(LOCAL_WRITE_DECK)
+    })
     And('every other tool has the hosted description', () => {
-      for (const tool of tools.filter(tool => tool.name !== 'list_decks' && !FILE_PATH_TOOLS.includes(tool.name)))
+      for (const tool of tools.filter(tool => !OWN_DESCRIPTIONS.includes(tool.name) && !FILE_PATH_TOOLS.includes(tool.name)))
         expect(tool.description, tool.name).toBe(hosted(tool.name))
     })
   })

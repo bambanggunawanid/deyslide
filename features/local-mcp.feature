@@ -12,6 +12,7 @@ Feature: Deyslide MCP server on this computer
     And it offers the hosted server's tools with the same titles, annotations and input schemas
     And create_deck and read_deck have the hosted descriptions with "file path" in place of "editor link"
     And list_decks describes the library folder, written against today's hosted description
+    And write_deck says a read comes first, written against today's hosted description
     And every other tool has the hosted description
 
   Scenario: The guide and instructions add a part about this computer

@@ -115,7 +115,7 @@
   {
     "name": "write_deck",
     "title": "Replace a whole deck",
-    "description": "Replaces all of a deck's Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. The first slide's frontmatter holds the deck settings.",
+    "description": "Replaces all of a deck's Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: edits people make while you work are then kept. Writing a deck you have not read overwrites them. The first slide's frontmatter holds the deck settings.",
     "inputSchema": {
       "type": "object",
       "properties": {

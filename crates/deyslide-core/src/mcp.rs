@@ -61,10 +61,19 @@ pub const FILE_PATH: &str = "file path";
 pub const HOSTED_LIST_DECKS: &str = "Lists the person's projects and the decks in each, then projects and decks other people shared with them and the role they have. Includes deck ids, slide counts and editor links.";
 pub const LOCAL_LIST_DECKS: &str = "Lists the projects in the Deyslide library folder on this computer and the decks in each. Includes deck ids, slide counts and file paths. Decks on this computer are not shared with anyone.";
 
+/// write_deck says a read comes first: the hosted server merges a write
+/// with what people changed since Claude read the deck, while this server
+/// saves nothing over a file Claude has not read. [`HOSTED_WRITE_DECK`] is
+/// the hosted text [`LOCAL_WRITE_DECK`] was written against.
+pub const HOSTED_WRITE_DECK: &str = "Replaces all of a deck's Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: edits people make while you work are then kept. Writing a deck you have not read overwrites them. The first slide's frontmatter holds the deck settings.";
+pub const LOCAL_WRITE_DECK: &str = "Replaces all of a deck's Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: write_deck saves nothing until you have read the deck, and nothing over a file that changed on disk since you last read or wrote it. The first slide's frontmatter holds the deck settings.";
+
 /// A tool's description on this computer, from its hosted one.
 pub fn local_description(tool: &str, hosted: &str) -> String {
     if tool == "list_decks" {
         LOCAL_LIST_DECKS.to_string()
+    } else if tool == "write_deck" {
+        LOCAL_WRITE_DECK.to_string()
     } else if FILE_PATH_TOOLS.contains(&tool) {
         hosted.replace(EDITOR_LINK, FILE_PATH)
     } else {
@@ -913,6 +922,10 @@ mod tests {
                 "list_decks" => {
                     assert_eq!(hosted, HOSTED_LIST_DECKS, "list_decks changed in the cloud: update LOCAL_LIST_DECKS and HOSTED_LIST_DECKS");
                     assert_eq!(local, LOCAL_LIST_DECKS);
+                }
+                "write_deck" => {
+                    assert_eq!(hosted, HOSTED_WRITE_DECK, "write_deck changed in the cloud: update LOCAL_WRITE_DECK and HOSTED_WRITE_DECK");
+                    assert_eq!(local, LOCAL_WRITE_DECK);
                 }
                 name if FILE_PATH_TOOLS.contains(&name) => {
                     assert_eq!(

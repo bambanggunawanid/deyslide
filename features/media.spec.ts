@@ -8,7 +8,7 @@ import * as Y from 'yjs'
 import { R2MediaStorage } from '../apps/server/src/media/storage'
 import { deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
 import { FakeMediaStorage, sampleFile } from './support/media-storage'
-import { createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./media.feature')
 
@@ -22,7 +22,9 @@ function stateOf(markdown: string) {
   return Buffer.from(Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown(markdown)))).toString('base64')
 }
 
-describeFeature(feature, ({ Background, Scenario, ScenarioOutline }) => {
+describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let storage: FakeMediaStorage
   let ana: TestBrowser

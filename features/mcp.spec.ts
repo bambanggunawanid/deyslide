@@ -9,7 +9,7 @@ import { beforeAll, expect } from 'vitest'
 import { splitSlides } from '../packages/deck-model/src'
 import { demoDeckState } from './support/deck-content'
 import { approveConsent, CALLBACK_URL, connectMcp, FakeClaudeCodeAuth, followInBrowser } from './support/mcp-client'
-import { createTestServer, DATABASE_WARM_UP_MS, TEST_ORIGIN, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TEST_ORIGIN, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./mcp.feature')
 
@@ -30,7 +30,9 @@ class FakeRenderer implements SlideRenderer {
 
 const MCP_URL = `${TEST_ORIGIN}/mcp`
 
-describeFeature(feature, ({ Background, Scenario }) => {
+describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let renderer: FakeRenderer
   let ana: TestBrowser

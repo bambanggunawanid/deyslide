@@ -5,13 +5,15 @@ import type { TestBrowser, TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect } from 'vitest'
 import { blankDeckState, demoDeckState } from './support/deck-content'
-import { createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./sharing.feature')
 
 beforeAll(warmUpDatabase, DATABASE_WARM_UP_MS)
 
-describeFeature(feature, ({ Background, Scenario, ScenarioOutline }) => {
+describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let ana: TestBrowser
   let budi: TestBrowser

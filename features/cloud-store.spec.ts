@@ -8,13 +8,15 @@ import { GuestStore } from '../apps/web/src/guest/store'
 import { HttpProjectApi } from '../apps/web/src/projects/api'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { fromMarkdown } from '../packages/deck-model/src'
-import { createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./cloud-store.feature')
 
 beforeAll(warmUpDatabase, DATABASE_WARM_UP_MS)
 
-describeFeature(feature, ({ Background, Scenario }) => {
+describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let ana: TestBrowser
   let store: CloudStore

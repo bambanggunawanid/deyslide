@@ -6,7 +6,7 @@ import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect, vi } from 'vitest'
 import { MCP_ACCESS_TOKEN_SECONDS } from '../apps/server/src/auth'
 import { approveConsent, connectMcp, FakeClaudeCodeAuth, followInBrowser } from './support/mcp-client'
-import { createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, TEST_ORIGIN, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, TEST_ORIGIN, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./app-auth.feature')
 
@@ -51,8 +51,9 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScen
   let tokens: Tokens
   let token: string
 
-  AfterEachScenario(() => {
+  AfterEachScenario(async () => {
     vi.useRealTimers()
+    await closeTestServers()
   })
 
   async function readAnswer<T>(request: Response | Promise<Response>): Promise<Answer<T>> {

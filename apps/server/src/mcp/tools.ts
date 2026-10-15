@@ -1,10 +1,12 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { MarkdownDecks } from './decks.ts'
+import type { DeckWrite, MarkdownDecks } from './decks.ts'
 import type { SlideRenderer } from './renderer.ts'
 import { splitSlides } from '@deyslide/deck-model'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { DeckDraft, EditError } from '../assistant/draft.ts'
+import { DeckNotSavedError } from '../collab/documents.ts'
+import { DeckTooBigError } from '../collab/limits.ts'
 import { ForbiddenError, NameSchema } from '../projects.ts'
 import { DeckInputError } from './decks.ts'
 import { MCP_GUIDE, MCP_INSTRUCTIONS } from './guide.ts'
@@ -39,6 +41,39 @@ function problem(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true }
 }
 
+/** A save that went wrong in a way Claude can act on, said so; anything else is rethrown. */
+function notSaved(error: unknown): CallToolResult {
+  if (error instanceof DeckInputError || error instanceof ForbiddenError || error instanceof EditError || error instanceof DeckTooBigError)
+    return problem(`Nothing was saved. ${error.message}`)
+  // The change reached the deck, so sending it again would make it twice.
+  if (error instanceof DeckNotSavedError)
+    return problem(`${error.message} Do not send the change again.`)
+  throw error
+}
+
+type SlideEdit = z.infer<typeof Edit>
+
+/** Applies the edits in order. A failing edit throws an `EditError` that says which one. */
+function applyEdits(draft: DeckDraft, edits: SlideEdit[]) {
+  for (const [index, edit] of edits.entries()) {
+    try {
+      if (edit.action === 'replace')
+        draft.replace(edit.slide, edit.text)
+      else if (edit.action === 'insert')
+        draft.insert(edit.position, edit.text)
+      else if (edit.action === 'delete')
+        draft.remove(edit.slide)
+      else
+        draft.move(edit.slide, edit.to)
+    }
+    catch (error) {
+      if (error instanceof EditError)
+        throw new EditError(`Edit ${index + 1} (${edit.action}) failed: ${error.message}`)
+      throw error
+    }
+  }
+}
+
 const NOT_FOUND = 'There is no deck with that id in this account. Call list_decks to see the decks.'
 
 /** The first heading of a slide, or its first line. */
@@ -54,13 +89,16 @@ function outline(markdown: string) {
 /**
  * The MCP server for one signed in person. Every tool acts as that person
  * through the same store as the web app, so no call reaches another account.
+ * `session` tells apart the person's Claude Code sessions (the MCP session
+ * id), so each one's writes merge with what that session read.
  */
-export function createMcpServer(userId: string, { decks, renderer, version }: McpDependencies) {
+export function createMcpServer(userId: string, { decks, renderer, version }: McpDependencies, session?: string) {
   const server = new McpServer({ name: 'deyslide', title: 'Deyslide', version }, { instructions: MCP_INSTRUCTIONS })
+  const reader = { userId, session }
 
-  async function deckOrNull(deckId: string) {
+  async function deckOrNull(deckId: string, options: { remember?: boolean } = {}) {
     const found = await decks.find(userId, deckId)
-    const markdown = found && await decks.read(userId, deckId)
+    const markdown = found && await decks.read(reader, deckId, options)
     return found && markdown !== undefined ? { ...found, markdown } : undefined
   }
 
@@ -140,7 +178,7 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
   }, async ({ projectId, name, markdown }) => {
     const source = markdown?.trim() ? markdown : `---\ntitle: ${JSON.stringify(name)}\nlayout: cover\n---\n\n# ${name}\n`
     try {
-      const deck = await decks.create(userId, projectId, name, source)
+      const deck = await decks.create(reader, projectId, name, source)
       if (!deck)
         return problem('There is no project with that id in this account. Call list_decks, or create_project first.')
       const editorUrl = decks.editorUrl(projectId, deck.id)
@@ -161,7 +199,8 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
     inputSchema: { deckId: DeckId },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ deckId }) => {
-    const found = await deckOrNull(deckId)
+    // What Claude sees here is what its next write_deck or edit_slides builds on.
+    const found = await deckOrNull(deckId, { remember: true })
     if (!found)
       return problem(NOT_FOUND)
     const draft = new DeckDraft(found.markdown)
@@ -174,22 +213,26 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
 
   server.registerTool('write_deck', {
     title: 'Replace a whole deck',
-    description: 'Replaces all of a deck\'s Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. The first slide\'s frontmatter holds the deck settings.',
+    description: 'Replaces all of a deck\'s Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: edits people make while you work are then kept. Writing a deck you have not read overwrites them. The first slide\'s frontmatter holds the deck settings.',
     inputSchema: { deckId: DeckId, markdown: z.string().min(1).describe('The whole deck as Slidev Markdown.') },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async ({ deckId, markdown }) => {
     const found = await decks.find(userId, deckId)
     if (!found)
       return problem(NOT_FOUND)
+    let written: DeckWrite | undefined
     try {
-      await decks.save(userId, deckId, markdown)
+      written = await decks.write(reader, deckId, markdown)
     }
     catch (error) {
-      if (error instanceof DeckInputError || error instanceof ForbiddenError)
-        return problem(`Nothing was saved. ${error.message}`)
-      throw error
+      return notSaved(error)
     }
-    return text(`Saved. The deck now has these slides:\n${outline(markdown)}\n\nCheck them with render_slides.`)
+    if (!written)
+      return problem(NOT_FOUND)
+    const how = written.replaced
+      ? 'Saved. There was no read of this deck to merge with (reads are kept for an hour), so your Markdown replaced the whole deck.'
+      : 'Saved, merged with what people changed since you read the deck.'
+    return text(`${how} The deck now has these slides:\n${outline(written.markdown)}\n\nCheck them with render_slides.`)
   })
 
   server.registerTool('edit_slides', {
@@ -198,36 +241,21 @@ export function createMcpServer(userId: string, { decks, renderer, version }: Mc
     inputSchema: { deckId: DeckId, edits: z.array(Edit).min(1).max(50) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   }, async ({ deckId, edits }) => {
-    const found = await deckOrNull(deckId)
+    const found = await decks.find(userId, deckId)
     if (!found)
       return problem(NOT_FOUND)
-    const draft = new DeckDraft(found.markdown)
-    for (const [index, edit] of edits.entries()) {
-      try {
-        if (edit.action === 'replace')
-          draft.replace(edit.slide, edit.text)
-        else if (edit.action === 'insert')
-          draft.insert(edit.position, edit.text)
-        else if (edit.action === 'delete')
-          draft.remove(edit.slide)
-        else
-          draft.move(edit.slide, edit.to)
-      }
-      catch (error) {
-        if (error instanceof EditError)
-          return problem(`Nothing was saved. Edit ${index + 1} (${edit.action}) failed: ${error.message}`)
-        throw error
-      }
-    }
+    let written: DeckWrite | undefined
     try {
-      await decks.save(userId, deckId, draft.markdown)
+      written = await decks.edit(reader, deckId, draft => applyEdits(draft, edits))
     }
     catch (error) {
-      if (error instanceof DeckInputError || error instanceof ForbiddenError)
-        return problem(`Nothing was saved. ${error.message}`)
-      throw error
+      return notSaved(error)
     }
-    return text(`Saved ${edits.length} edit${edits.length === 1 ? '' : 's'}. The deck now has these slides:\n${draft.outline()}\n\nCheck them with render_slides.`)
+    if (!written)
+      return problem(NOT_FOUND)
+    const saved = `Saved ${edits.length} edit${edits.length === 1 ? '' : 's'}.`
+    const how = written.replaced ? ' The deck no longer holds the version you read, so the edited version replaced the whole deck.' : ''
+    return text(`${saved}${how} The deck now has these slides:\n${new DeckDraft(written.markdown).outline()}\n\nCheck them with render_slides.`)
   })
 
   server.registerTool('render_slides', {

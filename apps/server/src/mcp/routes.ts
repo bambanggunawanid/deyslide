@@ -59,12 +59,22 @@ export function mcpRoutes({ config, auth, ...tools }: McpRouteDependencies) {
       return c.json({ error: 'Sign in to Deyslide first' }, 401, { 'www-authenticate': challenge.join(', ') })
     }
 
-    // Stateless: every request gets its own server bound to the signed in person.
-    const server = createMcpServer(userId, tools)
+    // Stateless: every request gets its own server bound to the signed in
+    // person. A client that starts a session gets an id, which it sends
+    // back on every later request, so the tools can tell its sessions apart.
+    const body = c.req.method === 'POST' ? await c.req.raw.clone().json().catch(() => undefined) : undefined
+    const starting = [body].flat().some(message => (message as { method?: unknown } | undefined)?.method === 'initialize')
+    const session = starting ? crypto.randomUUID() : c.req.header('mcp-session-id')
+    const server = createMcpServer(userId, tools, session)
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     await server.connect(transport)
     try {
-      return await transport.handleRequest(c.req.raw)
+      const response = await transport.handleRequest(c.req.raw, body === undefined ? undefined : { parsedBody: body })
+      if (!starting || !response.ok)
+        return response
+      const headers = new Headers(response.headers)
+      headers.set('mcp-session-id', session!)
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
     }
     finally {
       void server.close()

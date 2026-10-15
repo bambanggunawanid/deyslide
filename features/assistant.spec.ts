@@ -8,7 +8,7 @@ import { beforeAll, expect } from 'vitest'
 import { slideTexts } from '../packages/deck-model/src'
 import { fakeTurn, ScriptedModel } from './support/assistant-model'
 import { demoDeckMarkdown, demoDeckState } from './support/deck-content'
-import { createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./assistant.feature')
 
@@ -31,7 +31,9 @@ function parseEvents(text: string): StreamEvent[] {
 
 const dollars = (amount: number) => ({ input_tokens: amount * 250_000, output_tokens: 0 })
 
-describeFeature(feature, ({ Background, Scenario }) => {
+describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let model: ScriptedModel
   let today: Date
