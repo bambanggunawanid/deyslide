@@ -11,9 +11,10 @@ const error = ref('')
 async function signOut() {
   error.value = ''
   try {
+    // Leaving first lets an open deck save its typing while it still can.
+    await router.push('/')
     await service.signOut()
     await setAccount(undefined)
-    await router.push('/')
   }
   catch {
     error.value = 'Signing out did not work. Try again.'

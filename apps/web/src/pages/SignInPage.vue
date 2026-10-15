@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { browser, oauthContinueUrl } from '../account/oauth'
 import { runForm } from '../account/run'
+import { AccountError } from '../account/types'
 import AuthCard from '../components/AuthCard.vue'
 import FormError from '../components/FormError.vue'
 import SocialButtons from '../components/SocialButtons.vue'
@@ -48,10 +49,52 @@ async function sendLink() {
   if (await runForm(busy, error, () => service.sendMagicLink(email.value, next.value)))
     mode.value = 'link-sent'
 }
+
+// The Deyslide app: the website signs the person in, in their browser. The
+// app then reports the account, which brings them home from here. While
+// the browser has the sign in, they can start over (after closing the tab,
+// say), and the page shows how the latest attempt ends.
+const waiting = ref(false)
+let attempt = 0
+
+async function signInWithBrowser() {
+  const mine = ++attempt
+  waiting.value = true
+  error.value = ''
+  try {
+    await service.signInWithBrowser?.()
+  }
+  catch (caught) {
+    if (mine === attempt)
+      error.value = caught instanceof AccountError ? caught.message : 'Something went wrong. Try again.'
+  }
+  finally {
+    if (mine === attempt)
+      waiting.value = false
+  }
+}
+
+watch(account, (signedIn) => {
+  if (signedIn && options.browser)
+    void router.push('/')
+})
 </script>
 
 <template>
-  <AuthCard title="Sign in">
+  <AuthCard v-if="options.browser" title="Sign in">
+    <p class="m-0 text-sm text-dey-muted">
+      Deyslide opens your browser, where you sign in or create an account. Then return to the app.
+    </p>
+    <p v-if="waiting" class="m-0 rounded-md border border-dey-line p-3 text-sm" role="status" data-testid="sign-in-waiting">
+      Finish in your browser. Deyslide signs you in when you come back.
+    </p>
+    <FormError :message="error" />
+    <button class="dey-btn-primary" data-testid="sign-in-browser" @click="signInWithBrowser">
+      {{ waiting ? 'Open the browser again' : 'Sign in with your browser' }}
+    </button>
+  </AuthCard>
+
+  <AuthCard v-else title="Sign in">
     <p class="m-0 text-sm text-dey-muted">
       New to Deyslide?
       <RouterLink to="/sign-up" class="text-dey-accent">

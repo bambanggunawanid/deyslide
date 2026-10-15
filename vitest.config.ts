@@ -11,6 +11,8 @@ export default defineConfig({
       // Tests swap in a small double that exposes the same composables.
       // Only the bare name: the preview imports Slidev's layouts from subpaths.
       { find: /^@slidev\/client$/, replacement: fileURLToPath(new URL('./features/support/slidev-client.ts', import.meta.url)) },
+      // The web app's entry loads the styles UnoCSS generates, which only its Vite plugin makes.
+      { find: /^virtual:uno\.css$/, replacement: fileURLToPath(new URL('./features/support/no-styles.css', import.meta.url)) },
     ],
   },
   test: {

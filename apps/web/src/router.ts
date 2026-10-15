@@ -27,6 +27,7 @@ export function createAppRouter(history: RouterHistory, currentAccount: () => Ac
       { path: '/forgot-password', name: 'forgot-password', component: () => import('./pages/ForgotPasswordPage.vue'), meta: { signedOutOnly: true } },
       { path: '/reset-password', name: 'reset-password', component: () => import('./pages/ResetPasswordPage.vue') },
       { path: '/oauth/consent', name: 'oauth-consent', component: () => import('./pages/ConsentPage.vue') },
+      { path: '/download', name: 'download', component: () => import('./pages/DownloadPage.vue') },
       { path: '/:rest(.*)*', name: 'not-found', component: NotFoundPage },
     ],
   })

@@ -1,0 +1,32 @@
+diff --git a/dist-js/index.cjs b/dist-js/index.cjs
+index b64701ce998c3fa590af90024c79dfcc55e9f2f1..3ba7584658c344167d69d1bda5f925a186af3320 100644
+--- a/dist-js/index.cjs
++++ b/dist-js/index.cjs
+@@ -174,6 +174,11 @@ async function fetch(input, init) {
+                 void dropBody();
+             }
+         });
++    // Deyslide patch: nothing reads a response without a body, so release it
++    // on the Rust side now. Otherwise it stays in the webview's resource table.
++    if (body === null) {
++        void dropBody();
++    }
+     const res = new Response(body, {
+         status,
+         statusText
+diff --git a/dist-js/index.js b/dist-js/index.js
+index 12e51ed1f386583d99759b83c70f504a3e0890b6..edec7b0dabd6158e92861026778b6788aad4b342 100644
+--- a/dist-js/index.js
++++ b/dist-js/index.js
+@@ -172,6 +172,11 @@ async function fetch(input, init) {
+                 void dropBody();
+             }
+         });
++    // Deyslide patch: nothing reads a response without a body, so release it
++    // on the Rust side now. Otherwise it stays in the webview's resource table.
++    if (body === null) {
++        void dropBody();
++    }
+     const res = new Response(body, {
+         status,
+         statusText

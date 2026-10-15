@@ -14,12 +14,14 @@ export interface SessionDependencies {
   /** Decks saved as files on this device, in the apps. */
   local?: ProjectStore
   api: ProjectApi
+  /** What live editing signs in with. Browsers send their cookie; the apps send an access token. */
+  collabToken?: () => Promise<string>
 }
 
 /** Finds out who is signed in and opens the matching projects. */
-export async function startSession({ service, guest, local, api }: SessionDependencies) {
+export async function startSession({ service, guest, local, api, collabToken }: SessionDependencies) {
   const [options, current] = await Promise.all([service.options(), service.current()])
-  const workspace = new Workspace({ guest, local, openCloud: () => CloudStore.open(api) })
+  const workspace = new Workspace({ guest, local, openCloud: () => CloudStore.open(api, { token: collabToken }) })
   await workspace.useAccount(current)
 
   const account = shallowRef(current)

@@ -4,6 +4,7 @@ import type { DeckSummary, Person, Project, SharedRole } from '../guest/types'
 import type { DeckConnection } from './collab'
 import type { ListEntry, SharingApi, ShareList, ShareTarget } from './sharing'
 import type { ExportedProject } from './types'
+import { apiFetch } from '../platform/platform'
 import { toBase64 } from './base64'
 import { collabUrl, connectLiveDeck } from './collab'
 import { StoreError } from './names'
@@ -59,7 +60,7 @@ export class HttpProjectApi implements ProjectApi {
   private readonly fetchImpl: typeof fetch
   private readonly options: HttpProjectApiOptions
 
-  constructor(fetchImpl: typeof fetch = (...args) => fetch(...args), options: HttpProjectApiOptions = {}) {
+  constructor(fetchImpl: typeof fetch = apiFetch, options: HttpProjectApiOptions = {}) {
     this.fetchImpl = fetchImpl
     this.options = options
   }

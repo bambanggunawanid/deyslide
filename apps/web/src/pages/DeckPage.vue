@@ -19,6 +19,7 @@ import { isDeckView, rememberedView, rememberView } from '../deck/view'
 import { createMarkdownBinding } from '../editor/markdown-sync'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
+import { saveFile } from '../platform/platform'
 import { canEdit, deckRole } from '../projects/roles'
 
 const props = defineProps<{ projectId: string, deckId: string }>()
@@ -284,17 +285,14 @@ watch(() => [session.value, account.value, view.value, currentId.value, selectio
   })
 }, { immediate: true })
 
-function downloadMarkdown() {
+/** Downloads the deck on the website; the apps ask where to save it. */
+async function downloadMarkdown() {
   if (!summary.value || !session.value?.ready.value)
     return
   // What the editor shows, typing included.
   binding.value?.flush()
-  const url = URL.createObjectURL(new Blob([deckMarkdown(session.value.doc)], { type: 'text/markdown' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${summary.value.name}.md`
-  link.click()
-  URL.revokeObjectURL(url)
+  const bytes = new TextEncoder().encode(deckMarkdown(session.value.doc))
+  await saveFile(`${summary.value.name}.md`, bytes, 'text/markdown')
 }
 
 /** Answers the question whether to leave with typing the deck does not have, while the page asks it. */
