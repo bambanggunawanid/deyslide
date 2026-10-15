@@ -3,6 +3,7 @@
 @import '@slidev/client/styles/layouts-base.css';
 @import '@slidev/client/styles/vclick.css';
 @import '@slidev/client/styles/code.css';
+@import '@slidev/client/styles/transitions.css';
 @import '@slidev/theme-default/styles/layouts.css';
 
 html,
@@ -27,7 +28,32 @@ body,
   left: 50%;
   translate: -50% -50%;
   overflow: hidden;
-  font-family: 'Avenir Next', 'Nunito Sans', ui-sans-serif, system-ui, sans-serif;
+  /* The deck's `fonts`, when it names any, set these variables. */
+  --slidev-code-font-family: var(--deck-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
+  font-family: var(--deck-font-sans, 'Avenir Next', 'Nunito Sans', ui-sans-serif, system-ui, sans-serif);
+}
+
+.slidev-page :is(code, kbd, samp, pre, .font-mono) {
+  font-family: var(--slidev-code-font-family);
+}
+
+.slidev-page .font-serif {
+  font-family: var(--deck-font-serif, ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif);
+}
+
+/*
+ * Slidev's layouts center their content with `my-auto` on a grid item. A
+ * capture copies computed styles, where Chromium reports those margins as
+ * 0, so the centering is set once more in a form the copy keeps.
+ */
+.slidev-layout > .my-auto {
+  align-self: center;
+}
+
+/* One slide. While presenting, the next one slides in over the last as it leaves. */
+.preview-slide {
+  position: absolute;
+  inset: 0;
 }
 
 .preview-error {

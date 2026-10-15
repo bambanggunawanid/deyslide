@@ -21,6 +21,9 @@ const SAMPLES: Record<string, string> = {
   'two columns': '# Left\n\n::right::\n\n# Right',
   'a list revealed by clicks': '<v-clicks>\n\n- One\n- Two\n- Three\n\n</v-clicks>',
   'an expression using the click count': `<span class="step">{{ ['a', 'b', 'c'][$clicks] }}</span>`,
+  'the click count read through $slidev': '<span class="step">{{ $slidev.nav.clicks }}</span>',
+  'images from the media library': '<img src="/api/media/m1/file" alt="Diagram">\n\n![Chart](/api/media/m1/file)\n\nThe file lives at `/api/media/m1/file`.',
+  'a poster and an inline style from the media library': '<video src="/api/media/m2/file" poster="/api/media/m1/file"></video>\n\n<div class="panel" style="background-image: url(\'/api/media/m1/file\'); color: red"></div>',
   'code containing braces': '```ts\nconst a = {{ b }}\n```',
   'a two step Magic Move': '````md magic-move\n```ts\nlet a = 1\n```\n```ts\nconst a = 1\n```\n````',
   'an ellipse shape': '<DeyslideShape shape="ellipse" fill="#f00" />',
@@ -40,11 +43,11 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     clicks.value = 0
   })
 
-  async function preview(content: string, frontmatter: Record<string, unknown> = {}, first = false) {
+  async function preview(content: string, frontmatter: Record<string, unknown> = {}, first = false, media?: Record<string, string>) {
     wrapper?.unmount()
     error = undefined
     try {
-      const compiled = await renderSlide({ content, frontmatter, first }, LAYOUTS)
+      const compiled = await renderSlide({ content, frontmatter, first }, LAYOUTS, media)
       slideClicks = compiled.clicks
       wrapper = mount(compiled.component, { global: { plugins: [{ install: installPreview }] } })
       await flushPromises()
@@ -113,6 +116,42 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
     Then('the slide shows "b"', () => {
       expect(find('.step').text()).toBe('b')
+    })
+  })
+
+  Scenario('Slides read the click count through $slidev, as in Slidev', ({ When, And, Then }) => {
+    When('the preview renders the "the click count read through $slidev" sample', () => preview(SAMPLES['the click count read through $slidev']))
+    And('the preview is at click 2', async () => {
+      clicks.value = 2
+      await flushPromises()
+    })
+    Then('the slide shows "2"', () => {
+      expect(find('.step').text()).toBe('2')
+    })
+  })
+
+  Scenario('Media links are swapped for ones the preview can load', ({ When, Then, And }) => {
+    const signed = 'https://media.example/m1?X-Signature=a1&expires=9'
+    When('the preview renders the "images from the media library" sample with "/api/media/m1/file" mapped to a signed link', () => preview(SAMPLES['images from the media library'], {}, false, { '/api/media/m1/file': signed }))
+    Then('both images load the signed link', () => {
+      expect(wrapper!.findAll('img').map(image => image.attributes('src'))).toEqual([signed, signed])
+    })
+    And('the text that mentions "/api/media/m1/file" is unchanged', () => {
+      expect(find('code').text()).toBe('/api/media/m1/file')
+    })
+  })
+
+  Scenario('Media links in a cover background, a video poster and an inline style are swapped too', ({ When, Then }) => {
+    const signed = 'https://media.example/m1?X-Signature=a1&expires=9'
+    When('the preview renders the "a poster and an inline style from the media library" sample on a cover whose background is "/api/media/m1/file", mapped to a signed link', () => preview(SAMPLES['a poster and an inline style from the media library'], { layout: 'cover', background: '/api/media/m1/file' }, false, { '/api/media/m1/file': signed }))
+    Then('the cover background, the video poster and the inline style load the signed link', () => {
+      expect(find('.slidev-layout.cover').attributes('style')).toContain(`url("${signed}")`)
+      expect(find('video').attributes('poster')).toBe(signed)
+      // A link with no entry in the map stays as written.
+      expect(find('video').attributes('src')).toBe('/api/media/m2/file')
+      expect(find('.panel').attributes('style')).toContain(`url("${signed}")`)
+      expect(find('.panel').attributes('style')).toContain('color: red')
+      expect(wrapper!.html()).not.toContain('/api/media/m1/file')
     })
   })
 

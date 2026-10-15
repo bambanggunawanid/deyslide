@@ -114,7 +114,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     Given('the demo deck "Sorting" is open in the editor', () => openDeck('Sorting', 'demo'))
     And('the cursor is in the third slide, which the preview says has 3 clicks', async () => {
       await moveCursorToSlide(3)
-      preview().vm.$emit('rendered', 3)
+      preview().vm.$emit('rendered', { clicks: 3 })
       await web.settle()
     })
     When('I press the next click button twice', async () => {

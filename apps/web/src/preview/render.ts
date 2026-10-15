@@ -5,7 +5,7 @@ import { loadHighlighter } from './highlighter'
 import { codeLanguages, createMarkdownRenderer } from './markdown'
 
 /** Loads the code languages a slide needs, then compiles it. */
-export async function renderSlide(source: SlideSource, layouts: Record<string, Component>): Promise<CompiledSlide> {
+export async function renderSlide(source: SlideSource, layouts: Record<string, Component>, media?: Record<string, string>): Promise<CompiledSlide> {
   const highlighter = await loadHighlighter(codeLanguages(source.content))
-  return compileSlide(source, createMarkdownRenderer(highlighter), layouts)
+  return compileSlide(source, createMarkdownRenderer(highlighter), layouts, media)
 }

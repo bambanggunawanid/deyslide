@@ -27,23 +27,34 @@ const HOST_PAGE = `<!doctype html>
 <iframe id="preview" sandbox="allow-scripts" src="/preview.html" width="1280" height="720"></iframe>
 <script>
   const frame = document.getElementById('preview')
-  let waiting
+  // Each render gets an id, and the frame replies with it, so a reply meant
+  // for an earlier render (a late slide error) is never taken for the
+  // current one.
+  const waiting = new Map()
+  let renders = 0
   const ready = new Promise((resolve) => {
     window.addEventListener('message', (event) => {
       if (event.source !== frame.contentWindow)
         return
       const message = event.data || {}
-      if (message.type === 'deyslide:ready')
+      if (message.type === 'deyslide:ready') {
         resolve()
-      else if (waiting && (message.type === 'deyslide:rendered' || message.type === 'deyslide:error'))
-        waiting(message)
+      }
+      else if ((message.type === 'deyslide:rendered' || message.type === 'deyslide:error') && waiting.has(message.id)) {
+        waiting.get(message.id)(message)
+        waiting.delete(message.id)
+      }
     })
   })
+  // Slides are drawn as for an export unless the request names a mode: print
+  // mode mounts every click afresh, so no animation is caught halfway and 3D
+  // cameras stand at their final pose.
   window.renderSlide = async (request) => {
     await ready
+    const id = request.id || 'render-' + ++renders
     return new Promise((resolve) => {
-      waiting = resolve
-      frame.contentWindow.postMessage(request, '*')
+      waiting.set(id, resolve)
+      frame.contentWindow.postMessage({ ...request, mode: request.mode || 'print', id }, '*')
     })
   }
 </script>

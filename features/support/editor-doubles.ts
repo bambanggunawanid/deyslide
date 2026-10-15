@@ -1,19 +1,45 @@
-import type { RenderRequest } from '../../apps/web/src/preview/protocol'
-import { defineComponent, h } from 'vue'
+import type { Position } from '../../packages/deck-model/src'
+import type { CapturedSlide, RenderRequest } from '../../apps/web/src/preview/protocol'
+import { defineComponent, h, watch } from 'vue'
 
 /** Records what the editor asks the preview to render, instead of a sandboxed iframe. */
 export const previewRequests: RenderRequest[] = []
+/** Positions the editor gave the preview for a drag, in order. */
+export const previewPositions: Record<string, Position>[] = []
+/** The pixel ratio of each capture the editor asked for. */
+export const previewCaptures: (number | undefined)[] = []
+
+/** A 1 by 1 PNG, so code that embeds captures (in a PDF, say) gets a real image. */
+const PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+
+/** What every capture answers. */
+export function capturedSlide(): CapturedSlide {
+  return { png: Uint8Array.from(atob(PIXEL_PNG), char => char.charCodeAt(0)).buffer, overflow: false }
+}
 
 export const SlidePreviewFrameDouble = defineComponent({
   name: 'SlidePreviewFrame',
-  props: { request: { type: Object, default: undefined } },
+  props: {
+    request: { type: Object, default: undefined },
+    positions: { type: Object, default: undefined },
+  },
   emits: ['rendered', 'error'],
-  setup(props) {
-    return () => {
-      if (props.request)
-        previewRequests.push(structuredClone(JSON.parse(JSON.stringify(props.request))) as RenderRequest)
-      return h('div', { 'data-testid': 'preview-frame' })
-    }
+  setup(props, { expose }) {
+    expose({
+      capture: async (pixelRatio?: number) => {
+        previewCaptures.push(pixelRatio)
+        return capturedSlide()
+      },
+    })
+    watch(() => props.request, (request) => {
+      if (request)
+        previewRequests.push(JSON.parse(JSON.stringify(request)) as RenderRequest)
+    }, { deep: true, immediate: true })
+    watch(() => props.positions, (positions) => {
+      if (positions)
+        previewPositions.push(JSON.parse(JSON.stringify(positions)) as Record<string, Position>)
+    }, { deep: true, immediate: true })
+    return () => h('div', { 'data-testid': 'preview-frame' })
   },
 })
 
@@ -38,5 +64,7 @@ export const MarkdownEditorDouble = defineComponent({
 
 export function resetEditorDoubles() {
   previewRequests.length = 0
+  previewPositions.length = 0
+  previewCaptures.length = 0
   editorJumps.length = 0
 }

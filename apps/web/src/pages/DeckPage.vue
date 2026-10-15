@@ -102,7 +102,7 @@ function applyMarkdown(markdown: string, slideIndex?: number) {
   current.value = Math.max(0, Math.min(slideIndex ?? current.value, splitSlides(markdown).length - 1))
 }
 
-function onRendered(count: number) {
+function onRendered({ clicks: count }: { clicks: number }) {
   totalClicks.value = count
   previewError.value = ''
 }

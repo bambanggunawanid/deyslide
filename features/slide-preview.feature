@@ -30,6 +30,20 @@ Feature: Slide preview
     And the preview is at click 1
     Then the slide shows "b"
 
+  Scenario: Slides read the click count through $slidev, as in Slidev
+    When the preview renders the "the click count read through $slidev" sample
+    And the preview is at click 2
+    Then the slide shows "2"
+
+  Scenario: Media links are swapped for ones the preview can load
+    When the preview renders the "images from the media library" sample with "/api/media/m1/file" mapped to a signed link
+    Then both images load the signed link
+    And the text that mentions "/api/media/m1/file" is unchanged
+
+  Scenario: Media links in a cover background, a video poster and an inline style are swapped too
+    When the preview renders the "a poster and an inline style from the media library" sample on a cover whose background is "/api/media/m1/file", mapped to a signed link
+    Then the cover background, the video poster and the inline style load the signed link
+
   Scenario: Code is highlighted and never run as a template
     When the preview renders the "code containing braces" sample
     Then the slide shows highlighted code reading "const a = {{ b }}"
