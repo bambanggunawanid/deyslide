@@ -30,7 +30,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test -c e2e/playwright.config.ts",
-    "typecheck": "vue-tsc --noEmit && vue-tsc --noEmit -p packages/animations/tsconfig.json"
+    "typecheck": "vue-tsc --noEmit && vue-tsc --noEmit -p packages/animations/tsconfig.json",
+    "guide:sync": "node scripts/guide-sync.ts"
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^8.0.0",

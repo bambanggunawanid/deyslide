@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['features/**/*.spec.ts'],
+    // Builds the on-device MCP server once for the specs that run it.
+    globalSetup: ['./features/support/build-deyslide-mcp.ts'],
     // vitest-cucumber runs every Gherkin step as its own test. Vitest 5 clears
     // mock calls between tests by default, which would erase a call made in a
     // When step before the Then step can assert on it.
