@@ -766,6 +766,38 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  Scenario('Keys belong to an open dialog, not to the canvas behind it', ({ Given, And, When, Then }) => {
+    let escape: KeyboardEvent
+    anaOpens(Given)
+    And('Ana has the rectangle selected and the share dialog open, with focus back on the page', async () => {
+      await select(RECTANGLE)
+      expect(selectedIds()).toEqual(['box'])
+      await web.click('[data-testid="share-deck"]')
+      await vi.waitFor(() => expect(find('[data-testid="share-dialog"]')).not.toBeNull())
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      expect(document.activeElement).toBe(document.body)
+    })
+    When('Ana presses Delete, an arrow key and Control Z', async () => {
+      await key('Delete')
+      await key('ArrowRight')
+      await key('z', { ctrl: true })
+    })
+    Then('the rectangle is still there, where it was, and still selected', () => {
+      expect(elements().map(item => item.id)).toEqual(['box', 'note'])
+      expectPos('box', { x: 100, y: 100 })
+      expect(selectedIds()).toEqual(['box'])
+    })
+    When('Ana presses Escape', async () => {
+      escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      window.dispatchEvent(escape)
+      await web.settle()
+    })
+    Then('the canvas leaves Escape to the dialog and keeps the rectangle selected', () => {
+      expect(escape.defaultPrevented).toBe(false)
+      expect(selectedIds()).toEqual(['box'])
+    })
+  })
+
   Scenario('A drag with a pause is one undo step', ({ Given, When, Then }) => {
     anaOpens(Given)
     When('Ana drags the rectangle 40 right, waits longer than half a second, then drags it 40 down and lets go', async () => {

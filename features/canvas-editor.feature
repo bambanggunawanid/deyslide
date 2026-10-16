@@ -118,6 +118,14 @@ Feature: Canvas editor
     When Ana selects the rectangle and presses Backspace
     Then the slide has only the note
 
+  Scenario: Keys belong to an open dialog, not to the canvas behind it
+    Given Ana has the deck "Shapes" open in the Design view
+    And Ana has the rectangle selected and the share dialog open, with focus back on the page
+    When Ana presses Delete, an arrow key and Control Z
+    Then the rectangle is still there, where it was, and still selected
+    When Ana presses Escape
+    Then the canvas leaves Escape to the dialog and keeps the rectangle selected
+
   Scenario: A drag with a pause is one undo step
     Given Ana has the deck "Shapes" open in the Design view
     When Ana drags the rectangle 40 right, waits longer than half a second, then drags it 40 down and lets go

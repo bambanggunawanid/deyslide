@@ -844,9 +844,17 @@ function inEditableField(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], .cm-editor'))
 }
 
-/** Shortcuts work when focus is on the page itself or in the canvas, never in a field. */
+/** A dialog is open, such as the share dialog. Focus can fall back to the page behind it. */
+function dialogOpen() {
+  return Boolean(document.querySelector('[role="dialog"], [role="alertdialog"]'))
+}
+
+/**
+ * Shortcuts work when focus is on the page itself or in the canvas, never
+ * in a field, and never while a dialog is open: its keys are its own.
+ */
 function forCanvas(event: KeyboardEvent) {
-  if (event.defaultPrevented || inEditableField(event.target))
+  if (event.defaultPrevented || inEditableField(event.target) || dialogOpen())
     return false
   const active = document.activeElement
   return !active || active === document.body || Boolean(active.closest('[data-canvas-keys]')) || Boolean(stage.value?.contains(active))
