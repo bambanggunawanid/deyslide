@@ -1,9 +1,10 @@
 import type { App, Component } from 'vue'
 import { defineAsyncComponent } from 'vue'
-import { slidev } from './context'
 import { vClick } from './directives'
 import MagicMove from './MagicMove.vue'
-import { clicks, frontmatter, loading } from './state'
+import { currentScope } from './scope'
+import { loading } from './state'
+import VClick from './VClick'
 import VDrag from './VDrag.vue'
 
 /** A component whose code loads when a slide first uses it, counted while it loads so a capture can wait. */
@@ -21,8 +22,9 @@ function lazy(load: () => Promise<{ default: Component }>) {
 
 /**
  * Registers what slides may use: Deyslide components, Slidev's Magic Move,
- * v-drag and v-click, and Slidev's `$clicks`, `$slidev`, `$nav`,
- * `$frontmatter` and `$renderContext`.
+ * v-drag, `<v-click>` and `<v-after>` and the `v-click` directive, and
+ * Slidev's `$clicks`, `$slidev`, `$nav`, `$frontmatter` and
+ * `$renderContext`, each read from the slide that asks.
  */
 export function installPreview(app: App) {
   // three.js and the Motion Canvas player are large, so they load when a slide uses them.
@@ -32,12 +34,14 @@ export function installPreview(app: App) {
   app.component('DeyslideShape', lazy(() => import('@deyslide/components/components/DeyslideShape.vue')))
   app.component('MagicMove', MagicMove)
   app.component('VDrag', VDrag)
+  app.component('VClick', VClick)
+  app.component('VAfter', VClick)
   app.directive('click', vClick)
   const globals = app.config.globalProperties
-  Object.defineProperty(globals, '$clicks', { get: () => clicks.value })
-  Object.defineProperty(globals, '$slidev', { get: () => slidev })
-  Object.defineProperty(globals, '$nav', { get: () => slidev.nav })
-  Object.defineProperty(globals, '$frontmatter', { get: () => frontmatter.value })
+  Object.defineProperty(globals, '$clicks', { get: () => currentScope().clicks.value })
+  Object.defineProperty(globals, '$slidev', { get: () => currentScope().slidev })
+  Object.defineProperty(globals, '$nav', { get: () => currentScope().slidev.nav })
+  Object.defineProperty(globals, '$frontmatter', { get: () => currentScope().frontmatter.value })
   Object.defineProperty(globals, '$renderContext', { get: () => 'slide' })
 }
 

@@ -1,12 +1,14 @@
 import type { RenderRequest } from '../apps/web/src/preview/protocol'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
-import { expect } from 'vitest'
+import { expect, vi } from 'vitest'
 import { resolveTransition, slideTransition } from '../apps/web/src/preview/transitions'
 import { PreviewFrame } from './support/preview-app'
+import { FakeResizeObserver } from './support/resize-observer'
 
 const feature = await loadFeature('./preview-transitions.feature')
 
 const CLICKS = '<v-clicks>\n\n- One\n- Two\n\n</v-clicks>'
+const COUNTED = `${CLICKS}\n\n<p class="count">{{ $clicks }}</p>`
 
 /**
  * Every class each slide wrapper wore, even for a moment. Vue adds a
@@ -55,7 +57,12 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
     classes?.stop()
     frame?.close()
     headmatter = {}
+    vi.unstubAllGlobals()
+    delete (document as { visibilityState?: unknown }).visibilityState
   })
+
+  /** The scale the slide is drawn at. */
+  const scaleOf = () => Number(/scale\(([\d.]+)\)/.exec(frame.find('[data-testid="slide"]')!.style.transform)?.[1])
 
   async function present(content: string, options: Partial<RenderRequest> = {}, frontmatter: Record<string, unknown> = {}) {
     frame = await new PreviewFrame().open()
@@ -159,6 +166,38 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
     })
   })
 
+  Scenario('The slide being left keeps showing what it showed until it is gone', ({ Given, When, Then, And }) => {
+    let list: Element | null
+    /** The page as it was once "Two" came in, before the transition could end. */
+    let during: { slides: string[], list: Element | null, hidden: boolean[], count: string } | undefined
+    Given('the preview frame presents a list revealed by clicks, at its last click', async () => {
+      await present(COUNTED, { clicks: 2 })
+      list = frame.find('ul')
+    })
+    When('the presenter moves forward to "Two" with the transition "slide-left"', async () => {
+      const observer = new MutationObserver(() => {
+        const slides = frame.findAll('.preview-slide').map(element => element.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+        if (!during && slides.includes('Two'))
+          during = { slides, list: frame.find('ul'), hidden: frame.findAll('li').map(item => item.classList.contains('slidev-vclick-hidden')), count: frame.find('.count')?.textContent ?? '' }
+      })
+      observer.observe(frame.find('[data-testid="slide"]')!, { subtree: true, childList: true, attributes: true, characterData: true })
+      await frame.render({ content: '# Two' }, { mode: 'present', transition: { name: 'slide-left', back: false } })
+      observer.disconnect()
+    })
+    Then('the list is still mounted beside "Two", with every item shown and its click count unchanged', () => {
+      expect(during?.slides).toEqual(['OneTwo2', 'Two'])
+      expect(during?.list).toBe(list)
+      expect(during?.hidden).toEqual([false, false])
+      expect(during?.count).toBe('2')
+    })
+    And('once the transition ends, only "Two" is mounted', async () => {
+      await vi.waitFor(async () => {
+        await settle()
+        expect(frame.findAll('.preview-slide').map(element => element.textContent?.trim())).toEqual(['Two'])
+      })
+    })
+  })
+
   Scenario('Stepping through clicks plays no transition', ({ Given, When, Then }) => {
     let shown: Element | null
     let item: Element | null
@@ -188,6 +227,56 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
     Then('"Two" replaces "One" with no transition', () => {
       expect(classes.all().filter(name => name.endsWith('-active'))).toEqual([])
       expect(frame.findAll('.preview-slide').map(element => element.textContent?.trim())).toEqual(['Two'])
+    })
+  })
+
+  Scenario('Quick moves in a window that paints nothing keep only the slide being left', ({ Given, When, Then }) => {
+    Given('the preview frame presents a slide titled "One", in a window that paints no frames', async () => {
+      await present('# One')
+      // A minimized or covered window: no animation frame comes, so no transition ends.
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    })
+    When('the presenter moves forward to "Two", "Three" and "Four" with the transition "slide-left"', async () => {
+      for (const title of ['Two', 'Three', 'Four'])
+        await frame.render({ content: `# ${title}` }, { mode: 'present', transition: { name: 'slide-left', back: false } })
+    })
+    Then('only "Three", on its way out, and "Four" are mounted', () => {
+      expect(frame.findAll('.preview-slide').map(element => element.textContent?.trim())).toEqual(['Three', 'Four'])
+    })
+  })
+
+  Scenario('In a window nobody can see, the next slide replaces the last at once', ({ Given, When, Then }) => {
+    Given('the preview frame presents a slide titled "One", in a window nobody can see', async () => {
+      await present('# One')
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    })
+    When('the presenter moves forward to "Two" with the transition "slide-left"', async () => {
+      await frame.render({ content: '# Two' }, { mode: 'present', transition: { name: 'slide-left', back: false } })
+      await settle()
+    })
+    Then('"Two" replaces "One" with no transition', () => {
+      expect(classes.all().filter(name => name.endsWith('-active'))).toEqual([])
+      expect(frame.findAll('.preview-slide').map(element => element.textContent?.trim())).toEqual(['Two'])
+    })
+  })
+
+  Scenario('While presenting, the slide covers the whole frame', ({ Given, When, Then }) => {
+    Given('the preview frame is shown at 1280 by 720 pixels', async () => {
+      frame = await new PreviewFrame().open()
+      FakeResizeObserver.resizeAll(1280, 720)
+    })
+    When('it shows a slide for editing', async () => {
+      await frame.render({ content: '# One' })
+    })
+    Then('the slide fits the frame exactly', () => {
+      expect(scaleOf()).toBeCloseTo(1280 / 980, 10)
+    })
+    When('it presents the slide', async () => {
+      await frame.render({ content: '# One' }, { mode: 'present' })
+    })
+    Then('the slide is at least a pixel taller than the frame, so no dark line shows along its bottom edge', () => {
+      expect(551.25 * scaleOf() - 720).toBeGreaterThan(0.999)
+      expect(980 * scaleOf()).toBeLessThan(1283)
     })
   })
 })

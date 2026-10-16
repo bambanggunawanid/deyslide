@@ -109,7 +109,15 @@ async function deleteProject() {
         <span v-if="project.shared" class="ml-auto text-xs text-dey-muted" :data-deck-role="deck.name">
           {{ deckRole(project, deck) === 'editor' ? 'Can edit' : 'View only' }}
         </span>
-        <button v-if="canEdit(deckRole(project, deck))" class="dey-btn text-sm" :class="!project.shared && 'ml-auto'" @click="renamingDeck = deck">
+        <RouterLink
+          :to="{ name: 'present', params: { projectId: project.id, deckId: deck.id } }"
+          class="dey-btn text-sm"
+          :class="!project.shared && 'ml-auto'"
+          :data-present="deck.name"
+        >
+          Present
+        </RouterLink>
+        <button v-if="canEdit(deckRole(project, deck))" class="dey-btn text-sm" @click="renamingDeck = deck">
           Rename
         </button>
         <button v-if="isOwner" class="dey-btn text-sm" @click="deletingDeck = deck">

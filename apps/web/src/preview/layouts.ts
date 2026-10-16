@@ -9,6 +9,9 @@ import Center from '@slidev/client/layouts/center.vue'
 import Default from '@slidev/client/layouts/default.vue'
 import End from '@slidev/client/layouts/end.vue'
 import Full from '@slidev/client/layouts/full.vue'
+import ImageLeft from '@slidev/client/layouts/image-left.vue'
+import ImageRight from '@slidev/client/layouts/image-right.vue'
+import Image from '@slidev/client/layouts/image.vue'
 import None from '@slidev/client/layouts/none.vue'
 import TwoColsHeader from '@slidev/client/layouts/two-cols-header.vue'
 import TwoCols from '@slidev/client/layouts/two-cols.vue'
@@ -21,6 +24,9 @@ export const LAYOUTS: Record<string, Component> = {
   'end': End,
   'fact': ThemeFact,
   'full': Full,
+  'image': Image,
+  'image-left': ImageLeft,
+  'image-right': ImageRight,
   'intro': ThemeIntro,
   'none': None,
   'quote': ThemeQuote,

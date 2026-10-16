@@ -50,6 +50,12 @@ Feature: Slide transitions while presenting
     When the presenter moves back to "One", whose transition is "slide-up", without naming a transition
     Then "One" enters with "slide-down"
 
+  Scenario: The slide being left keeps showing what it showed until it is gone
+    Given the preview frame presents a list revealed by clicks, at its last click
+    When the presenter moves forward to "Two" with the transition "slide-left"
+    Then the list is still mounted beside "Two", with every item shown and its click count unchanged
+    And once the transition ends, only "Two" is mounted
+
   Scenario: Stepping through clicks plays no transition
     Given the preview frame presents a list revealed by clicks
     When the presenter moves to the next click
@@ -59,3 +65,20 @@ Feature: Slide transitions while presenting
     Given the preview frame shows a slide titled "One" for editing
     When the editor asks for "Two" with the transition "slide-left"
     Then "Two" replaces "One" with no transition
+
+  Scenario: Quick moves in a window that paints nothing keep only the slide being left
+    Given the preview frame presents a slide titled "One", in a window that paints no frames
+    When the presenter moves forward to "Two", "Three" and "Four" with the transition "slide-left"
+    Then only "Three", on its way out, and "Four" are mounted
+
+  Scenario: In a window nobody can see, the next slide replaces the last at once
+    Given the preview frame presents a slide titled "One", in a window nobody can see
+    When the presenter moves forward to "Two" with the transition "slide-left"
+    Then "Two" replaces "One" with no transition
+
+  Scenario: While presenting, the slide covers the whole frame
+    Given the preview frame is shown at 1280 by 720 pixels
+    When it shows a slide for editing
+    Then the slide fits the frame exactly
+    When it presents the slide
+    Then the slide is at least a pixel taller than the frame, so no dark line shows along its bottom edge

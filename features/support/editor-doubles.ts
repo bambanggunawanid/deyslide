@@ -13,6 +13,24 @@ export const previewPositions: Record<string, Position>[] = []
 /** The pixel ratio of each capture the editor asked for. */
 export const previewCaptures: (number | undefined)[] = []
 
+/**
+ * When set, the double answers every render as the preview does, a moment
+ * after the request: with the error from `error` when it gives one, else
+ * with the slide's click count from `clicks`. With `slow`, answers wait
+ * until {@link answerHeldRenders}, as from a preview still drawing.
+ */
+export const previewAnswers: { clicks?: (request: RenderRequest) => number, error?: (request: RenderRequest) => string | undefined, slow?: boolean } = {}
+
+/** Answers held back while `previewAnswers.slow` is on. */
+const heldAnswers: (() => void)[] = []
+
+/** Gives every held answer now, in order, and answers at once from then on. */
+export function answerHeldRenders() {
+  previewAnswers.slow = false
+  for (const answer of heldAnswers.splice(0))
+    answer()
+}
+
 /** A 1 by 1 PNG, so code that embeds captures (in a PDF, say) gets a real image. */
 const PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
 
@@ -46,8 +64,9 @@ export const SlidePreviewFrameDouble = defineComponent({
   props: {
     request: { type: Object, default: undefined },
     positions: { type: Object, default: undefined },
+    hideCursor: { type: Boolean, default: false },
   },
-  emits: ['rendered', 'error', 'sizes'],
+  emits: ['rendered', 'error', 'sizes', 'pointer', 'key'],
   setup(props, { emit, expose }) {
     expose({
       capture: async (pixelRatio?: number) => {
@@ -56,8 +75,20 @@ export const SlidePreviewFrameDouble = defineComponent({
       },
     })
     watch(() => props.request, (request) => {
-      if (request)
-        previewRequests.push(JSON.parse(JSON.stringify(request)) as RenderRequest)
+      if (!request)
+        return
+      const copy = JSON.parse(JSON.stringify(request)) as RenderRequest
+      previewRequests.push(copy)
+      const { clicks, error } = previewAnswers
+      const failure = error?.(copy)
+      // Like the real frame, an error is passed on only while its render is still the one asked for.
+      const answer = failure
+        ? () => props.request?.id === copy.id && emit('error', failure)
+        : clicks && (() => emit('rendered', { id: copy.id, clicks: clicks(copy) }))
+      if (answer && previewAnswers.slow)
+        heldAnswers.push(answer)
+      else if (answer)
+        queueMicrotask(answer)
     }, { deep: true, immediate: true })
     watch(() => props.positions, (positions, before) => {
       // Positions taken away reach the real frame as an empty set.
@@ -129,6 +160,10 @@ export const MarkdownEditorDouble = defineComponent({
 })
 
 export function resetEditorDoubles() {
+  delete previewAnswers.clicks
+  delete previewAnswers.error
+  delete previewAnswers.slow
+  heldAnswers.length = 0
   previewRequests.length = 0
   previewPositions.length = 0
   previewCaptures.length = 0

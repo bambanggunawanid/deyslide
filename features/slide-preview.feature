@@ -25,6 +25,33 @@ Feature: Slide preview
     When the preview is at click 2
     Then "One" and "Two" are visible and "Three" is hidden
 
+  Scenario: The v-click element reveals its content at its click, as in Slidev
+    When the preview renders the "v-click elements" sample
+    Then the slide has 4 clicks
+    And at click 0 only "Hidden at three" shows
+    When the preview is at click 1
+    Then "First" and "Hidden at three" show, and the text "Second" is wrapped in a hidden span
+    When the preview is at click 3
+    Then "First" and "Second" show and "Hidden at three" is hidden
+    When the preview is at click 4
+    Then "Fourth" shows too
+
+  Scenario: The v-after element shows with the click before it
+    When the preview renders the "a v-after element" sample
+    Then the slide has 1 click
+    When the preview is at click 1
+    Then "Shown" and "Also shown" show together
+
+  Scenario Outline: Image layouts show their image
+    When the preview renders "Pictures" with the layout "<layout>" and an image
+    Then the slide shows "Pictures" and the image as a background <where>
+
+    Examples:
+      | layout      | where                 |
+      | image-right | on the right half     |
+      | image-left  | on the left half      |
+      | image       | behind the whole text |
+
   Scenario: The click count drives expressions
     When the preview renders the "an expression using the click count" sample
     And the preview is at click 1

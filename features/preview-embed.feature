@@ -63,3 +63,9 @@ Feature: Embedding the preview
     When the exporter asks for a capture
     And the preview component is closed
     Then the capture resolves with the error "The preview closed before the slide was captured."
+
+  Scenario: While presenting, presses on the slide come out at the page's coordinates, and keys as they are
+    Given the preview component is mounted at left 100 and top 50, and its frame is ready
+    When the frame passes on a press at 20 by 30 on one of the slide's buttons, and the key "ArrowRight"
+    Then the component emits the press at 120 by 80, still on a button, and the key
+

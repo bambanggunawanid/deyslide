@@ -12,6 +12,7 @@ import { MemoryGuestStorage } from './guest/memory-storage'
 import { GuestStore } from './guest/store'
 import { MAIN_WINDOW, windowLabel } from './platform/native'
 import { apiFetch, collabToken, collabUrl, isApp, isDesktopApp, routerHistory, startPlatform } from './platform/platform'
+import { EXPORT_KEY, HttpExportApi } from './present/exports'
 import { HttpProjectApi } from './projects/api'
 import { createAppRouter } from './router'
 import { startSession } from './session'
@@ -51,6 +52,7 @@ createApp(App)
   .provide(WORKSPACE_KEY, workspace)
   .provide(ACCOUNT_KEY, account)
   .provide(ASSISTANT_KEY, new HttpAssistantApi())
+  .provide(EXPORT_KEY, new HttpExportApi())
   .use(router)
   .mount('#app')
 

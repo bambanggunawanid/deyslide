@@ -208,4 +208,21 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       expect(await capture).toEqual({ overflow: false, error: 'The preview closed before the slide was captured.' })
     })
   })
+
+  Scenario('While presenting, presses on the slide come out at the page\'s coordinates, and keys as they are', ({ Given, When, Then }) => {
+    const key = { key: 'ArrowRight', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, target: 'none' as const }
+    Given('the preview component is mounted at left 100 and top 50, and its frame is ready', async () => {
+      await mountReady()
+      const frame = wrapper!.find('iframe').element
+      frame.getBoundingClientRect = () => ({ left: 100, top: 50, right: 740, bottom: 410, width: 640, height: 360, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect
+    })
+    When('the frame passes on a press at 20 by 30 on one of the slide\'s buttons, and the key "ArrowRight"', () => {
+      answer({ type: 'deyslide:pointer', phase: 'down', pointerId: 1, pointerType: 'mouse', button: 0, x: 20, y: 30, interactive: true })
+      answer({ type: 'deyslide:key', ...key })
+    })
+    Then('the component emits the press at 120 by 80, still on a button, and the key', () => {
+      expect(wrapper!.emitted('pointer')).toEqual([[{ phase: 'down', pointerId: 1, pointerType: 'mouse', button: 0, x: 120, y: 80, interactive: true }]])
+      expect(wrapper!.emitted('key')).toEqual([[key]])
+    })
+  })
 })

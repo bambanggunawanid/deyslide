@@ -109,3 +109,26 @@ Feature: Preview frame
     Then the stylesheet is removed once it fails
     When the editor asks for another slide of the same deck
     Then the page does not ask Google Fonts for it again
+
+  Scenario: While presenting, presses and keys on the slide go to the page too
+    Given the preview frame presents a slide with a button, a text field and a paragraph
+    When the audience presses the paragraph, then the button
+    Then the frame passes on both presses at their positions, the button's as one the slide uses
+    When someone presses "ArrowRight" on the paragraph and types "a" in the text field
+    Then the frame passes on both keys, the second as typed in a field
+
+  Scenario: While presenting, the frame hides the pointer when the page asks
+    Given the preview frame presents a slide with a button, a text field and a paragraph
+    When the page says the pointer rests
+    Then the pointer is hidden over the whole slide
+    When the page says the pointer moves again
+    Then the pointer shows over the slide
+    When the page says the pointer rests while the frame shows a slide for editing
+    Then the pointer stays shown, since only presenting hides it
+
+  Scenario: Editing passes on no presses and no keys
+    Given the preview frame shows a slide with a button, a text field and a paragraph for editing
+    When the audience presses the paragraph, then the button
+    And someone presses "ArrowRight" on the paragraph and types "a" in the text field
+    Then the frame passes on nothing
+

@@ -1,26 +1,53 @@
 <script setup lang="ts">
 import type { CompiledSlide } from './compile'
 import type { CaptureRequest, FromPreview, RenderRequest, ToPreview } from './protocol'
+import type { SlideScope as Scope } from './scope'
 import type { PreviewMode } from './state'
 import type { TransitionName } from './transitions'
-import { computed, onMounted, onScopeDispose, ref, shallowRef } from 'vue'
+import { computed, onMounted, onScopeDispose, ref, shallowRef, watchEffect } from 'vue'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from './canvas'
 import { measureOverflow, rasterize, settle } from './capture'
 import { loadFonts, resolveFonts } from './fonts'
+import { forwardInput } from './input'
 import { LAYOUTS } from './layouts'
 import { usablePositions } from './positions'
 import { REPLACED } from './protocol'
 import { renderSlide } from './render'
+import { createSlideScope } from './scope'
+import SlideScope from './SlideScope'
 import { clicks, dark, frontmatter, headmatter, mode, positions, totalClicks } from './state'
 import { resolveTransition, slideTransition } from './transitions'
 
+/** A slide mounted in the page: the one on screen, or while presenting, one on its way out. */
+interface ShownSlide {
+  version: number
+  compiled: CompiledSlide
+  scope: Scope
+  /** Fixes what the slide shows, once it starts to leave. */
+  freeze: () => void
+  /** The transition it enters with, and then leaves with. */
+  transition?: TransitionName
+}
+
 const compiled = shallowRef<CompiledSlide>()
 const error = ref('')
+/** True while the presenting page says the pointer rests. */
+const cursorHidden = ref(false)
+/** The slide on screen. */
 const version = ref(0)
-const transition = shallowRef<TransitionName>()
+const shown = shallowRef<ShownSlide[]>([])
 const stage = ref<HTMLElement>()
 const page = ref<HTMLElement>()
-const scale = ref(1)
+/** The stage's size in CSS pixels. */
+const box = ref({ width: SLIDE_WIDTH, height: SLIDE_HEIGHT })
+const scale = computed(() => {
+  const fit = Math.min(box.value.width / SLIDE_WIDTH, box.value.height / SLIDE_HEIGHT)
+  // A slide is 551.25 units tall, so at the scale that fits it the last row
+  // of pixels is only partly covered and shows the dark frame through it.
+  // Presenting fills the screen, so the slide grows by a pixel, which the
+  // stage clips, rather than show a dark line along its edge.
+  return mode.value === 'present' ? fit + 1 / SLIDE_HEIGHT : fit
+})
 
 function send(message: FromPreview, transfer: Transferable[] = []) {
   window.parent.postMessage(message, '*', transfer)
@@ -94,14 +121,31 @@ async function render(request: RenderRequest) {
       return replaced(request)
     // The slide on screen is the one being left.
     const leaving = frontmatter.value
+    // A window nobody can see paints no frames, so a transition there would never end: the slide is swapped at once.
+    const transition = modeOf(request) === 'present' && request.transition && document.visibilityState !== 'hidden'
+      ? resolveTransition(request.transition.name || slideTransition(request.transition.back ? request.slide.frontmatter : leaving, request.headmatter), request.transition.back)
+      : undefined
+    // Slides on their way out keep what they show, whatever the next slide shows.
+    for (const slide of shown.value)
+      slide.freeze()
     mode.value = modeOf(request)
     frontmatter.value = request.slide.frontmatter
     applyHeadmatter(request.headmatter)
-    transition.value = mode.value === 'present' && request.transition
-      ? resolveTransition(request.transition.name || slideTransition(request.transition.back ? request.slide.frontmatter : leaving, request.headmatter), request.transition.back)
-      : undefined
     compiled.value = next
-    version.value++
+    const onScreen = shown.value.filter(slide => slide.version === version.value)
+    const entering: ShownSlide = { version: ++version.value, compiled: next, ...createSlideScope(), transition }
+    // A transition slides the next slide in over the last, which stays mounted
+    // (3D scenes keep drawing) until it is gone. Otherwise the next one replaces it.
+    // Only the slide on screen leaves: slides still on their way out from
+    // earlier moves are gone at once, so quick moves never pile slides up.
+    if (transition) {
+      for (const slide of onScreen)
+        slide.transition = transition
+      shown.value = [...onScreen, entering]
+    }
+    else {
+      shown.value = [entering]
+    }
     shownKey = key
     slideError = ''
     show(run, request, next)
@@ -113,6 +157,12 @@ async function render(request: RenderRequest) {
     error.value = caught instanceof Error ? caught.message : String(caught)
     send({ type: 'deyslide:error', id: request.id, message: error.value })
   }
+}
+
+/** A slide that has left unmounts. */
+function drop(slide: ShownSlide) {
+  if (slide.version !== version.value)
+    shown.value = shown.value.filter(item => item !== slide)
 }
 
 async function capture(request: CaptureRequest) {
@@ -150,6 +200,9 @@ function onMessage(event: MessageEvent) {
   else if (message?.type === 'deyslide:capture' && typeof message.id === 'string') {
     void capture(message)
   }
+  else if (message?.type === 'deyslide:cursor') {
+    cursorHidden.value = message.hidden === true
+  }
 }
 
 const pageStyle = computed(() => {
@@ -168,8 +221,21 @@ const pageStyle = computed(() => {
 })
 
 const observer = new ResizeObserver(([entry]) => {
-  scale.value = Math.min(entry.contentRect.width / SLIDE_WIDTH, entry.contentRect.height / SLIDE_HEIGHT)
+  box.value = { width: entry.contentRect.width, height: entry.contentRect.height }
 })
+
+// Presenting leaves swipes to the page, which the browser would otherwise take for scrolling or zooming.
+watchEffect(() => {
+  document.documentElement.style.touchAction = mode.value === 'present' ? 'none' : ''
+})
+
+// The pointer hides over the slide as it does over the page around it, while presses still reach the slide.
+watchEffect(() => {
+  document.documentElement.classList.toggle('preview-cursor-hidden', cursorHidden.value && mode.value === 'present')
+})
+
+/** While presenting, presses and keys on the slide go to the page too, which moves the talk. */
+const stopForwarding = forwardInput(send, () => mode.value === 'present')
 
 function onSlideError(event: Event) {
   slideError = (event as CustomEvent<string>).detail
@@ -186,6 +252,8 @@ onMounted(() => {
 })
 
 onScopeDispose(() => {
+  stopForwarding()
+  document.documentElement.classList.remove('preview-cursor-hidden')
   window.removeEventListener('message', onMessage)
   window.removeEventListener('deyslide:slide-error', onSlideError)
   observer.disconnect()
@@ -198,10 +266,17 @@ defineExpose({ render })
   <div ref="stage" class="preview-stage">
     <div ref="page" class="slidev-page bg-main text-main" :style="pageStyle" data-testid="slide">
       <!-- Presenting slides the next slide in; elsewhere it replaces the last one at once. -->
-      <Transition :name="transition" :css="!!transition">
-        <div v-if="compiled" :key="version" class="preview-slide">
-          <component :is="compiled.component" />
-        </div>
+      <Transition
+        v-for="slide in shown"
+        :key="slide.version"
+        :name="slide.transition"
+        :css="!!slide.transition"
+        appear
+        @after-leave="drop(slide)"
+      >
+        <SlideScope v-show="slide.version === version" :scope="slide.scope" class="preview-slide">
+          <component :is="slide.compiled.component" />
+        </SlideScope>
       </Transition>
     </div>
     <div v-if="error" class="preview-error" role="alert" data-testid="preview-error">

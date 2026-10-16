@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Position } from '@deyslide/deck-model'
-import type { CapturedSlide, ElementSize, FromPreview, RenderRequest, ToPreview } from '../preview/protocol'
+import type { CapturedSlide, ElementSize, FromPreview, KeyFromPreview, PointerFromPreview, RenderRequest, ToPreview } from '../preview/protocol'
 import { onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 
 /**
@@ -8,16 +8,22 @@ import { onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
  * gets its own opaque origin, so a deck's code cannot reach the app or the API.
  * `positions` moves elements by `data-id` without compiling the slide again,
  * for drags; `sizes` says how large each positioned element is laid out;
- * `capture()` returns a PNG of what the frame shows.
+ * `capture()` returns a PNG of what the frame shows. While presenting,
+ * presses and keys on the slide come out as `pointer` (at the page's own
+ * client coordinates) and `key`, and `hideCursor` hides the pointer over
+ * the slide.
  */
 const props = defineProps<{
   request?: RenderRequest
   positions?: Record<string, Position>
+  hideCursor?: boolean
 }>()
 const emit = defineEmits<{
   rendered: [result: { id?: string, clicks: number }]
   error: [message: string]
   sizes: [sizes: Record<string, ElementSize>]
+  pointer: [event: Omit<PointerFromPreview, 'type'>]
+  key: [event: Omit<KeyFromPreview, 'type'>]
 }>()
 
 /** A capture that takes longer than this answers with an error, so a caller never waits forever. */
@@ -37,6 +43,11 @@ function send(message: ToPreview) {
 function postPositions() {
   if (ready.value)
     send({ type: 'deyslide:positions', positions: JSON.parse(JSON.stringify(props.positions ?? {})) as Record<string, Position> })
+}
+
+function postCursor() {
+  if (ready.value)
+    send({ type: 'deyslide:cursor', hidden: props.hideCursor === true })
 }
 
 function post() {
@@ -77,6 +88,9 @@ function onMessage(event: MessageEvent<FromPreview>) {
     ready.value = true
     whenReady()
     post()
+    // A frame that never hid the pointer has nothing to say about it.
+    if (props.hideCursor)
+      postCursor()
   }
   else if (message?.type === 'deyslide:rendered') {
     emit('rendered', { id: message.id, clicks: message.clicks })
@@ -89,6 +103,16 @@ function onMessage(event: MessageEvent<FromPreview>) {
   else if (message?.type === 'deyslide:captured') {
     const { png, overflow, error } = message
     waiting.get(message.id)?.({ ...(png ? { png } : {}), overflow, ...(error ? { error } : {}) })
+  }
+  else if (message?.type === 'deyslide:pointer' && frame.value) {
+    // The frame counts from its own corner, inside its border.
+    const box = frame.value.getBoundingClientRect()
+    const { type: _, ...pointer } = message
+    emit('pointer', { ...pointer, x: box.left + frame.value.clientLeft + message.x, y: box.top + frame.value.clientTop + message.y })
+  }
+  else if (message?.type === 'deyslide:key') {
+    const { type: _, ...key } = message
+    emit('key', key)
   }
   else if (message?.type === 'deyslide:sizes') {
     emit('sizes', usableSizes(message.sizes))
@@ -110,6 +134,7 @@ function usableSizes(value: unknown): Record<string, ElementSize> {
 
 watch(() => props.request, post, { deep: true })
 watch(() => props.positions, postPositions, { deep: true })
+watch(() => props.hideCursor === true, postCursor)
 onMounted(() => window.addEventListener('message', onMessage))
 onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage)

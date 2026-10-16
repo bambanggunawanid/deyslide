@@ -1,5 +1,5 @@
 import { createWebHashHistory, createWebHistory } from 'vue-router'
-import { appInfo, authAccessToken, saveFile as saveToPath } from './native'
+import { appInfo, authAccessToken, emitPresentSync, onPresentSync, presentOpen, saveFile as saveToPath } from './native'
 
 /**
  * What differs between the website and the Deyslide app, which shows the
@@ -193,4 +193,180 @@ export async function saveFile(name: string, bytes: Uint8Array, mime: string): P
     await saveToPath(path, bytes)
   }
   return true
+}
+
+/**
+ * How a deck's presenter and audience windows keep in step: what one
+ * window posts, the deck's other windows hear. Either window can drive.
+ */
+export interface PresentChannel<T = unknown> {
+  /** Tells the deck's other windows. */
+  post: (message: T) => void
+  /** Hears the deck's other windows, never this one. Returns a function that stops listening. */
+  listen: (handler: (message: T) => void) => () => void
+  /** False on Android, where the presenter has no second window. */
+  readonly canOpenAudience: boolean
+  /**
+   * Opens the audience window, or brings it forward when it is open.
+   * Resolves with false when there is none: on Android, or when the
+   * browser blocked the window.
+   */
+  openAudience: (target: { projectId: string, deckId: string, url: string }) => Promise<boolean>
+  close: () => void
+}
+
+/** The name of a deck's audience window in the browser, and of its BroadcastChannel. */
+export function presentName(deckId: string) {
+  return `deyslide-present:${deckId}`
+}
+
+/** Audience windows this page opened, by deck, to bring forward rather than load again. */
+const audiences = new Map<string, Window>()
+
+/** Whether a window shows the page at `url`, its query aside. A window that cannot be read does not. */
+function showsPage(open: Window, url: string) {
+  try {
+    const wanted = new URL(url, window.location.href)
+    return open.location.origin === wanted.origin && open.location.pathname === wanted.pathname
+  }
+  catch {
+    return false
+  }
+}
+
+function browserChannel<T>(deckId: string): PresentChannel<T> {
+  const channel = typeof BroadcastChannel === 'undefined' ? undefined : new BroadcastChannel(presentName(deckId))
+  return {
+    post: message => channel?.postMessage(message),
+    listen(handler) {
+      const hear = (event: MessageEvent<T>) => handler(event.data)
+      channel?.addEventListener('message', hear)
+      return () => channel?.removeEventListener('message', hear)
+    },
+    canOpenAudience: true,
+    async openAudience({ deckId: id, url }) {
+      let open = audiences.get(id)
+      if (!open || open.closed) {
+        // An empty address finds the deck's audience window when one is open,
+        // as after this page reloads, without loading it again: it keeps its
+        // place and stays full screen. Otherwise it opens a blank one.
+        open = window.open('', presentName(id), 'popup,width=1280,height=720') ?? undefined
+        if (!open)
+          return false
+        audiences.set(id, open)
+      }
+      // A new window, or one that went to another page (Escape in it once opened the editor), shows the talk.
+      if (!showsPage(open, url))
+        open.location.href = url
+      open.focus()
+      return true
+    },
+    close: () => channel?.close(),
+  }
+}
+
+function appChannel<T>(deckId: string): PresentChannel<T> {
+  const stops = new Set<() => void>()
+  return {
+    post: message => void emitPresentSync({ deckId, message }),
+    listen(handler) {
+      let stopped = false
+      let unlisten: (() => void) | undefined
+      void onPresentSync<T>((event) => {
+        if (event.deckId === deckId)
+          handler(event.message)
+      }).then((stop) => {
+        if (stopped)
+          stop()
+        else
+          unlisten = stop
+      })
+      const stop = () => {
+        stopped = true
+        unlisten?.()
+        stops.delete(stop)
+      }
+      stops.add(stop)
+      return stop
+    },
+    canOpenAudience: true,
+    async openAudience({ projectId, deckId: id }) {
+      await presentOpen(projectId, id)
+      return true
+    },
+    close() {
+      for (const stop of [...stops])
+        stop()
+    },
+  }
+}
+
+/** Android has one window: the presenter view is all there is, and nothing travels. */
+function singleWindowChannel<T>(): PresentChannel<T> {
+  return {
+    post: () => {},
+    listen: () => () => {},
+    canOpenAudience: false,
+    openAudience: async () => false,
+    close: () => {},
+  }
+}
+
+/**
+ * The channel between a deck's presenter and audience windows: in the
+ * browser `window.open` and a BroadcastChannel; in the app on a computer
+ * the `present_open` command and `present-sync` events; on Android a
+ * single window.
+ */
+export function presentChannel<T = unknown>(deckId: string): PresentChannel<T> {
+  if (isAndroidApp())
+    return singleWindowChannel()
+  return isDesktopApp() ? appChannel(deckId) : browserChannel(deckId)
+}
+
+/** Whether this window is a deck's audience window, opened by its presenter view. */
+export async function isAudienceWindow(deckId: string): Promise<boolean> {
+  if (isAndroidApp())
+    return false
+  if (isDesktopApp()) {
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    return getCurrentWebviewWindow().label.startsWith('present-')
+  }
+  return window.name === presentName(deckId)
+}
+
+/**
+ * Leaving the talk in a deck's audience window: the browser closes the
+ * window the presenter view opened, and the app keeps the window on the
+ * talk (people close it from its title bar), rather than open the editor
+ * in it. Resolves with false in any other window, which goes to the editor.
+ */
+export async function leaveAudienceWindow(deckId: string): Promise<boolean> {
+  if (!(await isAudienceWindow(deckId)))
+    return false
+  if (!isApp())
+    window.close()
+  return true
+}
+
+/** True while the page (the website) or the window (the app) fills the screen. */
+export async function isFullscreen(): Promise<boolean> {
+  if (isDesktopApp()) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().isFullscreen()
+  }
+  return Boolean(document.fullscreenElement)
+}
+
+/** Fills the screen, or stops filling it. The app sets its window full screen, the website the page. */
+export async function setFullscreen(on: boolean) {
+  if (isDesktopApp()) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await getCurrentWindow().setFullscreen(on)
+    return
+  }
+  if (on && !document.fullscreenElement)
+    await document.documentElement.requestFullscreen?.()
+  else if (!on && document.fullscreenElement)
+    await document.exitFullscreen?.()
 }

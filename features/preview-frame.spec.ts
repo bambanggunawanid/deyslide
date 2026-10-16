@@ -20,6 +20,7 @@ const SAMPLES = {
   'throws': '<v-clicks>\n\n- One\n- Two\n\n</v-clicks>\n\n<p>{{ missing.name }}</p>',
   'throws later': '<v-clicks>\n\n- One\n- Two\n\n</v-clicks>\n\n<p class="probe">{{ $clicks > 0 ? missing.name : "fine" }}</p>',
   'code': '# Fonts\n\n`inline`',
+  'controls': '<button class="act">Act</button>\n\n<input class="field" type="text">\n\n<p class="words">Words</p>',
   'built-in ids': '<v-drag pos="100,50,200,80,0" data-id="constructor">\n\nOne\n\n</v-drag>\n\n<v-drag pos="400,60,200,80,0" data-id="__proto__">\n\nTwo\n\n</v-drag>',
 }
 
@@ -398,6 +399,97 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
       await new Promise(resolve => setTimeout(resolve, 20))
       expect(fontLinks()).toEqual([])
       expect(fontRequests).toHaveLength(1)
+    })
+  })
+
+  /** What the frame passed on to the page: presses and keys. */
+  const passedOn = () => frame.answers.filter(item => item.type === 'deyslide:pointer' || item.type === 'deyslide:key')
+
+  async function pressOn(selector: string, x: number, y: number) {
+    const target = frame.find(selector)!
+    for (const type of ['pointerdown', 'pointerup'])
+      target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', button: 0, bubbles: true, composed: true }))
+    await flushPromises()
+  }
+
+  async function keyOn(selector: string, key: string) {
+    frame.find(selector)!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, composed: true }))
+    await flushPromises()
+  }
+
+  const pressBoth = async () => {
+    await pressOn('.words', 200, 150)
+    await pressOn('.act', 40, 30)
+  }
+  const keyBoth = async () => {
+    await keyOn('.words', 'ArrowRight')
+    await keyOn('.field', 'a')
+  }
+
+  Scenario('While presenting, presses and keys on the slide go to the page too', ({ Given, When, Then }) => {
+    Given('the preview frame presents a slide with a button, a text field and a paragraph', async () => {
+      await open()
+      await frame.render({ content: SAMPLES.controls }, { mode: 'present' })
+    })
+    When('the audience presses the paragraph, then the button', pressBoth)
+    Then('the frame passes on both presses at their positions, the button\'s as one the slide uses', () => {
+      const press = (phase: string, x: number, y: number, interactive: boolean) => ({ type: 'deyslide:pointer', phase, pointerId: 1, pointerType: 'mouse', button: 0, x, y, interactive })
+      // The frame posts its messages, which arrive a moment later.
+      return vi.waitFor(() => expect(passedOn()).toEqual([
+        press('down', 200, 150, false),
+        press('up', 200, 150, false),
+        press('down', 40, 30, true),
+        press('up', 40, 30, true),
+      ]))
+    })
+    When('someone presses "ArrowRight" on the paragraph and types "a" in the text field', async () => {
+      frame.answers.length = 0
+      await keyBoth()
+    })
+    Then('the frame passes on both keys, the second as typed in a field', () => {
+      const key = (name: string, target: string) => ({ type: 'deyslide:key', key: name, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, target })
+      return vi.waitFor(() => expect(passedOn()).toEqual([key('ArrowRight', 'none'), key('a', 'text')]))
+    })
+  })
+
+  Scenario('While presenting, the frame hides the pointer when the page asks', ({ Given, When, Then }) => {
+    const hidden = () => document.documentElement.classList.contains('preview-cursor-hidden')
+    const rests = async (value: boolean) => {
+      frame.send({ type: 'deyslide:cursor', hidden: value })
+      await flushPromises()
+    }
+    Given('the preview frame presents a slide with a button, a text field and a paragraph', async () => {
+      await open()
+      await frame.render({ content: SAMPLES.controls }, { mode: 'present' })
+    })
+    When('the page says the pointer rests', () => rests(true))
+    Then('the pointer is hidden over the whole slide', () => {
+      // styles.css hides it for every element under this class, the slide's own buttons included.
+      expect(hidden()).toBe(true)
+    })
+    When('the page says the pointer moves again', () => rests(false))
+    Then('the pointer shows over the slide', () => {
+      expect(hidden()).toBe(false)
+    })
+    When('the page says the pointer rests while the frame shows a slide for editing', async () => {
+      await frame.render({ content: SAMPLES.controls })
+      await rests(true)
+    })
+    Then('the pointer stays shown, since only presenting hides it', () => {
+      expect(hidden()).toBe(false)
+    })
+  })
+
+  Scenario('Editing passes on no presses and no keys', ({ Given, When, Then, And }) => {
+    Given('the preview frame shows a slide with a button, a text field and a paragraph for editing', async () => {
+      await open()
+      await frame.render({ content: SAMPLES.controls })
+    })
+    When('the audience presses the paragraph, then the button', pressBoth)
+    And('someone presses "ArrowRight" on the paragraph and types "a" in the text field', keyBoth)
+    Then('the frame passes on nothing', async () => {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(passedOn()).toEqual([])
     })
   })
 })

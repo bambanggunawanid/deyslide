@@ -3,6 +3,7 @@ import type { Router } from 'vue-router'
 import type { AccountService } from '../../apps/web/src/account/types'
 import type { AssistantApi } from '../../apps/web/src/assistant/api'
 import type { DeckView } from '../../apps/web/src/deck/view'
+import type { ExportApi } from '../../apps/web/src/present/exports'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
 import type { MediaApi } from '../../apps/web/src/projects/media'
 import type { ProjectStore } from '../../apps/web/src/projects/types'
@@ -16,12 +17,14 @@ import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
 import { VIEW_STORAGE_KEY } from '../../apps/web/src/deck/view'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
+import { EXPORT_KEY } from '../../apps/web/src/present/exports'
 import { MEDIA_KEY } from '../../apps/web/src/projects/media'
 import { createAppRouter } from '../../apps/web/src/router'
 import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
 import { FakeAssistantApi } from './assistant-api'
 import { MarkdownEditorDouble, SlidePreviewFrameDouble } from './editor-doubles'
+import { FakeExportApi } from './export-api'
 import { FakeMediaApi } from './media-api'
 import { FakeProjectApi } from './project-api'
 
@@ -45,10 +48,14 @@ export interface MountOptions {
   view?: DeckView
   /** Projects' media libraries. Off unless a scenario passes one. */
   media?: MediaApi
+  /** Exports on the server. Off unless a scenario passes one. */
+  exports?: ExportApi
+  /** More for the app to provide, by injection key. */
+  provide?: Record<symbol, unknown>
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }) }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }), exports = new FakeExportApi({ on: false }), provide = {} }: MountOptions = {}) {
   if (view)
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   else
@@ -61,7 +68,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
     attachTo: document.body,
     global: {
       plugins: [router],
-      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant, [MEDIA_KEY as symbol]: media },
+      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant, [MEDIA_KEY as symbol]: media, [EXPORT_KEY as symbol]: exports, ...provide },
       // CodeMirror and the sandboxed preview run in the Playwright tests.
       stubs: { MarkdownEditor: MarkdownEditorDouble, SlidePreviewFrame: SlidePreviewFrameDouble },
     },

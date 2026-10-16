@@ -24,6 +24,7 @@ import MarkdownEditor from '../editor/MarkdownEditor.vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
 import { mediaOwner, useMediaRequest } from '../platform/media'
 import { saveFile } from '../platform/platform'
+import ExportMenu from '../present/ExportMenu.vue'
 import { HttpMediaApi, MEDIA_KEY } from '../projects/media'
 import { canEdit, deckRole, projectRole } from '../projects/roles'
 import { LOCAL_ID_PREFIX } from '../projects/workspace'
@@ -140,7 +141,11 @@ watch(() => [session.value, ready.value] as const, ([current, isReady], _, onCle
 // The slide on show, by id, so it stays the same slide while others add or remove slides.
 
 const currentId = ref<string>()
-let lastIndex = 0
+/** The slide to open on: `?slide=` (counted from 1) when a talk ends, else the first. */
+let lastIndex = Math.max(0, Number.parseInt(String(route.query.slide ?? ''), 10) - 1 || 0)
+// From here the page keeps its own slide, so the address lets it go.
+if (route.query.slide !== undefined)
+  void router.replace({ query: { ...route.query, slide: undefined } })
 const currentIndex = computed(() => Math.max(0, outline.value.findIndex(slide => slide.id === currentId.value)))
 const clicks = ref(0)
 const totalClicks = ref(0)
@@ -318,6 +323,12 @@ async function downloadMarkdown() {
   await saveFile(`${summary.value.name}.md`, bytes, 'text/markdown')
 }
 
+/** The deck's Markdown, typing included, for exporting a deck that lives on this device. */
+function exportMarkdown() {
+  binding.value?.flush()
+  return session.value?.ready.value ? deckMarkdown(session.value.doc) : ''
+}
+
 /** Answers the question whether to leave with typing the deck does not have, while the page asks it. */
 const leaving = shallowRef<(leave: boolean) => void>()
 
@@ -412,8 +423,16 @@ onUnmounted(closeSession)
           Markdown
         </button>
       </div>
-      <!-- Present and Export go here. -->
-      <div class="flex items-center gap-2" data-testid="header-actions" />
+      <div class="flex flex-wrap items-center gap-2" data-testid="header-actions">
+        <!-- Presenting starts on the slide open here, and leaving the talk comes back to the slide it ended on. -->
+        <RouterLink :to="{ name: 'present', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="present-deck">
+          Present
+        </RouterLink>
+        <RouterLink :to="{ name: 'presenter', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="presenter-deck">
+          Presenter view
+        </RouterLink>
+        <ExportMenu :deck-id="deckId" :deck-name="summary.name" :slides="outline" :markdown="exportMarkdown" :disabled="!ready" />
+      </div>
       <button v-if="store.sharing && !viewOnly" class="dey-btn text-sm" data-testid="share-deck" @click="sharing = true">
         Share
       </button>

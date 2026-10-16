@@ -29,10 +29,12 @@ const SAMPLES: Record<string, string> = {
   'an ellipse shape': '<DeyslideShape shape="ellipse" fill="#f00" />',
   'a positioned box': '<v-drag pos="100,50,200,80,0">\n\nBox\n\n</v-drag>',
   'an empty v-if': '<div v-if="">oops</div>',
+  'v-click elements': '<v-click>\n\n<p class="first">First</p>\n\n</v-click>\n\n<p class="second-line"><v-click>Second</v-click></p>\n\n<v-click hide at="+1"><p class="hidden-at-three">Hidden at three</p></v-click>\n\n<v-click at="4"><p class="fourth">Fourth</p></v-click>',
+  'a v-after element': '<p v-click class="shown">Shown</p>\n\n<v-after><p class="also">Also shown</p></v-after>',
   'a component with attributes on several lines': '<div>\n  <DeyslideShape\n    shape="ellipse"\n    fill="#f00"\n  >\n    <template #default>\n      <span>inside</span>\n    </template>\n  </DeyslideShape>\n</div>',
 }
 
-describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
+describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
   let wrapper: VueWrapper | undefined
   let slideClicks = 0
   let error: unknown
@@ -105,6 +107,71 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
     Then('"One" and "Two" are visible and "Three" is hidden', () => {
       expect([visible('One'), visible('Two'), visible('Three')]).toEqual([true, true, false])
+    })
+  })
+
+  const hidden = (selector: string) => find(selector).classes().includes('slidev-vclick-hidden')
+  const at = async (count: number) => {
+    clicks.value = count
+    await flushPromises()
+  }
+
+  Scenario('The v-click element reveals its content at its click, as in Slidev', ({ When, Then, And }) => {
+    When('the preview renders the "v-click elements" sample', () => preview(SAMPLES['v-click elements']))
+    Then('the slide has 4 clicks', () => {
+      expect(error).toBeUndefined()
+      expect(slideClicks).toBe(4)
+    })
+    And('at click 0 only "Hidden at three" shows', () => {
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three'), hidden('.fourth')]).toEqual([true, true, false, true])
+    })
+    When('the preview is at click 1', () => at(1))
+    Then('"First" and "Hidden at three" show, and the text "Second" is wrapped in a hidden span', () => {
+      expect(find('.second-line > span').text()).toBe('Second')
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three')]).toEqual([false, true, false])
+    })
+    When('the preview is at click 3', () => at(3))
+    Then('"First" and "Second" show and "Hidden at three" is hidden', () => {
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three'), hidden('.fourth')]).toEqual([false, false, true, true])
+    })
+    When('the preview is at click 4', () => at(4))
+    Then('"Fourth" shows too', () => {
+      expect(hidden('.fourth')).toBe(false)
+    })
+  })
+
+  Scenario('The v-after element shows with the click before it', ({ When, Then }) => {
+    When('the preview renders the "a v-after element" sample', () => preview(SAMPLES['a v-after element']))
+    Then('the slide has 1 click', () => {
+      expect(slideClicks).toBe(1)
+      expect([hidden('.shown'), hidden('.also')]).toEqual([true, true])
+    })
+    When('the preview is at click 1', () => at(1))
+    Then('"Shown" and "Also shown" show together', () => {
+      expect([hidden('.shown'), hidden('.also')]).toEqual([false, false])
+    })
+  })
+
+  ScenarioOutline('Image layouts show their image', ({ When, Then }, variables) => {
+    const image = 'data:image/png;base64,iVBORw0KGgo='
+    When('the preview renders "Pictures" with the layout "<layout>" and an image', () => preview('# Pictures', { layout: variables.layout, image }))
+    Then('the slide shows "Pictures" and the image as a background <where>', () => {
+      expect(find('h1').text()).toBe('Pictures')
+      const pictured = wrapper!.findAll('[style]').filter(element => element.attributes('style')?.includes(`url("${image}")`))
+      expect(pictured).toHaveLength(1)
+      const [picture] = pictured
+      if (variables.layout === 'image') {
+        // The text sits on the picture.
+        expect(picture.find('h1').exists()).toBe(true)
+      }
+      else {
+        // Two columns: the picture is one, the text the other, in Slidev's order.
+        const columns = wrapper!.find('.grid-cols-2').element.children
+        expect(columns).toHaveLength(2)
+        const side = variables.layout === 'image-right' ? 1 : 0
+        expect(columns[side]).toBe(picture.element)
+        expect(columns[1 - side].querySelector('h1')?.textContent).toBe('Pictures')
+      }
     })
   })
 

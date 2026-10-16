@@ -54,7 +54,17 @@ export interface CaptureRequest {
   pixelRatio?: number
 }
 
-export type ToPreview = RenderRequest | PositionsMessage | CaptureRequest
+/**
+ * Present mode only: hides the pointer over the slide while it rests, as the
+ * page around the frame does, or shows it again. Presses still reach the
+ * slide, so its own buttons keep working.
+ */
+export interface CursorMessage {
+  type: 'deyslide:cursor'
+  hidden: boolean
+}
+
+export type ToPreview = RenderRequest | PositionsMessage | CaptureRequest | CursorMessage
 
 /** The `error` reply to a render that a newer one overtook before it showed. */
 export const REPLACED = 'A newer render replaced this one.'
@@ -76,12 +86,44 @@ export interface SizesMessage {
   sizes: Record<string, ElementSize>
 }
 
+/** What a key press lands on in the frame: a field people type in, a control that Space and Enter press, or neither. */
+export type KeyTarget = 'text' | 'control' | 'none'
+
+/**
+ * Present mode only: a press, move or release on the slide, at the frame's
+ * own CSS pixels, so the page can take taps and swipes as its own.
+ * `interactive` says the press is on something the slide lets people use.
+ */
+export interface PointerFromPreview {
+  type: 'deyslide:pointer'
+  phase: 'down' | 'move' | 'up' | 'cancel'
+  pointerId: number
+  pointerType: string
+  button: number
+  x: number
+  y: number
+  interactive: boolean
+}
+
+/** Present mode only: a key pressed while the frame has the focus. */
+export interface KeyFromPreview {
+  type: 'deyslide:key'
+  key: string
+  ctrlKey: boolean
+  altKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+  target: KeyTarget
+}
+
 export type FromPreview
   = | { type: 'deyslide:ready' }
     | { type: 'deyslide:rendered', id?: string, clicks: number }
     | { type: 'deyslide:error', id?: string, message: string }
     | { type: 'deyslide:captured', id: string, png?: ArrayBuffer, overflow: boolean, error?: string }
     | SizesMessage
+    | PointerFromPreview
+    | KeyFromPreview
 
 /** A captured slide: the PNG, whether anything spills past the slide's edges, and the error it shows, if any. */
 export interface CapturedSlide {
