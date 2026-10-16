@@ -7,7 +7,9 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 - Node.js 24 (the version is pinned in `.node-version`)
 - pnpm 10 (the exact version is pinned in `package.json` under `packageManager`)
-- Chromium for `pnpm export` and `pnpm export:video`. Run `pnpm exec playwright install chromium` once.
+- Rust, stable, installed with [rustup](https://rustup.rs). `pnpm test` builds the on-device MCP server (`crates/deyslide-core`) with cargo before any scenario runs.
+- Chromium for `pnpm export`, `pnpm export:video` and `pnpm test:e2e`. Run `pnpm exec playwright install chromium` once.
+- For the apps only: the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your system (on Linux, WebKitGTK 4.1 and its build packages, which `cargo clippy --workspace` and `cargo test --workspace` need too). For Android, also the Android SDK, the NDK, JDK 21 and the Rust Android targets.
 
 ## The contribution flow
 
@@ -52,6 +54,11 @@ Feature: Sandbox state model
 
 Logic that needs no browser lives in plain TypeScript under `packages/components/src/` so the scenarios stay fast.
 Components are tested with `@vue/test-utils` in happy-dom. WebGL and the Motion Canvas element are replaced with stubs, as the existing specs show.
+Specs that need the apps' Tauri plugins mock them by their file under `apps/web/node_modules`, as `features/app-platform.spec.ts` does.
+
+Rust code has unit tests next to it (`cargo test --workspace`), and `features/local-mcp.feature` drives the built `deyslide-mcp` over stdio like Claude Code does.
+
+Some spec files use a lot of memory. If your machine runs short, limit the workers: `pnpm test --maxWorkers=2`.
 
 ### 4. Commit with Conventional Commits
 
@@ -79,7 +86,17 @@ pnpm typecheck
 pnpm build
 ```
 
-All three must pass. The same checks run in CI on every pull request.
+All three must pass. When a change touches Rust code (`crates/` or `apps/native/src-tauri/`), also run:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+The same checks run in CI on every pull request.
+
+When a change touches the hosted MCP server's tools, guide or instructions (`apps/server/src/mcp/`), run `pnpm guide:sync` and commit what it changes in `crates/deyslide-core/src/`. The on-device server serves those copies, and scenarios fail when they drift.
 
 When a change touches the web app or the API, also run `pnpm test:e2e`. It drives the built app in headless Chromium and is not part of CI, so it is on you to run it.
 
@@ -105,7 +122,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The Release workflow then publishes a GitHub Release. GitHub writes its notes from the pull requests merged since the previous tag, grouped by label as set in `.github/release.yml`:
+The tag must be a semantic version, such as `v1.2.3` or `v1.2.3-beta.1`. The Release workflow then creates a draft GitHub Release, builds the apps for Windows, macOS, Linux and Android with that version, attaches them, and publishes the release once all four builds passed. If one fails, the release stays a draft: run the failed job again, or publish it by hand. The README's "Releases" section lists the files and the signing secrets.
+
+GitHub writes the notes from the pull requests merged since the previous tag, grouped by label as set in `.github/release.yml`:
 
 | Label | Heading |
 | --- | --- |
@@ -116,21 +135,40 @@ The Release workflow then publishes a GitHub Release. GitHub writes its notes fr
 
 The tag is the version. There is no `CHANGELOG.md` to edit.
 
+## Building and running the apps
+
+The apps live in `apps/native` (Tauri 2) and show the web app built in mode `app`. From the repository root:
+
+```bash
+pnpm --filter @deyslide/native dev                 # the app with the web app's dev server (hot reload)
+pnpm --filter @deyslide/native build               # installers for this system in target/release/bundle
+pnpm --filter @deyslide/native build --no-bundle   # only the binary, target/release/deyslide
+pnpm --filter @deyslide/native android:build --apk --target aarch64
+```
+
+Each builds the Motion Canvas animations and the web app (`pnpm --filter @deyslide/web build:app`) first. The app signs in to the public server unless `serverUrl` in its `settings.json` names another. [`apps/native/README.md`](apps/native/README.md) covers the Android setup and signing, the data folder, the MCP server for Claude Code and how to check slide previews.
+
 ## Project layout
 
 The repository is a pnpm workspace. Run every command from the root.
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`), sign in pages, guest storage in the browser |
-| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, bundled into one file for production |
+| `apps/web/` | The web app: projects home page, the deck page with the Design canvas (`src/canvas/`) and the Markdown view (`src/editor/`), the live deck session (`src/deck/`), the sandboxed slide preview (`src/preview/`), presenting and export (`src/present/`), the assistant chat (`src/assistant/`), the layer that tells the website from the apps (`src/platform/`), sign in pages, guest storage in the browser |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, live rooms (`src/collab/`), export jobs (`src/exports/`), the Claude deck assistant (`src/assistant/`), the MCP server for Claude Code (`src/mcp/`) and media uploads (`src/media/`), bundled into one file for production |
+| `apps/renderer/` | Draws slides to PNG and records videos with the web app's preview in headless Chromium, for the MCP server and exports |
+| `apps/native/` | The Deyslide app for Windows, macOS, Linux and Android (Tauri 2), and `deyslide mcp`, the MCP server for decks on a computer |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
+| `crates/deyslide-core/` | The Rust core the app and `deyslide-mcp` share: the library folder, Slidev slide splitting, the MCP tools and the render bridge |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
-| `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
+| `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, the Yjs live document and how Markdown merges into it |
 | `features/` | Gherkin features and their step definitions for every package |
-| `e2e/` | Playwright end to end tests and the in-memory API they start |
-| `deploy/` | Production Podman script (database, API, nginx, tunnel) and nginx config |
+| `e2e/` | Playwright end to end tests and the in-memory API they start, with a fake Claude |
+| `scripts/` | `guide-sync.ts`, behind `pnpm guide:sync` |
+| `deploy/` | Production Podman script (database, API, nginx, tunnel, renderer), nginx config and the renderer's Containerfile |
+| `plugins/deyslide/`, `.claude-plugin/` | The Claude Code plugin (MCP server settings and the `deyslide` skill) and the marketplace that lists it |
+| `patches/` | `pnpm patch` fixes for dependencies |
 
 ## Questions
 
