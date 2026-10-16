@@ -5,7 +5,7 @@ import { expect, vi } from 'vitest'
 import { CAPTURE_TIMEOUT_MS } from '../apps/web/src/deck/session'
 import { createMarkdownBinding, HOLD_MESSAGE, MERGE_DELAY_MS, NOT_KEPT_MESSAGE, PATCH_INTERVAL_MS, TYPING_WAITING_HINT, WAITING_HINT } from '../apps/web/src/editor/markdown-sync'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
-import { deckMarkdown, elementText, readDeckDoc, slideAtLine, splitSlides } from '../packages/deck-model/src'
+import { deckMarkdown, elementText, readDeckDoc, setNotes, slideAtLine, splitSlides } from '../packages/deck-model/src'
 import { accountDeck, changeSlide, EditorModel, openReady, setSlides, slidesOf } from './support/live-decks'
 import { FakeProjectApi } from './support/project-api'
 
@@ -151,6 +151,36 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     And('Ana\'s editor shows both changes', async () => {
       await vi.waitFor(() => expect(editorSlides().slice(0, 2)).toEqual(['# Sorting, live', '# Bubble sort, by Budi']))
       expect(editor.text).toBe(deckMarkdown(ana.doc))
+    })
+  })
+
+  Scenario('A space Ana types at the end of a line stays when Budi changes the same slide', ({ When, And, Then }) => {
+    When('Ana types a space at the end of "# Bubble sort"', () => {
+      editor.replace('# Bubble sort\n', '# Bubble sort \n')
+    })
+    And('Budi adds the notes "Go slowly." to that slide before Ana\'s typing is merged', () => {
+      expect(roomSlides()[1]).toBe(original[1])
+      setNotes(budi.doc, readDeckDoc(budi.doc).slides[1]!.id, 'Go slowly.')
+    })
+    Then('Ana\'s editor shows the notes and still has the space after "# Bubble sort"', async () => {
+      await vi.waitFor(() => expect(editor.text).toContain('Go slowly.'))
+      expect(editor.text).toContain('# Bubble sort \n')
+    })
+    When('Budi changes the notes to "Go fast." once Ana\'s typing is merged', async () => {
+      await sleep(AFTER_MERGE)
+      expect(binding.pending.value).toBe(false)
+      setNotes(budi.doc, readDeckDoc(budi.doc).slides[1]!.id, 'Go fast.')
+    })
+    Then('Ana\'s editor shows "Go fast." and still has the space after "# Bubble sort"', async () => {
+      await vi.waitFor(() => expect(editor.text).toContain('Go fast.'))
+      expect(editor.text).toContain('# Bubble sort \n')
+    })
+    When('Ana goes on typing "fast"', () => {
+      editor.replace('# Bubble sort \n', '# Bubble sort fast\n')
+    })
+    Then('the live deck has "# Bubble sort fast" on slide 2, with the notes "Go fast."', async () => {
+      await vi.waitFor(() => expect(roomSlides()[1]).toContain('# Bubble sort fast\n'))
+      expect(roomSlides()[1]).toContain('Go fast.')
     })
   })
 

@@ -30,6 +30,15 @@ Feature: Markdown view in sync with the live deck
     Then the live deck has both changes, each once, on five slides
     And Ana's editor shows both changes
 
+  Scenario: A space Ana types at the end of a line stays when Budi changes the same slide
+    When Ana types a space at the end of "# Bubble sort"
+    And Budi adds the notes "Go slowly." to that slide before Ana's typing is merged
+    Then Ana's editor shows the notes and still has the space after "# Bubble sort"
+    When Budi changes the notes to "Go fast." once Ana's typing is merged
+    Then Ana's editor shows "Go fast." and still has the space after "# Bubble sort"
+    When Ana goes on typing "fast"
+    Then the live deck has "# Bubble sort fast" on slide 2, with the notes "Go fast."
+
   Scenario: An open HTML comment changes nothing until it is closed
     When Ana starts an HTML comment after the heading of slide 1
     Then the live deck still has its five slides as they were

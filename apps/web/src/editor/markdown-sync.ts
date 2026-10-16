@@ -208,6 +208,34 @@ function alignIds(a: string[], b: string[]): [number, number][] {
   return pairs
 }
 
+/**
+ * Edits that bring the changes from `base` to `theirs` into `mine`, which
+ * is `base` as the editor shows it: with typing not merged yet, or with
+ * spaces the deck does not keep, such as one typed at the end of a line.
+ * Those stay. When both touch the same text, `mine` becomes `theirs`.
+ */
+function rebased(base: string, mine: string, theirs: string): TextChange[] {
+  if (mine === base)
+    return textChanges(mine, theirs)
+  const own = textChanges(base, mine)
+  const edits: TextChange[] = []
+  let shift = 0
+  let next = 0
+  for (const change of textChanges(base, theirs)) {
+    // The editor's own changes before this one move it.
+    while (next < own.length && own[next].to <= change.from) {
+      shift += own[next].insert.length - (own[next].to - own[next].from)
+      next++
+    }
+    // An insert counts as one character wide here, so text typed inside the other's change is a clash.
+    const overlaps = next < own.length && own[next].from < Math.max(change.to, change.from + 1) && change.from < Math.max(own[next].to, own[next].from + 1)
+    if (overlaps)
+      return textChanges(mine, theirs)
+    edits.push({ from: change.from + shift, to: change.to + shift, insert: change.insert })
+  }
+  return edits
+}
+
 /** The separator Slidev's own joining puts before a slide that is not the first. */
 function separatorFor(markdown: string) {
   if (markdown.startsWith('---'))
@@ -251,7 +279,7 @@ function slideEdits(text: string, known: SlideText[], live: SlideText[]): TextCh
       edits.push({ from: ranges[index - 1].to, to: range.to, insert: '' })
     }
     else if (known[index].markdown !== live[match].markdown) {
-      for (const change of textChanges(text.slice(range.from, range.to), live[match].markdown))
+      for (const change of rebased(known[index].markdown, text.slice(range.from, range.to), live[match].markdown))
         edits.push({ from: change.from + range.from, to: change.to + range.from, insert: change.insert })
     }
     const inserted = insertsAfter.get(index)
