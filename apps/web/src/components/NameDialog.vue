@@ -44,8 +44,8 @@ async function submit() {
 <template>
   <DialogRoot v-model:open="open">
     <DialogPortal>
-      <DialogOverlay class="fixed inset-0 bg-black/60" />
-      <DialogContent class="dey-panel fixed left-1/2 top-1/2 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2" data-testid="name-dialog">
+      <DialogOverlay class="fixed inset-0 z-40 bg-black/60" />
+      <DialogContent class="dey-panel fixed z-50 left-1/2 top-1/2 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2" data-testid="name-dialog">
         <DialogTitle class="m-0 text-lg font-semibold">
           {{ title }}
         </DialogTitle>

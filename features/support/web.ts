@@ -4,6 +4,7 @@ import type { AccountService } from '../../apps/web/src/account/types'
 import type { AssistantApi } from '../../apps/web/src/assistant/api'
 import type { DeckView } from '../../apps/web/src/deck/view'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
+import type { MediaApi } from '../../apps/web/src/projects/media'
 import type { ProjectStore } from '../../apps/web/src/projects/types'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
@@ -15,11 +16,13 @@ import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
 import { VIEW_STORAGE_KEY } from '../../apps/web/src/deck/view'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
+import { MEDIA_KEY } from '../../apps/web/src/projects/media'
 import { createAppRouter } from '../../apps/web/src/router'
 import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
 import { FakeAssistantApi } from './assistant-api'
 import { MarkdownEditorDouble, SlidePreviewFrameDouble } from './editor-doubles'
+import { FakeMediaApi } from './media-api'
 import { FakeProjectApi } from './project-api'
 
 // Dialogs and menus render in portals on document.body, outside the wrapper.
@@ -40,10 +43,12 @@ export interface MountOptions {
   assistant?: AssistantApi
   /** The view decks open in, as if chosen last time. Decks open in Design without one. */
   view?: DeckView
+  /** Projects' media libraries. Off unless a scenario passes one. */
+  media?: MediaApi
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }) }: MountOptions = {}) {
   if (view)
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   else
@@ -56,7 +61,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
     attachTo: document.body,
     global: {
       plugins: [router],
-      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant },
+      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant, [MEDIA_KEY as symbol]: media },
       // CodeMirror and the sandboxed preview run in the Playwright tests.
       stubs: { MarkdownEditor: MarkdownEditorDouble, SlidePreviewFrame: SlidePreviewFrameDouble },
     },

@@ -59,11 +59,29 @@ export type ToPreview = RenderRequest | PositionsMessage | CaptureRequest
 /** The `error` reply to a render that a newer one overtook before it showed. */
 export const REPLACED = 'A newer render replaced this one.'
 
+/** An element's laid out size on the slide, in canvas units. */
+export interface ElementSize {
+  w: number
+  h: number
+}
+
+/**
+ * The size of every positioned element (`data-id`) the slide on screen
+ * shows, so the editor can draw boxes as tall as an element with auto
+ * height really is. Sent while editing, after each render and whenever a
+ * size changes.
+ */
+export interface SizesMessage {
+  type: 'deyslide:sizes'
+  sizes: Record<string, ElementSize>
+}
+
 export type FromPreview
   = | { type: 'deyslide:ready' }
     | { type: 'deyslide:rendered', id?: string, clicks: number }
     | { type: 'deyslide:error', id?: string, message: string }
     | { type: 'deyslide:captured', id: string, png?: ArrayBuffer, overflow: boolean, error?: string }
+    | SizesMessage
 
 /** A captured slide: the PNG, whether anything spills past the slide's edges, and the error it shows, if any. */
 export interface CapturedSlide {

@@ -136,6 +136,17 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     })
   })
 
+  Scenario('Element sizes from the frame are passed on, without any that are not sizes', ({ Given, When, Then }) => {
+    Given('the preview component is mounted and its frame is ready', () => mountReady())
+    When('the frame reports "box" as 200 by 130, and "broken" with a height that is not a number', async () => {
+      answer({ type: 'deyslide:sizes', sizes: { box: { w: 200, h: 130 }, broken: { w: 100, h: 'tall' as unknown as number } } })
+      await flushPromises()
+    })
+    Then('the component emits the sizes of "box" alone', () => {
+      expect(wrapper!.emitted('sizes')).toEqual([[{ box: { w: 200, h: 130 } }]])
+    })
+  })
+
   Scenario('A capture resolves with the frame\'s picture', ({ Given, When, Then }) => {
     Given('the preview component is mounted and its frame is ready', () => mountReady())
     When('the exporter asks for a capture at pixel ratio 2', () => askCapture(2))

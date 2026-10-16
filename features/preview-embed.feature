@@ -33,6 +33,11 @@ Feature: Embedding the preview
     When the slide to render changes
     Then the frame is asked to render it and is sent the position again
 
+  Scenario: Element sizes from the frame are passed on, without any that are not sizes
+    Given the preview component is mounted and its frame is ready
+    When the frame reports "box" as 200 by 130, and "broken" with a height that is not a number
+    Then the component emits the sizes of "box" alone
+
   Scenario: A capture resolves with the frame's picture
     Given the preview component is mounted and its frame is ready
     When the exporter asks for a capture at pixel ratio 2

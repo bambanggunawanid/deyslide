@@ -4,6 +4,7 @@ import { expect, vi } from 'vitest'
 import { REPLACED } from '../apps/web/src/preview/protocol'
 import { useNav, useSlideContext } from '../apps/web/src/preview/slidev-client'
 import { PreviewFrame } from './support/preview-app'
+import { FakeResizeObserver } from './support/resize-observer'
 
 const feature = await loadFeature('./preview-frame.feature')
 
@@ -266,6 +267,22 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
       await flushPromises()
     })
     Then('the box is placed at left 100 and top 50 on the same slide', () => expectBoxAt(100, 50))
+  })
+
+  Scenario('The frame tells the editor how large each positioned element is laid out', ({ Given, Then, When }) => {
+    const sizes = () => frame.answers.filter(answer => answer.type === 'deyslide:sizes').map(answer => answer.sizes)
+    Given('the preview frame shows the box "box" at left 100 and top 50', showBox)
+    Then('the frame tells the editor the size "box" is laid out at', async () => {
+      // happy-dom lays nothing out, so every size reads 0 here.
+      await vi.waitFor(() => expect(sizes().at(-1)).toEqual({ box: { w: 0, h: 0 } }))
+    })
+    When('the box\'s content grows to 200 by 130', () => {
+      Object.defineProperties(box('box'), { offsetWidth: { value: 200 }, offsetHeight: { value: 130 } })
+      FakeResizeObserver.resizeAll(980, 551.25)
+    })
+    Then('the frame tells the editor "box" is 200 by 130', async () => {
+      await vi.waitFor(() => expect(sizes().at(-1)).toEqual({ box: { w: 200, h: 130 } }))
+    })
   })
 
   Scenario('Ids that name built-in properties are ordinary ids', ({ Given, Then, When }) => {

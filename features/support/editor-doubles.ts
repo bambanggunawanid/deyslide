@@ -1,8 +1,8 @@
 import type { PropType } from 'vue'
 import type { MarkdownBinding } from '../../apps/web/src/editor/markdown-sync'
-import type { CapturedSlide, RenderRequest } from '../../apps/web/src/preview/protocol'
+import type { CapturedSlide, ElementSize, RenderRequest } from '../../apps/web/src/preview/protocol'
 import type { Position } from '../../packages/deck-model/src'
-import { defineComponent, h, watch } from 'vue'
+import { defineComponent, h, onBeforeUnmount, watch } from 'vue'
 import { textChanges } from '../../packages/deck-model/src'
 import { mapPosition } from './live-decks'
 
@@ -21,14 +21,34 @@ export function capturedSlide(): CapturedSlide {
   return { png: Uint8Array.from(atob(PIXEL_PNG), char => char.charCodeAt(0)).buffer, overflow: false }
 }
 
+/** What a step can make every preview on the page do, as the real frame would on its own. */
+interface PreviewDriver {
+  render: () => void
+  sizes: (sizes: Record<string, ElementSize>) => void
+}
+
+const previews = new Set<PreviewDriver>()
+
+/** Every preview on the page says it rendered the request it has now, as the frame does once a slide is on screen. */
+export function renderPreviews() {
+  for (const preview of previews)
+    preview.render()
+}
+
+/** Every preview on the page reports these element sizes, as the frame does once the slide is laid out. */
+export function reportPreviewSizes(sizes: Record<string, ElementSize>) {
+  for (const preview of previews)
+    preview.sizes(sizes)
+}
+
 export const SlidePreviewFrameDouble = defineComponent({
   name: 'SlidePreviewFrame',
   props: {
     request: { type: Object, default: undefined },
     positions: { type: Object, default: undefined },
   },
-  emits: ['rendered', 'error'],
-  setup(props, { expose }) {
+  emits: ['rendered', 'error', 'sizes'],
+  setup(props, { emit, expose }) {
     expose({
       capture: async (pixelRatio?: number) => {
         previewCaptures.push(pixelRatio)
@@ -39,10 +59,21 @@ export const SlidePreviewFrameDouble = defineComponent({
       if (request)
         previewRequests.push(JSON.parse(JSON.stringify(request)) as RenderRequest)
     }, { deep: true, immediate: true })
-    watch(() => props.positions, (positions) => {
-      if (positions)
-        previewPositions.push(JSON.parse(JSON.stringify(positions)) as Record<string, Position>)
+    watch(() => props.positions, (positions, before) => {
+      // Positions taken away reach the real frame as an empty set.
+      if (positions || before)
+        previewPositions.push(JSON.parse(JSON.stringify(positions ?? {})) as Record<string, Position>)
     }, { deep: true, immediate: true })
+    const driver: PreviewDriver = {
+      render: () => {
+        const request = props.request as RenderRequest | undefined
+        if (request)
+          emit('rendered', { id: request.id, clicks: 0 })
+      },
+      sizes: sizes => emit('sizes', sizes),
+    }
+    previews.add(driver)
+    onBeforeUnmount(() => previews.delete(driver))
     return () => h('div', { 'data-testid': 'preview-frame' })
   },
 })

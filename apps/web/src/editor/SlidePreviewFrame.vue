@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type { Position } from '@deyslide/deck-model'
-import type { CapturedSlide, FromPreview, RenderRequest, ToPreview } from '../preview/protocol'
+import type { CapturedSlide, ElementSize, FromPreview, RenderRequest, ToPreview } from '../preview/protocol'
 import { onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 
 /**
  * Shows one slide through the preview page in a sandboxed iframe. The frame
  * gets its own opaque origin, so a deck's code cannot reach the app or the API.
  * `positions` moves elements by `data-id` without compiling the slide again,
- * for drags; `capture()` returns a PNG of what the frame shows.
+ * for drags; `sizes` says how large each positioned element is laid out;
+ * `capture()` returns a PNG of what the frame shows.
  */
 const props = defineProps<{
   request?: RenderRequest
@@ -16,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   rendered: [result: { id?: string, clicks: number }]
   error: [message: string]
+  sizes: [sizes: Record<string, ElementSize>]
 }>()
 
 /** A capture that takes longer than this answers with an error, so a caller never waits forever. */
@@ -88,6 +90,22 @@ function onMessage(event: MessageEvent<FromPreview>) {
     const { png, overflow, error } = message
     waiting.get(message.id)?.({ ...(png ? { png } : {}), overflow, ...(error ? { error } : {}) })
   }
+  else if (message?.type === 'deyslide:sizes') {
+    emit('sizes', usableSizes(message.sizes))
+  }
+}
+
+/** The sizes a message gives that are real sizes; the rest are dropped. */
+function usableSizes(value: unknown): Record<string, ElementSize> {
+  const sizes = Object.create(null) as Record<string, ElementSize>
+  if (typeof value !== 'object' || value === null)
+    return sizes
+  for (const [id, size] of Object.entries(value as Record<string, Partial<ElementSize> | null>)) {
+    const { w, h } = size ?? {}
+    if (typeof w === 'number' && typeof h === 'number' && Number.isFinite(w) && Number.isFinite(h) && w >= 0 && h >= 0)
+      sizes[id] = { w, h }
+  }
+  return sizes
 }
 
 watch(() => props.request, post, { deep: true })

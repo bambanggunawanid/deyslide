@@ -9,7 +9,7 @@ import { FakeResizeObserver } from './resize-observer'
 
 type Answer<T extends FromPreview['type']> = Extract<FromPreview, { type: T }>
 
-const ANSWERS = new Set(['deyslide:ready', 'deyslide:rendered', 'deyslide:error', 'deyslide:captured'])
+const ANSWERS = new Set(['deyslide:ready', 'deyslide:rendered', 'deyslide:error', 'deyslide:captured', 'deyslide:sizes'])
 
 /**
  * The preview frame's own app, mounted in happy-dom and driven the way the

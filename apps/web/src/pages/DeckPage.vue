@@ -4,10 +4,13 @@ import type { DeckSession } from '../deck/session'
 import type { DeckView } from '../deck/view'
 import type { MarkdownBinding } from '../editor/markdown-sync'
 import type { RenderRequest } from '../preview/protocol'
+import type { ProjectMedia } from '../projects/media'
 import { deckMarkdown, joinSlides, slideMarkdowns, splitSlides } from '@deyslide/deck-model'
-import { computed, onBeforeUnmount, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import AssistantPanel from '../assistant/AssistantPanel.vue'
+import DesignCanvas from '../canvas/DesignCanvas.vue'
+import Inspector from '../canvas/Inspector.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ShareDialog from '../components/ShareDialog.vue'
 import { useAccount } from '../composables/useAccount'
@@ -19,8 +22,11 @@ import { isDeckView, rememberedView, rememberView } from '../deck/view'
 import { createMarkdownBinding } from '../editor/markdown-sync'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
+import { mediaOwner, useMediaRequest } from '../platform/media'
 import { saveFile } from '../platform/platform'
-import { canEdit, deckRole } from '../projects/roles'
+import { HttpMediaApi, MEDIA_KEY } from '../projects/media'
+import { canEdit, deckRole, projectRole } from '../projects/roles'
+import { LOCAL_ID_PREFIX } from '../projects/workspace'
 
 const props = defineProps<{ projectId: string, deckId: string }>()
 
@@ -155,12 +161,29 @@ watch(currentId, () => {
 })
 
 const slide = computed(() => outline.value[currentIndex.value])
-const request = computed<RenderRequest | undefined>(() => slide.value && {
+const slideRequest = computed<RenderRequest | undefined>(() => slide.value && {
   type: 'deyslide:render',
   slide: { content: slide.value.content, frontmatter: slide.value.frontmatter, first: currentIndex.value === 0 },
   headmatter: outline.value[0]?.frontmatter ?? {},
   clicks: clicks.value,
 })
+// Signed media links belong to the account that asked for them; another person asks afresh.
+watch(() => account.value?.id, id => mediaOwner(id), { immediate: true })
+/** What the preview renders: the slide, with links it can load for the project's media files it shows. */
+const request = useMediaRequest(() => slideRequest.value)
+
+// The project's media library, for images on the canvas: for people who can add to the
+// project in the account (not a single shared deck, not a deck on this device), on a server that keeps media.
+const mediaApi = inject(MEDIA_KEY, () => new HttpMediaApi(), true)
+const mediaOn = ref(false)
+void mediaApi.enabled().then((on) => {
+  mediaOn.value = on
+})
+const projectMedia = computed<ProjectMedia | undefined>(() => account.value && mediaOn.value && project.value && canEdit(projectRole(project.value))
+  && !props.projectId.startsWith(LOCAL_ID_PREFIX)
+  ? { api: mediaApi, projectId: props.projectId }
+  : undefined)
+const inspector = ref<InstanceType<typeof Inspector>>()
 
 function onRendered({ clicks: count }: { clicks: number }) {
   totalClicks.value = count
@@ -438,9 +461,21 @@ onUnmounted(closeSession)
 
       <!-- One grid for both views, so the assistant stays put (and keeps its chat) when the view changes. -->
       <div class="grid gap-4" :class="view === 'design' ? 'lg:grid-cols-[minmax(0,1fr)_22rem]' : 'md:grid-cols-2'" :data-testid="`${view}-view`">
-        <!-- The canvas comes here. Until then the Design view shows the slide. -->
+        <!-- The canvas: the slide strip, the toolbar and the slide to lay out. -->
         <div v-if="view === 'design'" class="flex min-w-0 flex-col gap-3">
-          <SlidePreviewFrame :request="request" @rendered="onRendered" @error="previewError = $event" />
+          <DesignCanvas
+            v-model:selection="selection"
+            :session="session!"
+            :slides="outline"
+            :slide-id="slide!.id"
+            :request="request"
+            :locked="viewOnly || assistantBusy"
+            :media="projectMedia"
+            @slide="currentId = $event"
+            @rendered="onRendered"
+            @error="previewError = $event"
+            @inspect="inspector?.reveal()"
+          />
           <SlideNavigation :index="currentIndex" :count="outline.length" :clicks="clicks" :total-clicks="totalClicks" @slide="showSlide" @clicks="clicks = $event" />
           <p v-if="previewError" class="m-0 rounded-md bg-rose-950 p-2 font-mono text-xs text-rose-200" role="alert" data-testid="slide-error">
             {{ previewError }}
@@ -474,6 +509,16 @@ onUnmounted(closeSession)
               {{ previewError }}
             </p>
           </template>
+          <Inspector
+            v-else
+            ref="inspector"
+            v-model:selection="selection"
+            :session="session!"
+            :slide-id="slide!.id"
+            :first="currentIndex === 0"
+            :locked="viewOnly || assistantBusy"
+            :media="projectMedia"
+          />
           <AssistantPanel v-if="!viewOnly && session" :deck-id="deckId" :session="session" @show="showChangedSlide" @busy="onAssistantBusy" />
         </div>
       </div>

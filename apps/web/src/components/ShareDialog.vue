@@ -96,8 +96,8 @@ const ROLE_LABELS: Record<SharedRole, string> = { editor: 'Editor', viewer: 'Vie
 <template>
   <DialogRoot v-model:open="open">
     <DialogPortal>
-      <DialogOverlay class="fixed inset-0 bg-black/60" />
-      <DialogContent class="dey-panel fixed left-1/2 top-1/2 max-h-[90dvh] w-[min(92vw,32rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto" data-testid="share-dialog">
+      <DialogOverlay class="fixed inset-0 z-40 bg-black/60" />
+      <DialogContent class="dey-panel fixed z-50 left-1/2 top-1/2 max-h-[90dvh] w-[min(92vw,32rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto" data-testid="share-dialog">
         <DialogTitle class="m-0 text-lg font-semibold">
           Share {{ name }}
         </DialogTitle>

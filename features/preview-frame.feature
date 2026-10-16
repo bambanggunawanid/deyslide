@@ -66,6 +66,12 @@ Feature: Preview frame
     When the editor sends a position for "box" whose width is negative
     Then the box is placed at left 100 and top 50 on the same slide
 
+  Scenario: The frame tells the editor how large each positioned element is laid out
+    Given the preview frame shows the box "box" at left 100 and top 50
+    Then the frame tells the editor the size "box" is laid out at
+    When the box's content grows to 200 by 130
+    Then the frame tells the editor "box" is 200 by 130
+
   Scenario: Ids that name built-in properties are ordinary ids
     Given the preview frame shows boxes whose ids are "constructor" and "__proto__"
     Then both boxes are placed where the slide puts them
