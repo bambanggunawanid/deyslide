@@ -53,6 +53,8 @@ export class CloudStore implements ProjectStore {
   private readonly live = new Map<string, LiveDeck>()
   /** Decks nobody has open whose changes still wait for the server. */
   private readonly waiting = new Set<LiveDeck>()
+  /** Open sessions and the deck each one shows. */
+  private readonly sessions = new Map<DeckSession, string>()
   private readonly warnOnClose = (event: BeforeUnloadEvent) => event.preventDefault()
   readonly sharing: SharingApi
 
@@ -153,7 +155,7 @@ export class CloudStore implements ProjectStore {
     const deck = this.hold(deckId)
     const { connection } = deck
     let closed = false
-    return createDeckSession(deck.doc, deck.awareness, {
+    const session = createDeckSession(deck.doc, deck.awareness, {
       status: connection.status,
       error: connection.error,
       ready: computed(() => deck.loaded.value),
@@ -163,9 +165,30 @@ export class CloudStore implements ProjectStore {
         if (closed)
           return
         closed = true
+        this.sessions.delete(session)
         this.letGo(deckId, deck)
       },
     }, options)
+    this.sessions.set(session, deckId)
+    return session
+  }
+
+  /**
+   * Sends every deck's changes to the server now, typing in open pages
+   * included, as the app's window closes. Resolves with the names of the
+   * decks whose last changes the server does not have yet: offline, say,
+   * or typing held back by a problem in its Markdown.
+   */
+  async flushAll(): Promise<string[]> {
+    await Promise.all([...this.sessions.keys()].map(session => session.flush().catch(() => {})))
+    await Promise.all([...this.live.values()].map(deck => deck.connection.flush().catch(() => {})))
+    const left = new Set([...this.live].filter(([, deck]) => deck.connection.unsaved.value).map(([deckId]) => deckId))
+    for (const [session, deckId] of this.sessions) {
+      if (session.typingPending.value)
+        left.add(deckId)
+    }
+    const names = new Map([...this.projects, ...this.shared].flatMap(project => project.decks.map(deck => [deck.id, deck.name] as const)))
+    return [...left].map(deckId => names.get(deckId) ?? 'a deck')
   }
 
   /** The deck's live document, joined for the first user and shared after that. */

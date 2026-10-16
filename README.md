@@ -353,7 +353,7 @@ The home page shows **On this device** and, signed in, **Your account**. On the 
 - A change in the app is written to its file a moment later, and only when the deck differs from the file. Each write checks that the file still holds what the app last read or wrote, so a file Claude Code or another editor changed meanwhile is merged in, never overwritten.
 - Changes made to a file on disk appear in the open deck at once and merge with any typing.
 - A file that does not parse pauses writing and says "The file on disk has an error: ..." until a later change reads, and a deck moved or renamed on disk says so.
-- Closing the window writes what is waiting first, or asks before closing without it.
+- Closing the window, or the app going to the background, writes what is waiting first and sends account decks' changes to the server. When some cannot be saved (offline, say), closing asks before it goes without them.
 - Deleting a project or deck moves it to the system's trash when there is one.
 
 Decks on a device are not shared and have no live room. Export from them makes a PDF on the device, or, signed in, sends their Markdown to the server for a PDF or a video.

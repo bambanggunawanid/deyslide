@@ -1,9 +1,25 @@
-import type { LocalStore } from '../projects/local-store'
+import type { Workspace } from '../projects/workspace'
 import { onCloseRequested } from './native'
 
-// Device decks are written to their files a moment after each change. When
-// the app goes out of sight or its window closes, what still waits is
-// written first, so the last change before closing is kept.
+// Device decks are written to their files a moment after each change, and
+// account decks reach the server once it confirms them. When the app goes
+// out of sight or its window closes, what still waits is sent on first, so
+// the last change before closing is kept.
+
+/** A store that can send on its waiting changes, and say which decks still have some. */
+export interface FlushingStore {
+  flushAll: () => Promise<string[]>
+}
+
+/** The workspace's stores that hold changes until they are saved: the device's, and the account's while signed in. */
+export function storesToSave(workspace: Workspace): FlushingStore[] {
+  return Object.values(workspace.stores.value).filter((store): store is FlushingStore => typeof store?.flushAll === 'function')
+}
+
+/** Every store's waiting changes, sent on together. Resolves with the decks still not saved. */
+async function flushStores(stores: FlushingStore[]) {
+  return (await Promise.all(stores.map(store => store.flushAll()))).flat()
+}
 
 /** How long closing waits for the last changes to reach their files. */
 const CLOSE_WAIT_MS = 5000
@@ -32,17 +48,20 @@ export interface SaveBeforeClosingOptions {
 }
 
 /**
- * Writes the device decks' last changes before the window closes. When some
- * cannot be written (a file on disk has an error, say), or writing takes
- * too long, the person is asked whether to close without them.
+ * Saves the decks' last changes before the window closes: device decks to
+ * their files, account decks to the server. `stores` names the stores at
+ * that moment, since signing in and out changes them. When some changes
+ * cannot be saved (a file on disk has an error, or the server is out of
+ * reach), or saving takes too long, the person is asked whether to close
+ * without them.
  */
-export function saveBeforeClosing(store: LocalStore, { ask = askWithDialog, waitMs = CLOSE_WAIT_MS }: SaveBeforeClosingOptions = {}) {
+export function saveBeforeClosing(stores: () => FlushingStore[], { ask = askWithDialog, waitMs = CLOSE_WAIT_MS }: SaveBeforeClosingOptions = {}) {
   return onCloseRequested(async () => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const late = new Promise<undefined>((resolve) => {
       timer = setTimeout(() => resolve(undefined), waitMs)
     })
-    const unsaved = await Promise.race([store.flushAll(), late])
+    const unsaved = await Promise.race([flushStores(stores()), late])
     clearTimeout(timer)
     if (unsaved?.length === 0)
       return true
@@ -50,11 +69,11 @@ export function saveBeforeClosing(store: LocalStore, { ask = askWithDialog, wait
   })
 }
 
-/** Writes waiting changes when the app goes out of sight, such as Android sending it to the background. */
-export function saveWhenHidden(store: LocalStore) {
+/** Sends waiting changes on when the app goes out of sight, such as Android sending it to the background. */
+export function saveWhenHidden(stores: () => FlushingStore[]) {
   const onChange = () => {
     if (document.visibilityState === 'hidden')
-      void store.flushAll()
+      void flushStores(stores()).catch(() => {})
   }
   document.addEventListener('visibilitychange', onChange)
   return () => document.removeEventListener('visibilitychange', onChange)

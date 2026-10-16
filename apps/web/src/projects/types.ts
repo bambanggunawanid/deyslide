@@ -35,6 +35,13 @@ export interface ProjectStore {
   deckMarkdown: (deckId: string) => Promise<string>
   /** Sharing, for signed in people only. */
   sharing?: SharingApi
+  /**
+   * Sends every open deck's changes on now, typing in open pages included,
+   * as the app's window closes or goes out of sight. Resolves with the
+   * names of the decks whose last changes are still not saved. Stores that
+   * save at once have none.
+   */
+  flushAll?: () => Promise<string[]>
 }
 
 /** A browser project with each deck's Yjs document in base64, ready to move into an account. */

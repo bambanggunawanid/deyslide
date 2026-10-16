@@ -59,15 +59,17 @@ createApp(App)
 /** The main window of the app on a computer. Audience windows only show slides. */
 const mainWindow = isDesktopApp() && await windowLabel().then(label => label === MAIN_WINDOW, () => false)
 
-// Device decks are written a moment after each change: leaving the app or
-// closing the window it edits them in writes what still waits first.
+// Device decks are written a moment after each change, and account decks
+// wait for the server to confirm theirs: leaving the app or closing the
+// window it edits them in saves what still waits first.
 async function saveOnLeaving() {
   if (!local)
     return
-  const { saveBeforeClosing, saveWhenHidden } = await import('./platform/closing')
-  saveWhenHidden(local)
+  const { saveBeforeClosing, saveWhenHidden, storesToSave } = await import('./platform/closing')
+  const stores = () => storesToSave(workspace)
+  saveWhenHidden(stores)
   if (mainWindow)
-    await saveBeforeClosing(local)
+    await saveBeforeClosing(stores)
 }
 await saveOnLeaving().catch((error) => {
   console.error('Deyslide cannot save changes before closing:', error)

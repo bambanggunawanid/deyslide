@@ -147,6 +147,21 @@ Feature: Decks saved as files on the device
     When they close the window
     Then the app asks "Your last changes to Sorting could not be saved yet. The deck's page says why."
 
+  Scenario: Closing the window sends an account deck's last change to the server first
+    Given the app on a computer, signed in as "Ana", with the account deck "Graphs" open in the main window
+    And Ana changes the title of slide 1 of "Graphs" to "# Charts"
+    When they close the window
+    Then the window closed without a question
+    And the server has "# Charts" on slide 1
+
+  Scenario: Closing the window asks first when an account deck's changes cannot reach the server
+    Given the app on a computer, signed in as "Ana", with the account deck "Graphs" open in the main window
+    And the app goes offline
+    And Ana changes the title of slide 1 of "Graphs" to "# Charts"
+    When they close the window
+    Then the app asks "Your last changes to Graphs could not be saved yet. The deck's page says why."
+    And the window stays open
+
   Scenario: Renaming an open deck moves its page to the new id
     Given the deck page of "Sorting" in "Talks" is open in the app
     And the person changes the title of slide 2 to "Merge sort"

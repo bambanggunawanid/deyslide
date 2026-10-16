@@ -8,7 +8,7 @@ import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { defineComponent, h, watch } from 'vue'
 import { LOCAL_ORIGIN, statusLabel } from '../apps/web/src/deck/session'
-import { saveBeforeClosing } from '../apps/web/src/platform/closing'
+import { saveBeforeClosing, storesToSave } from '../apps/web/src/platform/closing'
 import { startPlatform } from '../apps/web/src/platform/platform'
 import { startRenderBridge } from '../apps/web/src/platform/render-bridge'
 import { LAST_CLICKS } from '../apps/web/src/preview/protocol'
@@ -17,7 +17,7 @@ import { deckMarkdown, moveSlide, readDeckDoc, splitSlides } from '../packages/d
 import { FakeAccountService } from './support/account'
 import { deckIdOf, FakeDeviceLibrary, projectIdOf } from './support/device-library'
 import { resetEditorDoubles } from './support/editor-doubles'
-import { changeSlide, openReady, slidesOf } from './support/live-decks'
+import { accountDeck, changeSlide, openReady, slidesOf } from './support/live-decks'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, text } from './support/web'
 
@@ -713,7 +713,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     Given('the deck page of "Sorting" in "Talks" is open in the app\'s main window on a computer', async () => {
       // Writing waits long here, so closing is what writes the change.
       await openSortingPage({ writeDelayMs: 60_000 })
-      stopClosing = await saveBeforeClosing(store!)
+      stopClosing = await saveBeforeClosing(() => storesToSave(web!.workspace))
     })
     And('the person changes the title of slide 2 to "Merge sort" in the Markdown view', () => {
       // The Markdown view still holds the typing: it merges a moment later.
@@ -738,7 +738,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     let closed: boolean | undefined
     Given('the deck page of "Sorting" in "Talks" is open in the app\'s main window on a computer', async () => {
       await openSortingPage()
-      stopClosing = await saveBeforeClosing(store!)
+      stopClosing = await saveBeforeClosing(() => storesToSave(web!.workspace))
       fake.ask.mockImplementation(() => new Promise<boolean>((resolve) => {
         answer = resolve
       }))
@@ -786,7 +786,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     let closing: Promise<boolean> | undefined
     Given('the deck page of "Sorting" in "Talks" is open in the app\'s main window on a computer', async () => {
       await openSortingPage()
-      stopClosing = await saveBeforeClosing(store!)
+      stopClosing = await saveBeforeClosing(() => storesToSave(web!.workspace))
       fake.ask.mockResolvedValue(false)
     })
     And('Claude Code writes the deck\'s file with frontmatter that is not valid YAML', async () => {
@@ -805,6 +805,60 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     Then('the app asks "Your last changes to Sorting could not be saved yet. The deck\'s page says why."', async () => {
       expect(await closing).toBe(false)
       expect(fake.ask).toHaveBeenCalledWith('Your last changes to Sorting could not be saved yet. The deck\'s page says why.', expect.anything())
+    })
+  })
+
+  /** Opens an account deck's page in the app's main window, which saves before closing. */
+  async function openAccountDeck() {
+    await inApp('linux')
+    service.signedIn = ANA
+    const { projectId, deckId } = await accountDeck(api, '# Graphs\n\n---\n\n# Trees\n', 'Graphs')
+    await openPage(`/p/${projectId}/d/${deckId}`)
+    await vi.waitFor(() => expect(web!.workspace.stores.value.cloud).toBeDefined())
+    stopClosing = await saveBeforeClosing(() => storesToSave(web!.workspace))
+    session = await openReady(web!.workspace.stores.value.cloud!, projectId, deckId)
+    return deckId
+  }
+
+  Scenario('Closing the window sends an account deck\'s last change to the server first', ({ Given, And, When, Then }) => {
+    let deckId: string
+    let closed: boolean | undefined
+    Given('the app on a computer, signed in as "Ana", with the account deck "Graphs" open in the main window', async () => {
+      deckId = await openAccountDeck()
+    })
+    And('Ana changes the title of slide 1 of "Graphs" to "# Charts"', () => {
+      changeSlide(session!, 1, markdown => markdown.replace('# Graphs', '# Charts'))
+    })
+    When('they close the window', async () => {
+      closed = await closeWindow()
+    })
+    Then('the window closed without a question', () => {
+      expect(closed).toBe(true)
+      expect(fake.ask).not.toHaveBeenCalled()
+    })
+    And('the server has "# Charts" on slide 1', () => {
+      expect(slidesOf(api.rooms.get(deckId)!)[0]).toContain('# Charts')
+    })
+  })
+
+  Scenario('Closing the window asks first when an account deck\'s changes cannot reach the server', ({ Given, And, When, Then }) => {
+    let closed: boolean | undefined
+    Given('the app on a computer, signed in as "Ana", with the account deck "Graphs" open in the main window', async () => {
+      await openAccountDeck()
+      fake.ask.mockResolvedValue(false)
+    })
+    And('the app goes offline', () => api.goOffline())
+    And('Ana changes the title of slide 1 of "Graphs" to "# Charts"', () => {
+      changeSlide(session!, 1, markdown => markdown.replace('# Graphs', '# Charts'))
+    })
+    When('they close the window', async () => {
+      closed = await closeWindow()
+    })
+    Then('the app asks "Your last changes to Graphs could not be saved yet. The deck\'s page says why."', () => {
+      expect(fake.ask).toHaveBeenCalledWith('Your last changes to Graphs could not be saved yet. The deck\'s page says why.', expect.anything())
+    })
+    And('the window stays open', () => {
+      expect(closed).toBe(false)
     })
   })
 
