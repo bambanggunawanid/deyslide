@@ -78,6 +78,12 @@ Feature: Exporting a deck from the editor
     And the file "Sorting.pdf" is saved: a PDF of 5 pages, each 960 by 540 points
     And the page says "Saved Sorting.pdf."
 
+  Scenario: A PDF made on the device shows the deck's project images
+    Given Ana is signed in, on a server without exports, with a deck whose second slide shows a project image
+    When I export "PDF (this device)"
+    Then the second slide was drawn with a signed link for the image
+    And the file "Pets.pdf" is saved
+
   Scenario: A PDF made on the device can show every click step
     Given the demo deck "Sorting" is open in this browser, signed out
     When I export "PDF with every click step (this device)"

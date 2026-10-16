@@ -1,5 +1,6 @@
 import type { CapturedSlide, RenderRequest } from '../preview/protocol'
 import { ref, shallowRef } from 'vue'
+import { withMedia } from '../platform/media'
 
 /** What a mounted SlidePreviewFrame exposes. */
 export interface CapturingFrame {
@@ -12,9 +13,11 @@ export const RENDER_TIMEOUT_MS = 30_000
 /**
  * Drives one preview frame step by step: render a slide and wait until it
  * is drawn, then capture it. Bind `request`, `frame`, `onRendered` and
- * `onError` to a SlidePreviewFrame. One render at a time.
+ * `onError` to a SlidePreviewFrame. One render at a time. Slides get signed
+ * links for the project media they show, asked through the deck `deckId`
+ * names, before they are drawn.
  */
-export function useFrameRenderer(name: string) {
+export function useFrameRenderer(name: string, deckId: () => string | undefined = () => undefined) {
   const request = shallowRef<RenderRequest>()
   const frame = ref<CapturingFrame>()
   let renders = 0
@@ -44,7 +47,10 @@ export function useFrameRenderer(name: string) {
           reject(error)
         },
       }
-      request.value = { type: 'deyslide:render', id, ...next }
+      void withMedia(next, deckId()).then((ready) => {
+        if (waiting?.id === id)
+          request.value = { type: 'deyslide:render', id, ...ready }
+      })
     })
   }
 

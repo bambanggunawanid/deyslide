@@ -192,6 +192,24 @@ export class MediaStore {
   }
 
   /**
+   * A short lived download link for a file a deck shows, for its preview.
+   * Slides can run code that reads the link, so the file must belong to the
+   * deck's own project: a deck elsewhere that names the file gets nothing,
+   * whoever looks at it. The person needs access to the deck, and to the
+   * project or to a deck there that shows the file.
+   */
+  async deckLink(userId: string, deckId: string, mediaId: string): Promise<{ media: MediaFile, url: string, expiresAt: string } | undefined> {
+    const row = await this.row(mediaId)
+    if (!row || row.status !== 'ready')
+      return undefined
+    const access = await this.projects.deckAccess(userId, deckId)
+    if (access?.projectId !== row.project_id || !(await this.canOpen(userId, row.project_id, mediaId)))
+      return undefined
+    const url = await this.storage.downloadUrl(row.key, DOWNLOAD_LINK_SECONDS)
+    return { media: toFile(row), url, expiresAt: new Date(this.now().getTime() + DOWNLOAD_LINK_SECONDS * 1000).toISOString() }
+  }
+
+  /**
    * A file's type and size, and a way to read it, for anyone who may open
    * it. Exports put the files slides use into the slides themselves, since
    * the slide renderer has no network.

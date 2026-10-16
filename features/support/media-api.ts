@@ -3,10 +3,11 @@ import { StoreError } from '../../apps/web/src/projects/names'
 
 /**
  * A project's media library for page scenarios. Files live in memory, an
- * upload is kept at once, and `fetch` answers `GET /api/media/:id` with a
- * signed link as the API does, so pages that resolve media links can run
- * against it (stub the global `fetch` with it). The API has its own
- * scenarios in media.feature.
+ * upload is kept at once, and `fetch` answers `GET /api/media/:id` and
+ * `GET /api/decks/:deckId/media/:id` with a signed link as the API does, so
+ * pages that resolve media links can run against it (stub the global
+ * `fetch` with it). A deck's previews only get files of the deck's project:
+ * say which with `deckIn`. The API has its own scenarios in media.feature.
  */
 export class FakeMediaApi implements MediaApi {
   on: boolean
@@ -15,6 +16,8 @@ export class FakeMediaApi implements MediaApi {
   readonly uploads: { projectId: string, name: string, type: string, size: number }[] = []
   /** File ids the page asked a signed link for, in order. */
   readonly linkRequests: string[] = []
+  /** Each deck's project, for the links its previews ask for. */
+  readonly deckProjects = new Map<string, string>()
   /** When set, the next upload fails with this message. */
   failUpload = ''
   /** How long a signed link works. */
@@ -53,18 +56,29 @@ export class FakeMediaApi implements MediaApi {
     return structuredClone(file)
   }
 
+  /** Says which project a deck is in. */
+  deckIn(deckId: string, projectId: string) {
+    this.deckProjects.set(deckId, projectId)
+  }
+
   /** The signed link the fake hands out for a file, by its count. */
   static signedLink(id: string, count: number) {
     return `https://storage.example/${id}?signature=${count}`
   }
 
-  /** `GET /api/media/:id` as the API answers it; every other request is not found. */
+  /** `GET /api/media/:id` and `GET /api/decks/:deckId/media/:id` as the API answers them; every other request is not found. */
   readonly fetch = async (input: RequestInfo | URL): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost')
-    const id = url.pathname.match(/^\/api\/media\/([^/]+)$/)?.[1]
-    const file = id === undefined ? undefined : this.files.find(item => item.id === decodeURIComponent(id))
+    const single = url.pathname.match(/^\/api\/media\/([^/]+)$/)
+    const inDeck = url.pathname.match(/^\/api\/decks\/([^/]+)\/media\/([^/]+)$/)
+    const deckId = inDeck ? decodeURIComponent(inDeck[1]!) : undefined
+    const found = single?.[1] ?? inDeck?.[2]
+    const id = found === undefined ? undefined : decodeURIComponent(found)
+    let file = id === undefined ? undefined : this.files.find(item => item.id === id)
     if (id !== undefined)
-      this.linkRequests.push(decodeURIComponent(id))
+      this.linkRequests.push(id)
+    if (file && deckId !== undefined && this.deckProjects.get(deckId) !== file.projectId)
+      file = undefined
     if (!file)
       return Response.json({ error: 'Not found' }, { status: 404 })
     return Response.json({

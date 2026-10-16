@@ -12,6 +12,14 @@ Feature: Media links for the slide preview
     When it asks again 14 and a half minutes after the first time
     Then it asks the API for a fresh link, since the old one stops working within a minute
 
+  Scenario: A deck's previews get links through that deck, never another deck's
+    Given the project file "m1" in the project of the deck "Sorting"
+    And the deck "Trap", in someone else's project, shows "/api/media/m1/file" too
+    When the preview of "Sorting" asks for a link to "/api/media/m1/file"
+    Then it gets a signed link, asked for through "Sorting"
+    When the preview of "Trap" asks for the same link
+    Then the API is asked through "Trap", and that preview gets no link
+
   Scenario: Parts of the page asking at the same time share one request
     Given the project file "m1", whose signed links last 15 minutes
     When the slide and two strip pictures ask for "/api/media/m1/file" at the same time
@@ -61,7 +69,7 @@ Feature: Media links for the slide preview
     Given Ana's signed in deck shows a project image
     And Ana's preview has a signed link for the image
     When Ana signs out and opens a deck in this browser that shows the same image
-    Then the page asks the API again, and its preview gets no link from Ana's account
+    Then the page does not ask the API for a guest's deck, and its preview gets no link from Ana's account
 
   Scenario: A preview waiting for a link when the account changes asks again
     Given the project file "m1", whose signed links last 15 minutes

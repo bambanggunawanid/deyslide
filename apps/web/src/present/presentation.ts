@@ -5,12 +5,13 @@ import type { PresentChannel } from '../platform/platform'
 import type { RenderRequest } from '../preview/protocol'
 import type { PresentSlide } from './outline'
 import type { PresentDeck, PresentPosition } from './navigation'
-import { computed, inject, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAccount } from '../composables/useAccount'
 import { useProjects } from '../composables/useProjects'
 import { publishPresence } from '../deck/presence'
 import { holdsDeck, statusLabel } from '../deck/session'
+import { MEDIA_DECK_KEY, mediaDeckOf, mediaOwner, useMediaRequest } from '../platform/media'
 import { presentChannel } from '../platform/platform'
 import { REPLACED } from '../preview/protocol'
 import { slideTransition } from '../preview/transitions'
@@ -54,6 +55,11 @@ export function usePresentation(props: { projectId: string, deckId: string }) {
   const makeChannel = inject(PRESENT_CHANNEL_KEY, presentChannel<PresentMessage>)
   /** The deck's other window, presenter or audience. */
   let channel: PresentChannel<PresentMessage> | undefined
+  /** The deck media links are asked through, for every picture of the talk. */
+  const mediaDeck = () => mediaDeckOf(props.deckId, Boolean(account.value))
+  provide(MEDIA_DECK_KEY, mediaDeck)
+  // Signed media links belong to the account that asked for them; another person asks afresh.
+  watch(() => account.value?.id, id => mediaOwner(id), { immediate: true })
 
   // The deck, open read only ------------------------------------------------
 
@@ -279,7 +285,8 @@ export function usePresentation(props: { projectId: string, deckId: string }) {
 
   /**
    * The render request for a step, made again only when what the step shows
-   * changes. With `moves`, a move to another slide brings its transition.
+   * changes, with links for the project media it shows. With `moves`, a
+   * move to another slide brings its transition.
    */
   function requestOf(step: () => PresentPosition | undefined, moves = false) {
     const request = shallowRef<RenderRequest>()
@@ -297,7 +304,7 @@ export function usePresentation(props: { projectId: string, deckId: string }) {
       if (moves)
         move = undefined
     }, { immediate: true })
-    return request
+    return useMediaRequest(() => request.value, mediaDeck)
   }
 
   /** A render's reply: the slide's click count. */

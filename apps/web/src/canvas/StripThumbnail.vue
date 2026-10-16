@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { RenderRequest } from '../preview/protocol'
-import { onBeforeUnmount, shallowRef, watch } from 'vue'
+import { inject, onBeforeUnmount, shallowRef, watch } from 'vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
-import { useMediaRequest } from '../platform/media'
+import { MEDIA_DECK_KEY, useMediaRequest } from '../platform/media'
 import { LAST_CLICKS } from '../preview/protocol'
 
 /**
@@ -44,7 +44,7 @@ watch(() => JSON.stringify([props.content, props.frontmatter, props.first, props
 source.value = build()
 onBeforeUnmount(() => clearTimeout(timer))
 
-const request = useMediaRequest(() => source.value)
+const request = useMediaRequest(() => source.value, inject(MEDIA_DECK_KEY, () => () => undefined, true))
 </script>
 
 <template>

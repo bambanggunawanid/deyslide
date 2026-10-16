@@ -10,6 +10,7 @@ import { shallowRef } from 'vue'
 import { ACCOUNT_KEY } from '../apps/web/src/composables/useAccount'
 import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../apps/web/src/guest/store'
+import { clearMediaLinks } from '../apps/web/src/platform/media'
 import ExportMenu from '../apps/web/src/present/ExportMenu.vue'
 import { EXPORT_KEY, ExportError, HttpExportApi, UNREACHABLE } from '../apps/web/src/present/exports'
 import { LAST_CLICKS } from '../apps/web/src/present/navigation'
@@ -17,6 +18,8 @@ import { slideTitle } from '../apps/web/src/present/outline'
 import { FakeAccountService } from './support/account'
 import { previewAnswers, previewCaptures, previewRequests, resetEditorDoubles, SlidePreviewFrameDouble } from './support/editor-doubles'
 import { FakeExportApi } from './support/export-api'
+import { accountDeck } from './support/live-decks'
+import { FakeMediaApi } from './support/media-api'
 import { FakePresentHub } from './support/present-channel'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, text } from './support/web'
@@ -57,6 +60,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     web = undefined
     resetEditorDoubles()
     vi.restoreAllMocks()
+    clearMediaLinks()
   })
 
   /** Saving goes through the browser's download: keep what would be downloaded. */
@@ -368,6 +372,41 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
     And('the page says "Saved Sorting.pdf."', () => {
       expect(text('[data-testid="export-status"]')).toBe('Saved Sorting.pdf.')
+    })
+  })
+
+  Scenario('A PDF made on the device shows the deck\'s project images', ({ Given, When, Then, And }) => {
+    const CAT = '/api/media/cat/file'
+    Given('Ana is signed in, on a server without exports, with a deck whose second slide shows a project image', async () => {
+      const service = new FakeAccountService()
+      service.addAccount('ana@example.com', 'correct horse', 'Ana')
+      await service.signIn({ email: 'ana@example.com', password: 'correct horse' })
+      const api = new FakeProjectApi()
+      ;({ projectId, deckId } = await accountDeck(api, `# Pets\n\n---\n\n# Cat\n\n![Cat](${CAT})\n`, 'Pets'))
+      const media = new FakeMediaApi()
+      media.add(projectId, 'cat.png', { id: 'cat' })
+      media.deckIn(deckId, projectId)
+      exports = new FakeExportApi({ on: false })
+      answerRenders()
+      catchDownloads()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(media.fetch)
+      web = await mountWebApp({ service, api, exports, path: `/p/${projectId}/d/${deckId}` })
+      await vi.waitFor(() => expect(find('[data-testid="export-menu"]')!.hasAttribute('disabled')).toBe(false))
+      await web.settle()
+      listen()
+    })
+    When('I export "PDF (this device)"', async () => {
+      await choose('export-device-pdf')
+      await finished()
+    })
+    Then('the second slide was drawn with a signed link for the image', () => {
+      const pages = previewRequests.filter(request => request.mode === 'print')
+      expect(pages.map(request => slideTitle(request.slide.content))).toEqual(['Pets', 'Cat'])
+      expect(pages[0]!.media).toBeUndefined()
+      expect(pages[1]!.media).toEqual({ [CAT]: expect.stringMatching(/^https:\/\/storage\.example\/cat\?signature=\d+$/) })
+    })
+    And('the file "Pets.pdf" is saved', () => {
+      expect(saved.map(file => file.name)).toEqual(['Pets.pdf'])
     })
   })
 

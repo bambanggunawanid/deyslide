@@ -164,6 +164,15 @@ Feature: Presenting a deck
     When Budi changes the title of slide 1 to "Changed live" in another browser
     Then the audience view shows the title "Changed live"
 
+  Scenario: Project images show in the talk, the overview and the presenter view
+    Given Ana is signed in, with a deck in the account that shows a project image on slides 1 and 2
+    When Ana presents the deck
+    Then the audience view's slide gets a signed link for the image
+    When the presenter presses "o"
+    Then the overview's pictures of slides 1 and 2 get the signed link too
+    When Ana opens the presenter view of the deck
+    Then its slide and its next step get the signed link
+
   Scenario: Keys step through clicks and slides, with a transition only between slides
     Given a deck whose transition is "slide-left", with a second slide of 2 clicks whose transition is "fade", is presented in this browser
     Then the audience view shows slide 1 at click 0, without a transition

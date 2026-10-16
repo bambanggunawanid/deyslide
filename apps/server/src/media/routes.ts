@@ -14,8 +14,9 @@ const UploadBody = z.object({
 })
 
 /**
- * Each project's media library under /api/projects/:id/media, and single
- * files under /api/media. Files go straight between the browser and storage
+ * Each project's media library under /api/projects/:id/media, single
+ * files under /api/media, and the files a deck shows under
+ * /api/decks/:deckId/media. Files go straight between the browser and storage
  * through signed links; the API only hands out links it checked.
  */
 export function mediaRoutes(auth: Auth, media: MediaStore) {
@@ -47,6 +48,12 @@ export function mediaRoutes(auth: Auth, media: MediaStore) {
 
   api.get('/media/:id', signedIn, async (c) => {
     const link = await media.link(c.var.userId, c.req.param('id'))
+    return link ? c.json(link) : notFound(c)
+  })
+
+  // For a deck's slide previews: only files of the deck's own project.
+  api.get('/decks/:deckId/media/:id', signedIn, async (c) => {
+    const link = await media.deckLink(c.var.userId, c.req.param('deckId'), c.req.param('id'))
     return link ? c.json(link) : notFound(c)
   })
 

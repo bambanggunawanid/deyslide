@@ -368,6 +368,35 @@ describeFeature(feature, ({ Background, Scenario, ScenarioOutline, AfterEachScen
     })
   })
 
+  Scenario('A deck\'s preview gets links only to files of the deck\'s own project', ({ Given, And, Then, But }) => {
+    let sorting: string
+    let trap: string
+    const markdown = () => `# Diagram\n\n![Diagram](/api/media/${files['diagram.png']}/file)\n`
+    const previewLink = (browser: TestBrowser, deckId: string) => browser.json<{ url: string }>(`/api/decks/${deckId}/media/${files['diagram.png']}`)
+    Given('Ana uploaded "diagram.png"', () => uploaded('diagram.png'))
+    And('her deck "Sorting" shows "diagram.png"', async () => {
+      sorting = (await ana.json<{ id: string }>(`/api/projects/${projectId}/decks`, { json: { name: 'Sorting', state: stateOf(markdown()) } })).body.id
+    })
+    And('Budi shares his own deck "Trap", which shows "diagram.png" too, with Ana', async () => {
+      budi = await signedInBrowser(server, 'budi@example.com', 'Budi')
+      const own = (await budi.json<Project>('/api/projects', { json: { name: 'Mine' } })).body.id
+      trap = (await budi.json<{ id: string }>(`/api/projects/${own}/decks`, { json: { name: 'Trap', state: stateOf(markdown()) } })).body.id
+      expect((await budi.json(`/api/decks/${trap}/sharing`, { json: { email: 'ana@example.com', role: 'viewer' } })).status).toBe(201)
+    })
+    Then('the preview of "Sorting" gets Ana a link to "diagram.png"', async () => {
+      const answer = await previewLink(ana, sorting)
+      expect(answer.status).toBe(200)
+      expect(answer.body.url).toContain(keyOf(files['diagram.png']))
+    })
+    But('the preview of "Trap" gets nobody a link to "diagram.png", not Ana and not Budi', async () => {
+      expect((await previewLink(ana, trap)).status).toBe(404)
+      expect((await previewLink(budi, trap)).status).toBe(404)
+    })
+    And('nobody gets a link through a deck they cannot open', async () => {
+      expect((await previewLink(budi, sorting)).status).toBe(404)
+    })
+  })
+
   Scenario('Files are private', ({ Given, And, Then }) => {
     Given('Ana uploaded "diagram.png"', () => uploaded('diagram.png'))
     And('Budi is signed in on another browser', async () => {

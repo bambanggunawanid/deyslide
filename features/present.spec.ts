@@ -11,6 +11,7 @@ import type { PresentChannel } from '../apps/web/src/platform/platform'
 import type { PresentMessage } from '../apps/web/src/present/presentation'
 import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../apps/web/src/guest/store'
+import { clearMediaLinks } from '../apps/web/src/platform/media'
 import { isFullscreen, presentChannel, setFullscreen, startPlatform } from '../apps/web/src/platform/platform'
 import { Autoplay, autoplayNext, dwellMs, goTo, keyAction, last, LAST_CLICKS, next, pointerAction, previous, first as firstSlide, settle, slideNumber } from '../apps/web/src/present/navigation'
 import { slideTitle } from '../apps/web/src/present/outline'
@@ -20,6 +21,7 @@ import { deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { answerHeldRenders, previewAnswers, previewCaptures, previewRequests, resetEditorDoubles } from './support/editor-doubles'
 import { accountDeck, changeSlide, openReady } from './support/live-decks'
+import { FakeMediaApi } from './support/media-api'
 import { FakePresentHub } from './support/present-channel'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, text } from './support/web'
@@ -277,6 +279,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
     titles = DEMO.map(slide => slide.title)
     resetEditorDoubles()
     vi.restoreAllMocks()
+    clearMediaLinks()
     fullscreen = null
     delete (document as { fullscreenElement?: unknown }).fullscreenElement
     delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen
@@ -730,6 +733,46 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
       await vi.waitFor(() => expect(titleOf(shownRequest())).toBe('Changed live'))
       // An edit swaps the slide in place: no transition.
       expect(shownRequest()?.transition).toBeUndefined()
+    })
+  })
+
+  Scenario('Project images show in the talk, the overview and the presenter view', ({ Given, When, Then }) => {
+    const CAT = '/api/media/cat/file'
+    const signedCat = { [CAT]: expect.stringMatching(/^https:\/\/storage\.example\/cat\?signature=\d+$/) }
+    const withCat = (request: RenderRequest | undefined) => Boolean(request?.slide.content.includes(CAT))
+    Given('Ana is signed in, with a deck in the account that shows a project image on slides 1 and 2', async () => {
+      const api = new FakeProjectApi()
+      ;({ projectId, deckId } = await accountDeck(api, `# One\n\n![Cat](${CAT})\n\n---\n\n# Two\n\n![Cat](${CAT})\n\n---\n\n# Three\n`, 'Pets'))
+      const media = new FakeMediaApi()
+      media.add(projectId, 'cat.png', { id: 'cat' })
+      media.deckIn(deckId, projectId)
+      vi.spyOn(globalThis, 'fetch').mockImplementation(media.fetch)
+      vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:picture')
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+      await signedIn(api)
+    })
+    When('Ana presents the deck', async () => {
+      await web!.router.push(presentPath())
+      await vi.waitFor(() => expect(find('[data-testid="present-stage"]')).not.toBeNull())
+    })
+    Then('the audience view\'s slide gets a signed link for the image', async () => {
+      await vi.waitFor(() => expect(shownRequest()?.media).toEqual(signedCat))
+    })
+    When('the presenter presses "o"', () => press('o'))
+    Then('the overview\'s pictures of slides 1 and 2 get the signed link too', async () => {
+      await vi.waitFor(() => expect(findAll('[data-overview-slide] img')).toHaveLength(3))
+      const pictures = previewRequests.filter(request => request.mode === 'print' && withCat(request))
+      expect(pictures).toHaveLength(2)
+      for (const picture of pictures)
+        expect(picture.media).toEqual(signedCat)
+    })
+    When('Ana opens the presenter view of the deck', async () => {
+      await web!.router.push(presenterPath())
+      await vi.waitFor(() => expect(find('[data-testid="presenter-current"]')).not.toBeNull())
+    })
+    Then('its slide and its next step get the signed link', async () => {
+      await vi.waitFor(() => expect(shownRequest(web!.wrapper, '[data-testid="presenter-current"]')?.media).toEqual(signedCat))
+      await vi.waitFor(() => expect(shownRequest(web!.wrapper, '[data-testid="presenter-next"]')?.media).toEqual(signedCat))
     })
   })
 

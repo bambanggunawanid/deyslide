@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { PresentSlide } from './outline'
-import { onBeforeUnmount, onMounted, ref, shallowReactive } from 'vue'
+import { inject, onBeforeUnmount, onMounted, ref, shallowReactive } from 'vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
+import { MEDIA_DECK_KEY } from '../platform/media'
 import { useFrameRenderer } from './frame-renderer'
 import { LAST_CLICKS } from './navigation'
 
@@ -37,7 +38,7 @@ function keyOf(slide: PresentSlide, index: number) {
 const pictures = shallowReactive(new Map<string, string>())
 /** Slides whose picture is done, or could not be drawn, by id. The others say a picture is coming. */
 const settled = shallowReactive(new Set<string>())
-const drawer = useFrameRenderer('overview')
+const drawer = useFrameRenderer('overview', inject(MEDIA_DECK_KEY, () => () => undefined, true))
 const { frame: thumbnailFrame, request: thumbnailRequest } = drawer
 const drawing = ref(true)
 let stopped = false

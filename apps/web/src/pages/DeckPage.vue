@@ -22,7 +22,7 @@ import { isDeckView, rememberedView, rememberView } from '../deck/view'
 import { createMarkdownBinding } from '../editor/markdown-sync'
 import MarkdownEditor from '../editor/MarkdownEditor.vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
-import { mediaOwner, useMediaRequest } from '../platform/media'
+import { MEDIA_DECK_KEY, mediaDeckOf, mediaOwner, useMediaRequest } from '../platform/media'
 import { saveFile } from '../platform/platform'
 import ExportMenu from '../present/ExportMenu.vue'
 import { HttpMediaApi, MEDIA_KEY } from '../projects/media'
@@ -174,8 +174,11 @@ const slideRequest = computed<RenderRequest | undefined>(() => slide.value && {
 })
 // Signed media links belong to the account that asked for them; another person asks afresh.
 watch(() => account.value?.id, id => mediaOwner(id), { immediate: true })
+/** The deck media links are asked through, for this page's previews and the strip's. */
+const mediaDeck = () => mediaDeckOf(props.deckId, Boolean(account.value))
+provide(MEDIA_DECK_KEY, mediaDeck)
 /** What the preview renders: the slide, with links it can load for the project's media files it shows. */
-const request = useMediaRequest(() => slideRequest.value)
+const request = useMediaRequest(() => slideRequest.value, mediaDeck)
 
 // The project's media library, for images on the canvas: for people who can add to the
 // project in the account (not a single shared deck, not a deck on this device), on a server that keeps media.

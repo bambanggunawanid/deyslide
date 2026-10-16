@@ -1,6 +1,7 @@
-import type { ComputedRef } from 'vue'
+import type { ComputedRef, InjectionKey } from 'vue'
 import type { RenderRequest } from '../preview/protocol'
 import { computed, ref, shallowReactive, watch } from 'vue'
+import { LOCAL_ID_PREFIX } from '../projects/workspace'
 import { apiFetch } from './platform'
 
 /**
@@ -9,6 +10,11 @@ import { apiFetch } from './platform'
  * in person only. The preview frame is sandboxed and sends no cookies (and
  * in the app it is not on the server at all), so every such address on a
  * slide is swapped for a short lived signed link before the frame sees it.
+ *
+ * Slides can run code that reads those links, so a preview asks for them
+ * through the deck it shows (`GET /api/decks/:deckId/media/:id`), and the
+ * API only links files of that deck's own project. Links are kept per deck
+ * for the same reason: a deck never gets a link another deck asked for.
  */
 
 /** A file's address on slides, exactly. */
@@ -30,7 +36,7 @@ interface Entry {
   until: number
 }
 
-/** Links by file id. Reactive, so a page waiting for a link renders once it arrives. */
+/** Links by deck and file id (see {@link keyOf}). Reactive, so a page waiting for a link renders once it arrives. */
 const links = shallowReactive(new Map<string, Entry>())
 const asking = new Map<string, Promise<void>>()
 /** Who the links were asked for: signed links are private to an account. */
@@ -56,11 +62,29 @@ export function mediaSources(...texts: string[]): string[] {
   return [...new Set(texts.flatMap(text => text.match(MEDIA_ADDRESSES) ?? []))]
 }
 
+/**
+ * The deck whose previews a page shows, for parts of the page that draw
+ * slides (the strip, the overview). Undefined for decks with no project
+ * media: on this device, or as a guest.
+ */
+export const MEDIA_DECK_KEY: InjectionKey<() => string | undefined> = Symbol('media-deck')
+
+/** The deck to ask media links through, or undefined when the deck cannot have project media. */
+export function mediaDeckOf(deckId: string, signedIn: boolean): string | undefined {
+  return signedIn && !deckId.startsWith(LOCAL_ID_PREFIX) ? deckId : undefined
+}
+
 const isFresh = (entry: Entry | undefined): entry is Entry => entry !== undefined && entry.until > Date.now()
 
-async function askFor(id: string): Promise<Entry> {
+/** Where a link is kept: per deck, or for the project's own media library when there is no deck. */
+const keyOf = (id: string, deckId: string | undefined) => `${deckId ?? ''}/${id}`
+
+async function askFor(id: string, deckId: string | undefined): Promise<Entry> {
   try {
-    const response = await apiFetch(`/api/media/${encodeURIComponent(id)}`)
+    const path = deckId === undefined
+      ? `/api/media/${encodeURIComponent(id)}`
+      : `/api/decks/${encodeURIComponent(deckId)}/media/${encodeURIComponent(id)}`
+    const response = await apiFetch(path)
     if (response.ok) {
       const { url, expiresAt } = await response.json() as { url?: unknown, expiresAt?: unknown }
       const expires = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN
@@ -74,34 +98,36 @@ async function askFor(id: string): Promise<Entry> {
   return { until: Date.now() + RETRY_MS }
 }
 
-function load(id: string) {
-  let pending = asking.get(id)
+function load(id: string, deckId: string | undefined) {
+  const key = keyOf(id, deckId)
+  let pending = asking.get(key)
   if (!pending) {
     const asked = generation.value
-    pending = askFor(id).then((entry) => {
+    pending = askFor(id, deckId).then((entry) => {
       if (asked !== generation.value)
         return
-      links.set(id, entry)
-      asking.delete(id)
+      links.set(key, entry)
+      asking.delete(key)
     })
-    asking.set(id, pending)
+    asking.set(key, pending)
   }
   return pending
 }
 
 /**
- * What is known now for these addresses: the fresh links, and the
+ * What is known now for these addresses, for one deck's previews (or the
+ * project's media library, without a deck): the fresh links, and the
  * addresses whose link is missing or about to expire. Others' addresses
  * are left out of both.
  */
-export function knownMedia(srcs: Iterable<string>): { links: Record<string, string>, missing: string[] } {
+export function knownMedia(srcs: Iterable<string>, deckId?: string): { links: Record<string, string>, missing: string[] } {
   const known: Record<string, string> = {}
   const missing: string[] = []
   for (const src of srcs) {
     const id = mediaIdOf(src)
     if (id === undefined)
       continue
-    const entry = links.get(id)
+    const entry = links.get(keyOf(id, deckId))
     if (!isFresh(entry))
       missing.push(src)
     else if (entry.url)
@@ -111,17 +137,30 @@ export function knownMedia(srcs: Iterable<string>): { links: Record<string, stri
 }
 
 /**
- * Maps each media address among `srcs` to a signed link the preview can
- * load without cookies, asking the API (`GET /api/media/:id`) for the ones
- * it does not have yet. Links are kept until shortly before they expire.
- * Files the server will not give a link for are left out, so the slide
- * shows them as missing. Other links are not touched.
+ * Maps each media address among `srcs` to a signed link that loads without
+ * cookies, asking the API for the ones it does not have yet: through
+ * `deckId` for a deck's previews, or `GET /api/media/:id` for the project's
+ * media library. Links are kept until shortly before they expire. Files
+ * the server will not give a link for are left out, so the slide shows
+ * them as missing. Other links are not touched.
  */
-export async function resolveMedia(srcs: Iterable<string>): Promise<Record<string, string>> {
+export async function resolveMedia(srcs: Iterable<string>, deckId?: string): Promise<Record<string, string>> {
   const list = [...srcs]
-  const { missing } = knownMedia(list)
-  await Promise.all(missing.map(src => load(mediaIdOf(src)!)))
-  return knownMedia(list).links
+  const { missing } = knownMedia(list, deckId)
+  await Promise.all(missing.map(src => load(mediaIdOf(src)!, deckId)))
+  return knownMedia(list, deckId).links
+}
+
+/**
+ * A render request with the signed links its slide's media needs, for
+ * renders that wait for them (an overview picture, a PDF page). Without a
+ * deck it stays as it is.
+ */
+export async function withMedia<T extends Pick<RenderRequest, 'slide'>>(request: T, deckId: string | undefined): Promise<T> {
+  if (deckId === undefined)
+    return request
+  const found = await resolveMedia(requestMedia(request), deckId)
+  return Object.keys(found).length ? { ...request, media: found } : request
 }
 
 /** Forgets every link, for tests and for a change of account. */
@@ -144,37 +183,39 @@ export function mediaOwner(id: string | undefined) {
 }
 
 /** The media addresses a render request's slide uses: in its Markdown and in its frontmatter (a layout's `background` or `image`). */
-export function requestMedia(request: RenderRequest): string[] {
+export function requestMedia(request: Pick<RenderRequest, 'slide'>): string[] {
   return mediaSources(request.slide.content, JSON.stringify(request.slide.frontmatter))
 }
 
 /**
  * A render request with the signed links its slide's media needs, in its
- * `media` map. Undefined while links are on their way, so the preview never
- * draws a slide with files it cannot load; it keeps what it shows until
- * then. A link that ran out is asked for again the next time the request
- * changes.
+ * `media` map, asked for through the deck `deckId` names. Undefined while
+ * links are on their way, so the preview never draws a slide with files it
+ * cannot load; it keeps what it shows until then. A link that ran out is
+ * asked for again the next time the request changes. Without a deck the
+ * request stays as it is.
  */
-export function useMediaRequest(request: () => RenderRequest | undefined): ComputedRef<RenderRequest | undefined> {
+export function useMediaRequest(request: () => RenderRequest | undefined, deckId: () => string | undefined): ComputedRef<RenderRequest | undefined> {
   let last: { key: string, request: RenderRequest | undefined } | undefined
   const state = computed(() => {
     const base = request()
-    if (!base)
-      return { request: undefined, missing: [] as string[] }
-    const { links: found, missing } = knownMedia(requestMedia(base))
+    const deck = deckId()
+    if (!base || deck === undefined)
+      return { request: base, missing: [] as string[], deck }
+    const { links: found, missing } = knownMedia(requestMedia(base), deck)
     const next = missing.length ? undefined : Object.keys(found).length ? { ...base, media: found } : base
     // The same request again stays the same object, so the preview is not asked twice.
     const key = JSON.stringify(next ?? null)
     if (last?.key !== key)
       last = { key, request: next }
-    return { request: last.request, missing }
+    return { request: last.request, missing, deck }
   })
   // After a change of account the same addresses are asked for again: the
   // answer to the first asking is dropped, so nothing else would ask.
-  watch(() => `${generation.value}\n${state.value.missing.join('\n')}`, () => {
-    const { missing } = state.value
+  watch(() => `${generation.value}\n${state.value.deck}\n${state.value.missing.join('\n')}`, () => {
+    const { missing, deck } = state.value
     if (missing.length)
-      void resolveMedia(missing)
+      void resolveMedia(missing, deck)
   }, { immediate: true })
   return computed(() => state.value.request)
 }

@@ -128,6 +128,31 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     })
   })
 
+  Scenario('A deck\'s previews get links through that deck, never another deck\'s', ({ Given, And, When, Then }) => {
+    Given('the project file "m1" in the project of the deck "Sorting"', () => {
+      fileNamed('m1')
+      library.deckIn('sorting', 'project-1')
+      browserAnswers()
+    })
+    And('the deck "Trap", in someone else\'s project, shows "/api/media/m1/file" too', () => {
+      library.deckIn('trap', 'project-2')
+    })
+    When('the preview of "Sorting" asks for a link to "/api/media/m1/file"', async () => {
+      links = await resolveMedia(['/api/media/m1/file'], 'sorting')
+    })
+    Then('it gets a signed link, asked for through "Sorting"', () => {
+      expect(links).toEqual({ '/api/media/m1/file': signed('m1') })
+      expect(asked.map(request => request.url)).toEqual(['/api/decks/sorting/media/m1'])
+    })
+    When('the preview of "Trap" asks for the same link', async () => {
+      links = await resolveMedia(['/api/media/m1/file'], 'trap')
+    })
+    Then('the API is asked through "Trap", and that preview gets no link', () => {
+      expect(asked.map(request => request.url)).toEqual(['/api/decks/sorting/media/m1', '/api/decks/trap/media/m1'])
+      expect(links).toEqual({})
+    })
+  })
+
   Scenario('Parts of the page asking at the same time share one request', ({ Given, When, Then }) => {
     Given('the project file "m1", whose signed links last 15 minutes', () => {
       fileNamed('m1')
@@ -224,6 +249,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
 
   Scenario('The preview waits for the links its slide needs, in every view and in the strip', ({ Given, And, Then, When }) => {
     let address: string
+    let linkPath: string
     let answer: () => void
     const withImage = (request: RenderRequest | undefined) => request?.slide.content.includes('![Cat]')
     const pictureRequests = () => web!.wrapper.findAllComponents({ name: 'SlidePreviewFrame' })
@@ -240,8 +266,11 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       service.addAccount('ana@example.com', 'correct horse', 'Ana')
       await service.signIn({ email: 'ana@example.com', password: 'correct horse' })
       const api = new FakeProjectApi()
-      address = mediaAddress(library.add('project-1', 'cat.png').id)
+      address = mediaAddress('cat')
       const { projectId, deckId } = await accountDeck(api, `# Pets\n\n![Cat](${address})\n`, 'Pets')
+      library.add(projectId, 'cat.png', { id: 'cat' })
+      library.deckIn(deckId, projectId)
+      linkPath = `/api/decks/${deckId}/media/cat`
       const gate = new Promise<void>((resolve) => {
         answer = resolve
       })
@@ -254,7 +283,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       await web.waitFor('[data-testid="markdown-view"]')
     })
     And('the API takes a while to answer', async () => {
-      await vi.waitFor(() => expect(asked.map(request => request.url)).toContain(address.replace(/\/file$/, '')))
+      await vi.waitFor(() => expect(asked.map(request => request.url)).toContain(linkPath))
     })
     Then('the preview has not been asked to render the slide yet', () => {
       expect(previewRequests.filter(withImage)).toEqual([])
@@ -345,6 +374,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     Given('the project file "m1", whose signed links last 15 minutes', () => {
       restore.push(() => scope.stop())
       fileNamed('m1')
+      library.deckIn('deck-1', 'project-1')
       const gate = new Promise<void>((resolve) => {
         answer = resolve
       })
@@ -359,7 +389,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     And('a slide on Ana\'s page waits for a link to "/api/media/m1/file"', async () => {
       mediaOwner('ana')
       const slide = { id: 'r1', slide: { content: '![Cat](/api/media/m1/file)', frontmatter: {} } } as unknown as RenderRequest
-      request = scope.run(() => useMediaRequest(() => slide))!
+      request = scope.run(() => useMediaRequest(() => slide, () => 'deck-1'))!
       await vi.waitFor(() => expect(asked).toHaveLength(1))
       expect(request.value).toBeUndefined()
     })
@@ -388,9 +418,11 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       service.addAccount('ana@example.com', 'correct horse', 'Ana')
       await service.signIn({ email: 'ana@example.com', password: 'correct horse' })
       const api = new FakeProjectApi()
-      address = mediaAddress(library.add('project-1', 'cat.png').id)
+      address = mediaAddress('cat')
       markdown = `# Pets\n\n![Cat](${address})\n`
       const { projectId, deckId } = await accountDeck(api, markdown, 'Pets')
+      library.add(projectId, 'cat.png', { id: 'cat' })
+      library.deckIn(deckId, projectId)
       guest = await GuestStore.open(new MemoryGuestStorage())
       // The API answers signed in pages only.
       browserAnswers(async input => signedOut ? Response.json({ error: 'Sign in first' }, { status: 401 }) : library.fetch(input))
@@ -419,9 +451,9 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       await web!.waitFor('[data-testid="markdown-view"]')
       await vi.waitFor(() => expect(previewRequests.slice(before).filter(withImage)).not.toHaveLength(0))
     })
-    Then('the page asks the API again, and its preview gets no link from Ana\'s account', () => {
+    Then('the page does not ask the API for a guest\'s deck, and its preview gets no link from Ana\'s account', () => {
       expect(text('[data-testid="deck-name"]')).toBe('Pets')
-      expect(asked).toHaveLength(2)
+      expect(asked).toHaveLength(1)
       expect(previewRequests.filter(withImage).at(-1)!.media).toBeUndefined()
     })
   })

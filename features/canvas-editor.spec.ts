@@ -278,6 +278,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     ;({ projectId, deckId } = await accountDeck(api, SAMPLES[name], name))
     for (const image of images)
       media?.add(projectId, image)
+    media?.deckIn(deckId, projectId)
     assistant = new FakeAssistantApi({ on: assistantOn })
     web = await mountWebApp({ service, api, assistant, media })
     await showDeck()

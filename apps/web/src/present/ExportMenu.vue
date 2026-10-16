@@ -5,6 +5,7 @@ import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenu
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useAccount } from '../composables/useAccount'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
+import { mediaDeckOf } from '../platform/media'
 import { saveFile } from '../platform/platform'
 import { LOCAL_ID_PREFIX } from '../projects/workspace'
 import { makeDevicePdf } from './device-pdf'
@@ -61,7 +62,7 @@ const busy = ref(false)
 const message = ref('')
 const failed = ref(false)
 
-const drawer = useFrameRenderer('export')
+const drawer = useFrameRenderer('export', () => mediaDeckOf(props.deckId, Boolean(account.value)))
 const { frame: exportFrame, request: drawRequest } = drawer
 /** The hidden frame that draws slides for a PDF made here, while it is made. */
 const drawing = ref(false)

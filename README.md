@@ -261,6 +261,7 @@ Every project has a media library: images, video and audio for its slides. Files
 - Uploads go straight from the browser to R2 with a signed link that works for 15 minutes and only for the declared type and size, so large files never pass through the API or the tunnel.
 - Finishing an upload checks the stored size and the file's first bytes against its type. A file that is not what it claims is deleted.
 - Downloads use signed links that also work for 15 minutes, so removing someone from a project soon ends their access. `GET /api/media/:id/file` redirects to a fresh one, so slides can use a stable address.
+- Slide previews (the editor, the strip, presenting, the overview and PDFs made on the device) ask for links through the deck they show, with `GET /api/decks/:deckId/media/:id`, which only links files of that deck's own project. Slides can run code that reads the links, so a deck elsewhere that names a file never gets one, whoever opens it. Links are kept per deck in the page, and decks on the device or in a guest's browser ask for none.
 - Deleting a project deletes its files. Uploads never finished are cleaned up after a day.
 
 The browser talks to R2 directly, so the bucket needs a CORS policy. In the Cloudflare dashboard, open the bucket, then **Settings**, **CORS policy**, and add:
@@ -440,6 +441,7 @@ pnpm dev:server   # http://127.0.0.1:3001, which pnpm dev:web proxies under /api
 | `POST /api/projects/:id/media`, then `POST /api/media/:id/finish` | Add a file to a project: ask for a signed upload link, PUT the file to it, then finish (see "Media uploads") |
 | `GET /api/projects/:id/media` | The project's files, and how much of its owner's storage is used |
 | `GET /api/media/:id`, `GET /api/media/:id/file`, `DELETE /api/media/:id` | A download link for one file (as JSON, or a redirect), and deleting it (owner) |
+| `GET /api/decks/:deckId/media/:id` | A download link for a slide preview, only for a file of the deck's own project (JSON) |
 | `POST /api/decks/:id/assistant` | Ask the assistant about the open deck: its Markdown, a message and the chat so far. The reply streams as Server Sent Events: `text`, `deck` (new Markdown after each change), then `done` or `failed` |
 | `POST /api/exports` | Start an export of a deck (`deckId`, any role) or of Markdown (`markdown`, for decks on a device) as `format` `pdf` or `webm`, with `options.clicks` (`last` or `each`) and `options.dwellMs`. Answers 202 with an `id` |
 | `GET /api/exports/:id`, `GET /api/exports/:id/file` | An export's `status` (`queued`, `running`, `done` or `failed`), `progress` and `error`, and its file once it is done |
