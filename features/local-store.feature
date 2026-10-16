@@ -100,6 +100,14 @@ Feature: Decks saved as files on the device
     Then the session is ready and says "Saved"
     And after a moment the app has written nothing
 
+  Scenario: Typing the Markdown view holds back survives a file that is gone from disk for a moment
+    Given the deck page of "Sorting" in "Talks" is open in the app
+    And the person types a paragraph and a code block they have not closed yet under "# Bubble sort"
+    When an editor saves the file by moving it away and back on disk
+    Then the Markdown view still holds the paragraph and the open code block
+    When the person closes the code block
+    Then the file holds the paragraph and the code block
+
   Scenario: A deck renamed on disk says so on its page
     Given the deck page of "Sorting" in "Talks" is open in the app
     When the file "Sorting.md" is renamed to "Sorting v2.md" on disk

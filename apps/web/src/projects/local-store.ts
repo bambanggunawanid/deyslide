@@ -607,6 +607,8 @@ export class LocalStore implements ProjectStore {
       error: file.error,
       ready: file.ready,
       readOnly: file.readOnly,
+      // A deck missing from the library can come back, say after switching branches.
+      readOnlyForNow: file.gone,
       flush: () => file.save(),
       close: () => {
         if (closed)

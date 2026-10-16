@@ -631,6 +631,31 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
 
   // Pages ---------------------------------------------------------------------
 
+  Scenario('Typing the Markdown view holds back survives a file that is gone from disk for a moment', ({ Given, And, When, Then }) => {
+    const TYPED = '# Bubble sort\n\nStable, simple, quadratic.\n\n```js\nfunction bubble(list) {'
+    Given('the deck page of "Sorting" in "Talks" is open in the app', () => openSortingPage({ writeDelayMs: 20 }))
+    And('the person types a paragraph and a code block they have not closed yet under "# Bubble sort"', async () => {
+      typeInEditor(markdown => markdown.replace('# Bubble sort', TYPED))
+      await vi.waitFor(() => expect(find('[data-testid="markdown-problem"]')).not.toBeNull())
+      expect(slideText(library.read('Talks', 'Sorting')!, 2)).toBe('# Bubble sort')
+    })
+    When('an editor saves the file by moving it away and back on disk', async () => {
+      library.renameOnDisk('Talks', 'Sorting', 'Sorting~')
+      await vi.waitFor(() => expect(text('[data-testid="save-status"]')).toBe('Not saved: This deck was moved or renamed on disk.'))
+      library.renameOnDisk('Talks', 'Sorting~', 'Sorting')
+      await vi.waitFor(() => expect(text('[data-testid="save-status"]')).not.toContain('moved or renamed'))
+    })
+    Then('the Markdown view still holds the paragraph and the open code block', () => {
+      expect(editorText()).toContain(TYPED)
+    })
+    When('the person closes the code block', () => {
+      typeInEditor(markdown => markdown.replace('function bubble(list) {', 'function bubble(list) {}\n```'))
+    })
+    Then('the file holds the paragraph and the code block', async () => {
+      await vi.waitFor(() => expect(library.read('Talks', 'Sorting')).toContain('Stable, simple, quadratic.\n\n```js\nfunction bubble(list) {}\n```'))
+    })
+  })
+
   Scenario('A deck renamed on disk says so on its page', ({ Given, When, Then, And }) => {
     Given('the deck page of "Sorting" in "Talks" is open in the app', async () => {
       library.put('Talks', 'Sorting', SORTING)

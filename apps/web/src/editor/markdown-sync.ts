@@ -469,8 +469,14 @@ export function createMarkdownBinding(session: DeckSession): MarkdownBinding {
   const unregister = session.registerFlush(flush, { pending, revert })
   // Typing held while nothing could be kept merges once it can. A deck that
   // turned read only for good (view only now, or a failure) never takes it:
-  // the editor shows the deck again and says the change was not saved.
-  const access = computed(() => !session.readOnly.value ? 'writable' : session.status.value === 'connecting' ? 'waiting' : 'never')
+  // the editor shows the deck again and says the change was not saved. One
+  // read only for a while (connecting, or its file is missing from disk for
+  // a moment) keeps the typing until it can take it.
+  const access = computed(() => {
+    if (!session.readOnly.value)
+      return 'writable'
+    return session.status.value === 'connecting' || session.readOnlyForNow.value ? 'waiting' : 'never'
+  })
   const stopWatching = watch(access, (now) => {
     if (now === 'writable' && dropped) {
       dropped = false

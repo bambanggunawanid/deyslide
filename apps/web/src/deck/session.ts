@@ -65,6 +65,12 @@ export interface DeckSession {
   awareness: Awareness
   /** True until the first sync (cloud) or load (guest, device), for viewers, and after a failure. */
   readOnly: Readonly<Ref<boolean>>
+  /**
+   * True while the deck is read only for a while and changes can be kept
+   * again later, such as a deck file missing from disk for a moment. Typing
+   * a Markdown view holds then waits instead of being dropped.
+   */
+  readOnlyForNow: Readonly<Ref<boolean>>
   /** The document holds the deck. */
   ready: Readonly<Ref<boolean>>
   /** The store's status, and `saving` while a Markdown view waits to merge typing into a saved deck. */
@@ -131,6 +137,8 @@ export interface SessionSource {
   ready: Readonly<Ref<boolean>>
   /** Changes would not be kept: not synced yet, a viewer, or a failure. */
   readOnly: Readonly<Ref<boolean>>
+  /** Read only for a while, with changes kept again later (see `DeckSession.readOnlyForNow`). */
+  readOnlyForNow?: Readonly<Ref<boolean>>
   /** Waits until the changes so far are stored, as far as the source can tell. */
   flush: () => Promise<void>
   /** Lets go of the document, its presence and any connection. */
@@ -163,6 +171,7 @@ export function createDeckSession(doc: Y.Doc, awareness: Awareness, source: Sess
     captureTimeout: CAPTURE_TIMEOUT_MS,
   })
   const readOnly = computed(() => Boolean(options.readOnly) || source.readOnly.value || !source.ready.value)
+  const readOnlyForNow = computed(() => !options.readOnly && Boolean(source.readOnlyForNow?.value))
 
   const peers = shallowRef<Peer[]>(peersOf(awareness))
   const readPeers = () => {
@@ -193,6 +202,7 @@ export function createDeckSession(doc: Y.Doc, awareness: Awareness, source: Sess
     doc,
     awareness,
     readOnly,
+    readOnlyForNow,
     ready: source.ready,
     status,
     typingPending,
