@@ -15,6 +15,7 @@ import { GuestStore } from '../apps/web/src/guest/store'
 import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { clearMediaLinks, mediaAddress } from '../apps/web/src/platform/media'
 import { LAYOUTS } from '../apps/web/src/preview/layouts'
+import { LAST_CLICKS } from '../apps/web/src/preview/protocol'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { deckMarkdown, deckToYDoc, deleteSlide, duplicateSlide, fromMarkdown, moveSlide, readDeckDoc, setNotes, updateElement } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
@@ -2330,7 +2331,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
       const requests = pictureRequests()
       expect(requests.map(request => request.slide.content.trim()).sort()).toEqual(['# Slide 1', '# Slide 2', '# Slide 3'])
       for (const request of requests)
-        expect(request).toMatchObject({ mode: 'print', clicks: 10_000 })
+        expect(request).toMatchObject({ mode: 'print', clicks: LAST_CLICKS })
       expect(requests.find(request => request.slide.content.includes('# Slide 1'))!.slide.first).toBe(true)
     })
     When('slides 1 to 16 are in view', async () => {

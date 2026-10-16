@@ -1,4 +1,5 @@
 import type { KeyTarget } from '../preview/protocol'
+import { LAST_CLICKS } from '../preview/protocol'
 
 /**
  * Moving through a talk: which slide is on screen and how many of its
@@ -22,12 +23,9 @@ export interface PresentDeck {
   clicks: readonly (number | undefined)[]
 }
 
-/**
- * Clicks for "every click of the slide", while the slide's count is not
- * known yet. The preview stops at the slide's last click, says how many it
- * has, and {@link settle} puts the real number in.
- */
-export const LAST_CLICKS = 999_999
+// Clicks for "every click of the slide", while the slide's count is not
+// known yet: {@link settle} puts the real number in once the preview says it.
+export { LAST_CLICKS }
 
 /** How long autoplay shows each step of a slide that does not say. */
 export const DEFAULT_DWELL_MS = 4000

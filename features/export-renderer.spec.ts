@@ -14,8 +14,10 @@ import * as renderer from '../apps/renderer/src/draw.ts'
 import { BusyError, HostPage, SlideDrawer, VideoError } from '../apps/renderer/src/draw.ts'
 import { rendererHandler } from '../apps/renderer/src/http.ts'
 import { HOST_PATH, serveSite } from '../apps/renderer/src/site.ts'
+import { LAST_CLICKS as PDF_LAST_CLICKS } from '../apps/server/src/exports/pdf.ts'
 import * as api from '../apps/server/src/exports/video.ts'
 import { HttpSlideRenderer, RenderError, RendererBusyError, RendererRefusedError } from '../apps/server/src/mcp/renderer.ts'
+import { LAST_CLICKS as WEB_LAST_CLICKS } from '../apps/web/src/preview/protocol.ts'
 
 const feature = await loadFeature('./export-renderer.feature')
 
@@ -624,6 +626,12 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
     })
     And('a slide\'s steps add their dwell plus the time to draw them, after the slide settles', () => {
       expect(renderer.videoLength([{ dwellMs: 800, steps: 3 }])).toBe(600 + 3 * (800 + 200))
+    })
+  })
+
+  Scenario('The web app, the API and the renderer ask for a slide\'s last step with one number', ({ Then }) => {
+    Then('the click number for "the last step" is the same everywhere', () => {
+      expect([PDF_LAST_CLICKS, renderer.LAST_CLICKS]).toEqual([WEB_LAST_CLICKS, WEB_LAST_CLICKS])
     })
   })
 })

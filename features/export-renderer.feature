@@ -123,3 +123,6 @@ Feature: The slide renderer draws and records exports
     Given slides with their dwell times and click steps
     Then the API's video length and the renderer's agree
     And a slide's steps add their dwell plus the time to draw them, after the slide settles
+
+  Scenario: The web app, the API and the renderer ask for a slide's last step with one number
+    Then the click number for "the last step" is the same everywhere

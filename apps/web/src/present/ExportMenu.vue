@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useAccount } from '../composables/useAccount'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
 import { saveFile } from '../platform/platform'
+import { LOCAL_ID_PREFIX } from '../projects/workspace'
 import { makeDevicePdf } from './device-pdf'
 import { ExportError, UNREACHABLE, useExportApi } from './exports'
 import { useFrameRenderer } from './frame-renderer'
@@ -107,7 +108,7 @@ async function exportOnServer(format: ExportFormat, clicks: ExportClicks) {
   message.value = `Starting the ${noun}...`
   try {
     // A deck on this device is not on the server, so its Markdown goes instead.
-    const source: ExportSource = props.deckId.startsWith('local-') ? { markdown: props.markdown() } : { deckId: props.deckId }
+    const source: ExportSource = props.deckId.startsWith(LOCAL_ID_PREFIX) ? { markdown: props.markdown() } : { deckId: props.deckId }
     const id = await api.start(source, format, clicks)
     while (!stopped) {
       const state = await api.status(id)

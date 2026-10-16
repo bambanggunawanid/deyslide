@@ -24,8 +24,11 @@ const LONGEST_BUSY_PAUSE_MS = 8000
 /** A 16:9 page in points: 13.33 by 7.5 inches, a widescreen slide. */
 const PAGE_WIDTH = 960
 const PAGE_HEIGHT = 540
-/** A click number past any slide's last step: the renderer shows the last one. */
-const LAST_CLICK = 1000
+/**
+ * A click number past any slide's last step: the renderer shows the last one.
+ * The same number as LAST_CLICKS in the web app's preview/protocol.ts.
+ */
+export const LAST_CLICKS = 999_999
 
 export interface PdfRequest {
   renderer: SlideRenderer
@@ -279,7 +282,7 @@ export async function drawPdf({ renderer, slides, clicks, media, title, file, ma
           const step = batch[index]
           if (!result.png || result.error)
             throw new ExportError(`Slide ${step.slide + 1} could not be drawn: ${(result.error ?? 'the renderer sent no image').replace(/\.$/, '')}. Fix it, then export again.`)
-          images[step.slide][step.clicks === LAST_CLICK ? 0 : step.clicks] = await output.addImage(Buffer.from(result.png, 'base64'))
+          images[step.slide][step.clicks === LAST_CLICKS ? 0 : step.clicks] = await output.addImage(Buffer.from(result.png, 'base64'))
           onImage(step, result)
         }
         onProgress(images.reduce((sum, drawn) => sum + drawn.filter(Boolean).length, 0) / pages())
@@ -287,7 +290,7 @@ export async function drawPdf({ renderer, slides, clicks, media, title, file, ma
     }
 
     // Every slide once: its last step, or with every click step its first.
-    await drawAll(slides.map((_, slide) => ({ slide, clicks: clicks === 'last' ? LAST_CLICK : 0 })), ({ slide }, result) => {
+    await drawAll(slides.map((_, slide) => ({ slide, clicks: clicks === 'last' ? LAST_CLICKS : 0 })), ({ slide }, result) => {
       if (clicks === 'last')
         return
       steps[slide] = result.clicks + 1

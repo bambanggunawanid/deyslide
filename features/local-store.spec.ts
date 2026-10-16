@@ -11,6 +11,7 @@ import { statusLabel } from '../apps/web/src/deck/session'
 import { saveBeforeClosing } from '../apps/web/src/platform/closing'
 import { startPlatform } from '../apps/web/src/platform/platform'
 import { startRenderBridge } from '../apps/web/src/platform/render-bridge'
+import { LAST_CLICKS } from '../apps/web/src/preview/protocol'
 import { followMoves, LocalStore } from '../apps/web/src/projects/local-store'
 import { deckMarkdown, splitSlides } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
@@ -1113,8 +1114,8 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
     And('the frame drew slides 1 and 3 in print mode at their last click', () => {
       expect(drawn.map(request => [request.slide.content.trim(), request.slide.first, request.mode, request.clicks])).toEqual([
-        ['# Sorting', true, 'print', 1000],
-        ['# Insertion sort', false, 'print', 1000],
+        ['# Sorting', true, 'print', LAST_CLICKS],
+        ['# Insertion sort', false, 'print', LAST_CLICKS],
       ])
       expect(drawn.every(request => request.headmatter.title === 'Sorting')).toBe(true)
     })

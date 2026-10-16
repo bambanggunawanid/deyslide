@@ -66,6 +66,13 @@ export interface CursorMessage {
 
 export type ToPreview = RenderRequest | PositionsMessage | CaptureRequest | CursorMessage
 
+/**
+ * A click number past any slide's last step. The preview stops at the
+ * slide's last click and says how many it has. Every caller that wants the
+ * last step uses this one number (the renderer keeps a copy of it).
+ */
+export const LAST_CLICKS = 999_999
+
 /** The `error` reply to a render that a newer one overtook before it showed. */
 export const REPLACED = 'A newer render replaced this one.'
 

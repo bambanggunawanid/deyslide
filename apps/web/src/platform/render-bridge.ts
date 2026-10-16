@@ -4,6 +4,7 @@ import type { RenderedSlide, RenderRequestEvent } from './native'
 import { splitSlides } from '@deyslide/deck-model'
 import { createApp, h, shallowRef } from 'vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
+import { LAST_CLICKS } from '../preview/protocol'
 import { toBase64 } from '../projects/base64'
 import { onRenderRequest, renderRespond } from './native'
 
@@ -14,8 +15,6 @@ import { onRenderRequest, renderRespond } from './native'
 // gets a frame of its own: slides can run code in their frame, so one deck
 // must never see what another deck's slides hold.
 
-/** A click number past any slide's last step: the preview shows the last one, as on the server. */
-const LAST_CLICK = 1000
 
 /** How long one slide may take to show, components and fonts included. */
 const SLIDE_TIMEOUT_MS = 15_000
@@ -141,7 +140,7 @@ async function draw(frame: BridgeFrame, event: RenderRequestEvent): Promise<Rend
       id: `${event.id}:${index}`,
       slide: { content: slide.content, frontmatter: slide.frontmatter, first: wanted.number === 1 },
       headmatter,
-      clicks: wanted.clicks === 'last' ? LAST_CLICK : wanted.clicks,
+      clicks: wanted.clicks === 'last' ? LAST_CLICKS : wanted.clicks,
       mode: 'print',
     }))
   }

@@ -101,8 +101,11 @@ export const STEP_ALLOWANCE_MS = 200
 export const RECORDING_SLACK_MS = 30_000
 /** How long counting the click steps of a whole deck may take before a recording. */
 export const COUNTING_TIMEOUT_MS = 45_000
-/** A click number past any slide's last step: the preview shows the last one. */
-const LAST_CLICK = 1000
+/**
+ * A click number past any slide's last step: the preview shows the last one.
+ * The same number as LAST_CLICKS in the web app's preview/protocol.ts.
+ */
+export const LAST_CLICKS = 999_999
 
 export const TOO_LONG = `The video would be longer than ${MAX_VIDEO_MS / 60_000} minutes. Show each slide for less time, or export fewer slides.`
 const TOO_SLOW = `The slides took too long to draw for a video of at most ${MAX_VIDEO_MS / 60_000} minutes. Show each slide for less time, or export fewer slides.`
@@ -405,7 +408,7 @@ export class SlideDrawer {
           const answer = await stage.render({
             slide: { content: slide.content, frontmatter: slide.frontmatter, first: slide.first },
             headmatter: request.headmatter,
-            clicks: request.clicks === 'last' ? LAST_CLICK : step,
+            clicks: request.clicks === 'last' ? LAST_CLICKS : step,
             mode: 'present',
             // Coming to a slide plays the transition of the slide being left, as in Slidev.
             ...(arriving && index > 0 ? { transition: { name: '', back: false } } : {}),

@@ -3,6 +3,7 @@ import type { RenderRequest } from '../preview/protocol'
 import { onBeforeUnmount, shallowRef, watch } from 'vue'
 import SlidePreviewFrame from '../editor/SlidePreviewFrame.vue'
 import { useMediaRequest } from '../platform/media'
+import { LAST_CLICKS } from '../preview/protocol'
 
 /**
  * A small live picture of a slide for the strip: a preview frame scaled to
@@ -19,8 +20,6 @@ const props = defineProps<{
 
 /** How long the slide must stay unchanged before the picture follows it. */
 const SETTLE_MS = 600
-/** More clicks than any slide has: the preview shows the last one. */
-const LAST_CLICK = 10_000
 
 const source = shallowRef<RenderRequest>()
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -30,7 +29,7 @@ function build(): RenderRequest {
     type: 'deyslide:render',
     slide: { content: props.content, frontmatter: props.frontmatter, first: props.first },
     headmatter: props.headmatter,
-    clicks: LAST_CLICK,
+    clicks: LAST_CLICKS,
     mode: 'print',
   }
 }
