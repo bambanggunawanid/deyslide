@@ -52,17 +52,20 @@ This is an open source project (MIT). Every change follows the full contribution
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web/` | The web app: projects home page, the Markdown editor with its sandboxed slide preview (`src/preview/`) and the assistant chat (`src/assistant/`), sign in pages, guest storage in the browser |
-| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, the Claude deck assistant (`src/assistant/`), the MCP server for Claude Code (`src/mcp/`) and private media uploads to Cloudflare R2 (`src/media/`), bundled into one file for production |
-| `apps/renderer/` | Draws slides to PNG with the web app's preview in headless Chromium, for the MCP server |
+| `apps/web/` | The web app: projects home page, live deck sessions (`src/deck/`), the Design canvas (`src/canvas/`), the Markdown editor in sync with it (`src/editor/`), the sandboxed slide preview (`src/preview/`), presenting and exports (`src/present/`), the assistant chat (`src/assistant/`), the layer for the website and the apps (`src/platform/`), sign in pages, guest storage in the browser and device decks in the apps (`src/projects/`) |
+| `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, the Claude deck assistant (`src/assistant/`), the MCP server for Claude Code (`src/mcp/`), live editing rooms with Hocuspocus (`src/collab/`), PDF and video exports (`src/exports/`) and private media uploads to Cloudflare R2 (`src/media/`), bundled into one file for production |
+| `apps/renderer/` | Draws slides to PNG and records decks to WebM with the web app's preview in headless Chromium, for the MCP server and exports |
+| `apps/native/` | The Tauri 2 app for Windows, macOS, Linux and Android (`src-tauri/`), whose executable is also the on-device MCP server (`deyslide mcp`) |
+| `crates/deyslide-core/` | The Rust core: decks as Markdown files in a library folder, Slidev slide splitting, and the on-device MCP server (`deyslide-mcp`) |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |
 | `packages/animations/` | Motion Canvas projects, built into `apps/deck/public/animations/` |
-| `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, Yjs live document |
+| `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, the Yjs live document, its edits, and merging Markdown into it |
 | `features/` | Gherkin features and their step definitions for every package |
 | `e2e/` | Playwright end to end tests and the in-memory API they start, with a fake Claude |
 | `deploy/` | Production Podman script (database, API, nginx, tunnel, renderer), nginx config and the renderer's Containerfile |
 | `plugins/deyslide/`, `.claude-plugin/` | The Claude Code plugin (MCP server settings and the `deyslide` skill) and the marketplace that lists it |
+| `scripts/` | `guide-sync.ts`, which copies the hosted MCP tools and guide into the Rust core |
 
 ## Commands
 
@@ -76,8 +79,12 @@ This is an open source project (MIT). Every change follows the full contribution
 | `pnpm export` | Builds animations, then a PDF in `exports/deyslide.pdf` |
 | `pnpm export:video` | Builds animations, then a WebM in `exports/deyslide.webm` |
 | `pnpm animations:build` | Builds Motion Canvas projects only |
-| `pnpm test` | Runs every BDD feature |
+| `pnpm test` | Runs every BDD feature. Builds `deyslide-mcp` first, so it needs Rust |
 | `pnpm test:e2e` | Runs the Playwright tests in `e2e/` against the built web app and the API, local only |
 | `pnpm typecheck` | Type checks the web app, the API, the deck and the animations |
+| `pnpm guide:sync` | Copies the hosted MCP tools, guide and instructions into `crates/deyslide-core/src/` after they change |
+| `pnpm --filter @deyslide/web build:app` | Builds the web app for the apps into `apps/web/dist-app/` |
+| `pnpm --filter @deyslide/native tauri build` | Builds the desktop app for this computer. `tauri android build --apk` builds the Android app |
+| `cargo test --workspace` | Runs the Rust tests for the core and the app |
 
-Run `pnpm test`, `pnpm typecheck` and `pnpm build` before opening a pull request, and `pnpm test:e2e` when a change touches the web app or the API.
+Run `pnpm test`, `pnpm typecheck` and `pnpm build` before opening a pull request, and `pnpm test:e2e` when a change touches the web app or the API. When Rust changes, also run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.

@@ -1,3 +1,5 @@
+import { apiFetch } from '../platform/platform'
+
 /** A message in the assistant chat. */
 export interface ChatMessage {
   role: 'user' | 'assistant'
@@ -81,7 +83,7 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Str
 export class HttpAssistantApi implements AssistantApi {
   private readonly fetchImpl: typeof fetch
 
-  constructor(fetchImpl: typeof fetch = (...args) => fetch(...args)) {
+  constructor(fetchImpl: typeof fetch = apiFetch) {
     this.fetchImpl = fetchImpl
   }
 

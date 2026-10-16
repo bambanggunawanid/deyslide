@@ -1,6 +1,7 @@
 import type { Account, AccountService, SignInOptions, SocialProvider } from './types'
 import { createAuthClient } from 'better-auth/client'
 import { magicLinkClient } from 'better-auth/client/plugins'
+import { apiFetch } from '../platform/platform'
 import { AccountError, NO_SIGN_IN_OPTIONS } from './types'
 
 const MESSAGES: Record<string, string> = {
@@ -35,7 +36,7 @@ export class BetterAuthAccountService implements AccountService {
 
   async options(): Promise<SignInOptions> {
     try {
-      const response = await fetch('/api/config')
+      const response = await apiFetch('/api/config')
       return response.ok ? await response.json() as SignInOptions : NO_SIGN_IN_OPTIONS
     }
     catch {

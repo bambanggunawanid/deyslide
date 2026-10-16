@@ -9,6 +9,8 @@ export interface SignInOptions {
   email: boolean
   google: boolean
   github: boolean
+  /** The Deyslide app: people sign in on the website in their browser, the only option it offers. */
+  browser?: boolean
 }
 
 export type SocialProvider = 'google' | 'github'
@@ -29,6 +31,13 @@ export interface AccountService {
   sendMagicLink: (email: string, next?: string) => Promise<void>
   /** Leaves the page for the provider's sign in screen. `next` is where it leads after signing in. */
   signInWith: (provider: SocialProvider, next?: string) => Promise<void>
+  /**
+   * The Deyslide app only: signs in through the system browser. Resolves
+   * once the sign in ends, with the account, or with undefined when the
+   * server has not said who signed in yet. The app also reports the
+   * finished sign in with `account-changed`.
+   */
+  signInWithBrowser?: () => Promise<Account | undefined>
   requestPasswordReset: (email: string) => Promise<void>
   resetPassword: (input: { token: string, password: string }) => Promise<void>
   signOut: () => Promise<void>

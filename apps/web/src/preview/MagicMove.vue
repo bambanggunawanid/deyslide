@@ -4,12 +4,14 @@ import type { CodeStep } from './markdown'
 import { ShikiMagicMove } from '@shikijs/magic-move/vue'
 import { computed, shallowRef } from 'vue'
 import { CODE_THEMES, knownLanguage, loadHighlighter } from './highlighter'
-import { clicks, dark } from './state'
+import { currentScope } from './scope'
+import { dark } from './state'
 import '@shikijs/magic-move/style.css'
 
 /** Slidev's Magic Move: one code block that morphs to the next step on each click. */
 const props = defineProps<{ steps: CodeStep[], at: number }>()
 
+const { clicks } = currentScope()
 const highlighter = shallowRef<Highlighter>()
 loadHighlighter(props.steps.map(step => step.lang)).then((loaded) => {
   highlighter.value = loaded

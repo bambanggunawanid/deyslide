@@ -19,10 +19,21 @@ export class MemoryGuestStorage implements GuestStorage {
     const stored = this.decks.get(deckId)
     if (stored)
       Y.applyUpdate(doc, stored)
-    const flush = async () => {
+    const store = () => {
       this.decks.set(deckId, Y.encodeStateAsUpdate(doc))
     }
-    return { doc, flush, close: async () => { await flush(); doc.destroy() } }
+    // Every change is kept at once, like y-indexeddb does.
+    doc.on('update', store)
+    const flush = async () => store()
+    return {
+      doc,
+      flush,
+      close: async () => {
+        doc.off('update', store)
+        store()
+        doc.destroy()
+      },
+    }
   }
 
   async deleteDeck(deckId: string) {

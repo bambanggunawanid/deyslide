@@ -47,3 +47,18 @@ Feature: Algorithm player
     When the animation never finishes loading
     Then the status reads "error"
     And an alert tells me to run "pnpm animations:build"
+
+  Scenario: An export waits until the animation has drawn
+    When the slide is drawn for an export
+    Then the player asks the export to wait for its first frame
+    When the animation finishes loading
+    Then the player tells the export it has drawn
+
+  Scenario: An export does not wait for an animation that cannot load
+    When the slide is drawn for an export
+    And the animation never finishes loading
+    Then the player tells the export it has drawn
+
+  Scenario: Live slides ask nothing to wait
+    Then the player asks no export to wait
+

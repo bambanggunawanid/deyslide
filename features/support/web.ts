@@ -2,7 +2,11 @@ import type { VueWrapper } from '@vue/test-utils'
 import type { Router } from 'vue-router'
 import type { AccountService } from '../../apps/web/src/account/types'
 import type { AssistantApi } from '../../apps/web/src/assistant/api'
+import type { DeckView } from '../../apps/web/src/deck/view'
+import type { ExportApi } from '../../apps/web/src/present/exports'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
+import type { MediaApi } from '../../apps/web/src/projects/media'
+import type { ProjectStore } from '../../apps/web/src/projects/types'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
@@ -10,13 +14,18 @@ import App from '../../apps/web/src/App.vue'
 import { ACCOUNT_KEY } from '../../apps/web/src/composables/useAccount'
 import { ASSISTANT_KEY } from '../../apps/web/src/composables/useAssistant'
 import { WORKSPACE_KEY } from '../../apps/web/src/composables/useProjects'
+import { VIEW_STORAGE_KEY } from '../../apps/web/src/deck/view'
 import { MemoryGuestStorage } from '../../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../../apps/web/src/guest/store'
+import { EXPORT_KEY } from '../../apps/web/src/present/exports'
+import { MEDIA_KEY } from '../../apps/web/src/projects/media'
 import { createAppRouter } from '../../apps/web/src/router'
 import { startSession } from '../../apps/web/src/session'
 import { FakeAccountService } from './account'
 import { FakeAssistantApi } from './assistant-api'
 import { MarkdownEditorDouble, SlidePreviewFrameDouble } from './editor-doubles'
+import { FakeExportApi } from './export-api'
+import { FakeMediaApi } from './media-api'
 import { FakeProjectApi } from './project-api'
 
 // Dialogs and menus render in portals on document.body, outside the wrapper.
@@ -31,21 +40,35 @@ export interface MountOptions {
   api?: ProjectApi
   /** The browser's projects, for scenarios that start with some. */
   guest?: GuestStore
+  /** Decks on the device, as in the apps, which have no browser store. */
+  local?: ProjectStore
   /** The deck assistant. Off unless a scenario passes one. */
   assistant?: AssistantApi
+  /** The view decks open in, as if chosen last time. Decks open in Design without one. */
+  view?: DeckView
+  /** Projects' media libraries. Off unless a scenario passes one. */
+  media?: MediaApi
+  /** Exports on the server. Off unless a scenario passes one. */
+  exports?: ExportApi
+  /** More for the app to provide, by injection key. */
+  provide?: Record<symbol, unknown>
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, assistant = new FakeAssistantApi({ on: false }) }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }), exports = new FakeExportApi({ on: false }), provide = {} }: MountOptions = {}) {
+  if (view)
+    localStorage.setItem(VIEW_STORAGE_KEY, view)
+  else
+    localStorage.removeItem(VIEW_STORAGE_KEY)
   const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
-  const { account, workspace } = await startSession({ service, guest: store, api })
+  const { account, workspace } = await startSession({ service, guest: local && !guest ? undefined : store, local, api })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
   await router.push(path)
   const wrapper: VueWrapper = mount(App, {
     attachTo: document.body,
     global: {
       plugins: [router],
-      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant },
+      provide: { [WORKSPACE_KEY as symbol]: workspace, [ACCOUNT_KEY as symbol]: account, [ASSISTANT_KEY as symbol]: assistant, [MEDIA_KEY as symbol]: media, [EXPORT_KEY as symbol]: exports, ...provide },
       // CodeMirror and the sandboxed preview run in the Playwright tests.
       stubs: { MarkdownEditor: MarkdownEditorDouble, SlidePreviewFrame: SlidePreviewFrameDouble },
     },
@@ -82,6 +105,7 @@ export async function mountWebApp({ path = '/', service = new FakeAccountService
   function unmount() {
     wrapper.unmount()
     document.body.innerHTML = ''
+    localStorage.removeItem(VIEW_STORAGE_KEY)
   }
 
   await settle()

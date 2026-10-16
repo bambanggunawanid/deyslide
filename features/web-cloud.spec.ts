@@ -1,8 +1,10 @@
 import type { WebApp } from './support/web'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
+import * as Y from 'yjs'
 import { MemoryGuestStorage } from '../apps/web/src/guest/memory-storage'
 import { GuestStore } from '../apps/web/src/guest/store'
+import { deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, text } from './support/web'
@@ -134,6 +136,36 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     })
     And('the guest banner is back', () => {
       expect(find('[data-testid="guest-banner"]')).not.toBeNull()
+    })
+  })
+
+  Scenario('Deleting an account deck asks first, then removes it', ({ Given, And, When, Then }) => {
+    let projectId: string
+    Given('Ana\'s account holds the project "Algorithms 101" with the decks "Graphs" and "Sorting"', async () => {
+      projectId = (await api.createProject('Algorithms 101')).id
+      for (const name of ['Graphs', 'Sorting'])
+        await api.createDeck(projectId, name, Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown(`# ${name}\n`))))
+    })
+    And('Ana opens that project signed in', async () => {
+      await service.signIn({ email: 'ana@example.com', password: 'correct horse' })
+      await open(`/p/${projectId}`)
+      await web.waitFor('[data-deck="Graphs"]')
+    })
+    When('she deletes the deck "Graphs" from the project page', async () => {
+      const item = find('[data-deck="Graphs"]')!.closest('li')!
+      const remove = [...item.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Delete')!
+      remove.click()
+      await web.settle()
+    })
+    Then('the question said "Graphs will be deleted from your account. This cannot be undone."', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="confirm-dialog"]')).toContain('Graphs will be deleted from your account. This cannot be undone.'))
+      await web.click('[data-testid="confirm-action"]')
+    })
+    And('the project page lists only the deck "Sorting"', async () => {
+      await vi.waitFor(() => expect(findAll('[data-deck]').map(link => link.dataset.deck)).toEqual(['Sorting']))
+    })
+    And('Ana\'s account holds "Algorithms 101" with the deck "Sorting"', () => {
+      expect(cloudSummary()).toEqual([['Algorithms 101', ['Sorting']]])
     })
   })
 })

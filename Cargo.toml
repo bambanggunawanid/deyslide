@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/deyslide-core", "apps/native/src-tauri"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/bambanggunawanid/deyslide"
+
+# Small, fast release binaries for the app and `deyslide mcp`.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

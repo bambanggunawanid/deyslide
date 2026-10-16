@@ -1,3 +1,4 @@
+import type { Server } from 'node:http'
 import type { Mailer } from './mailer.ts'
 import process from 'node:process'
 import Anthropic from '@anthropic-ai/sdk'
@@ -5,6 +6,8 @@ import { serve } from '@hono/node-server'
 import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
 import { ClaudeModel } from './assistant/model.ts'
+import { attachCollab } from './collab/attach.ts'
+import { storeAllRooms } from './collab/shutdown.ts'
 import { readConfig } from './config.ts'
 import { HttpSlideRenderer } from './mcp/renderer.ts'
 import { CloudflareMailer, ConsoleMailer } from './mailer.ts'
@@ -29,13 +32,27 @@ const assistantModel = config.assistant ? new ClaudeModel(new Anthropic()) : und
 
 const renderer = config.rendererUrl ? new HttpSlideRenderer(config.rendererUrl) : undefined
 
-const { app } = await createServer({ config, db, mailer, assistantModel, renderer })
+const { app, collab, exports } = await createServer({ config, db, mailer, assistantModel, renderer })
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.info(`Deyslide API listening on http://${info.address}:${info.port}`)
 })
+// serve() makes a plain HTTP/1.1 server, which is what WebSockets upgrade from.
+const sockets = attachCollab(server as Server, collab, config.publicUrl)
 
-function shutdown() {
+let stopping = false
+/** Saves every open deck before the database goes away. Clients reconnect to the next server. */
+async function shutdown() {
+  if (stopping)
+    return
+  stopping = true
+  // Exports in progress stop and their temp files go; people can start them again.
+  const exportsClosed = exports?.close()
+  const unsaved = await storeAllRooms(collab)
+  if (unsaved.length)
+    console.error(`These live decks were not saved before stopping: ${unsaved.join(', ')}`)
+  sockets.close()
+  await exportsClosed
   server.close(() => {
     void db.destroy().finally(() => process.exit(0))
   })

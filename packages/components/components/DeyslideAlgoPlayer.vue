@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MotionCanvasPlayerElement, PlayerStatus } from '../src/algo-player/controller'
-import { useIsSlideActive } from '@slidev/client'
+import { useIsSlideActive, useNav } from '@slidev/client'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { createPlayerController, resolvePlayerSrc } from '../src/algo-player/controller'
 
@@ -36,6 +36,20 @@ const status = ref<PlayerStatus>('loading')
 const playing = ref(false)
 const looping = ref(props.loop)
 const isSlideActive = useIsSlideActive()
+const { isPrintMode } = useNav()
+
+// Slidev's exporter waits for `[data-waitfor]` selectors before it prints a
+// page. The animation loads its project first, then draws, so while
+// exporting the page waits until it has drawn a frame, or failed to load.
+const drawn = ref(false)
+watch(status, (value) => {
+  if (value === 'error')
+    drawn.value = true
+  else if (value === 'ready')
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      drawn.value = true
+    }))
+})
 
 const resolvedSrc = computed(() => resolvePlayerSrc(props.src, import.meta.env.BASE_URL, window.location.href))
 const variablesAttr = computed(() => props.variables ? JSON.stringify(props.variables) : undefined)
@@ -129,7 +143,8 @@ defineExpose({ play, pause, toggle, restart, toggleLoop, status, playing, loopin
 </script>
 
 <template>
-  <div class="deyslide-algo-player flex flex-col gap-2" :data-status="status">
+  <div class="deyslide-algo-player flex flex-col gap-2" :data-status="status" :data-waitfor="isPrintMode ? '[data-player-drawn]' : undefined">
+    <span v-if="drawn" data-player-drawn hidden />
     <div class="relative overflow-hidden rounded-lg border border-slate-700/60 bg-[#0b1020]">
       <motion-canvas-player
         ref="element"

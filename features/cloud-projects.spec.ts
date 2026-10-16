@@ -4,7 +4,7 @@ import type { TestBrowser, TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect } from 'vitest'
 import { blankDeckState, demoDeckState, slidesIn } from './support/deck-content'
-import { createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./cloud-projects.feature')
 
@@ -18,7 +18,9 @@ interface BrowserProject {
   decks: { id: string, name: string, createdAt: number, updatedAt: number, state: string }[]
 }
 
-describeFeature(feature, ({ Background, Scenario }) => {
+describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let ana: TestBrowser
   let budi: TestBrowser

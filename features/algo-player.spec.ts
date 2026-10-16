@@ -119,4 +119,48 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       expect(wrapper.get('[role="alert"]').text()).toContain('pnpm animations:build')
     })
   })
+
+  /** The player's root, which tells Slidev's exporter what to wait for with `data-waitfor`. */
+  const root = () => wrapper.get('.deyslide-algo-player').element as HTMLElement
+  /** Whether what `data-waitfor` names is there, the way an export checks it. */
+  const waitIsOver = () => root().querySelector(root().dataset.waitfor!) !== null
+
+  const drawnForExport = async () => {
+    slidevTestState.isPrintMode.value = true
+    await flushPromises()
+  }
+
+  const toldDrawn = async () => {
+    // Two animation frames after the player is ready.
+    vi.advanceTimersByTime(50)
+    await flushPromises()
+    expect(root().dataset.waitfor).toBe('[data-player-drawn]')
+    expect(waitIsOver()).toBe(true)
+  }
+
+  Scenario('An export waits until the animation has drawn', ({ When, Then }) => {
+    When('the slide is drawn for an export', drawnForExport)
+    Then('the player asks the export to wait for its first frame', () => {
+      expect(root().dataset.waitfor).toBe('[data-player-drawn]')
+      expect(waitIsOver()).toBe(false)
+    })
+    When('the animation finishes loading', finishLoading)
+    Then('the player tells the export it has drawn', toldDrawn)
+  })
+
+  Scenario('An export does not wait for an animation that cannot load', ({ When, Then, And }) => {
+    When('the slide is drawn for an export', drawnForExport)
+    And('the animation never finishes loading', async () => {
+      vi.advanceTimersByTime(1100)
+      await flushPromises()
+      expect(statusText()).toBe('error')
+    })
+    Then('the player tells the export it has drawn', toldDrawn)
+  })
+
+  Scenario('Live slides ask nothing to wait', ({ Then }) => {
+    Then('the player asks no export to wait', () => {
+      expect(root().dataset.waitfor).toBeUndefined()
+    })
+  })
 })

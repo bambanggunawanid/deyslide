@@ -6,7 +6,7 @@ import { beforeAll, expect, vi } from 'vitest'
 import { readConfig } from '../apps/server/src/config'
 import { CloudflareMailer } from '../apps/server/src/mailer'
 import { magicLinkEmail } from '../apps/server/src/emails'
-import { createTestServer, DATABASE_WARM_UP_MS, TestBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./sign-in-options.feature')
 
@@ -25,7 +25,9 @@ const onOff = (value: boolean) => value ? 'on' : 'off'
 
 beforeAll(warmUpDatabase, DATABASE_WARM_UP_MS)
 
-describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
+describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let options: PublicConfig
   let response: Response

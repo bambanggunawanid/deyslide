@@ -38,7 +38,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
   }
 
   async function mount(path = '/') {
-    web = await mountWebApp({ service, api, path, guest: await GuestStore.open(new MemoryGuestStorage()) })
+    web = await mountWebApp({ service, api, path, guest: await GuestStore.open(new MemoryGuestStorage()), view: 'markdown' })
   }
 
   async function sharedByBudi(role: SharedRole) {
@@ -135,6 +135,29 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     And('there is no assistant and no Share button', () => {
       expect(find('[data-testid="assistant"]')).toBeNull()
       expect(find('[data-testid="share-deck"]')).toBeNull()
+    })
+  })
+
+  Scenario('A viewer made an editor while the deck is open can write at once', ({ Given, And, When, Then }) => {
+    Given('Ana is signed in and Budi shared the project "Algorithms 101" with Ana as a viewer', sharedGiven('viewer'))
+    And('Ana has the deck "Sorting" open', async () => {
+      await mount(`/p/${projectId}/d/shared-deck`)
+      await vi.waitFor(() => expect(editor()).not.toBeNull())
+      expect(editor().readOnly).toBe(true)
+    })
+    When('Budi makes Ana an editor', async () => {
+      const project = api.sharedProjects[0]
+      project.shared = { ...project.shared!, role: 'editor' }
+      project.decks[0].role = 'editor'
+      api.rejoinAs('shared-deck', 'editor')
+      await web.settle()
+    })
+    Then('the editor can be changed, without a reload', async () => {
+      await vi.waitFor(() => expect(editor().readOnly).toBe(false))
+    })
+    And('the deck page no longer says "View only"', async () => {
+      await vi.waitFor(() => expect(find('[data-testid="view-only"]')).toBeNull())
+      expect(text('[data-testid="save-status"]')).toBe('Saved')
     })
   })
 

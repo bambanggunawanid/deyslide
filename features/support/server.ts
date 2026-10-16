@@ -1,11 +1,16 @@
+import type { Server } from 'node:http'
 import type { AssistantModel } from '../../apps/server/src/assistant/model'
+import type { CollabSocketOptions, CollabSockets } from '../../apps/server/src/collab/attach'
 import type { ServerConfig } from '../../apps/server/src/config'
 import type { Email, Mailer } from '../../apps/server/src/mailer'
 import type { MediaStorage } from '../../apps/server/src/media/storage'
 import type { SlideRenderer } from '../../apps/server/src/mcp/renderer'
 import { PGlite } from '@electric-sql/pglite'
+import { serve } from '@hono/node-server'
 import { Kysely } from 'kysely'
 import { PGliteDialect } from 'kysely-pglite-dialect'
+import { attachCollab, COLLAB_PATH } from '../../apps/server/src/collab/attach'
+import { storeAllRooms } from '../../apps/server/src/collab/shutdown'
 import { readConfig } from '../../apps/server/src/config'
 import { createServer } from '../../apps/server/src/server'
 
@@ -43,6 +48,8 @@ export interface TestServerOptions {
   now?: () => Date
   renderer?: SlideRenderer
   mediaStorage?: MediaStorage
+  /** How often live editing connections check their session. */
+  signInCheckMs?: number
 }
 
 let template: Promise<PGlite> | undefined
@@ -70,15 +77,67 @@ export async function warmUpDatabase() {
   await migratedTemplate()
 }
 
+/** Servers made since the last `closeTestServers`, each with what closes it. */
+const opened: (() => Promise<void>)[] = []
+
+/** The API on a real port, for clients that need a socket. */
+export interface Listening {
+  port: number
+  /** The live editing WebSocket address. */
+  collabUrl: string
+}
+
 /** A full API on an in-memory Postgres (PGlite), with an empty database. */
-export async function createTestServer({ email = true, env = {}, assistantModel, now, renderer, mediaStorage }: TestServerOptions = {}) {
+export async function createTestServer({ email = true, env = {}, assistantModel, now, renderer, mediaStorage, signInCheckMs }: TestServerOptions = {}) {
   const config: ServerConfig = readConfig({ PUBLIC_URL: TEST_ORIGIN, ...(assistantModel ? { ASSISTANT_ENABLED: 'true' } : {}), ...env })
   // clone() returns a full PGlite, typed only as its interface.
   const pglite = await (await migratedTemplate()).clone() as PGlite
   const db = new Kysely<any>({ dialect: new PGliteDialect(pglite) })
   const mailer = email ? new MemoryMailer() : undefined
-  const { app } = await createServer({ config, db, mailer, assistantModel, now, renderer, mediaStorage })
-  return { app, db, mailer, config }
+  const { app, auth, projects, sharing, collab } = await createServer({ config, db, mailer, assistantModel, now, renderer, mediaStorage, signInCheckMs })
+  let listener: { server: Server, sockets: CollabSockets, listening: Listening } | undefined
+
+  opened.push(async () => {
+    listener?.sockets.close()
+    await storeAllRooms(collab, 2000)
+    if (listener)
+      await new Promise(resolve => listener!.server.close(resolve))
+    // Closes the PGlite clone, which otherwise keeps its memory until the worker ends.
+    await db.destroy()
+  })
+
+  return {
+    app,
+    db,
+    mailer,
+    config,
+    auth,
+    projects,
+    sharing,
+    /** The live editing server. */
+    collab,
+    /** Serves the API on a free port with live editing, as the real server does. The first call's options count. */
+    async listen(options: CollabSocketOptions = {}): Promise<Listening> {
+      if (listener)
+        return listener.listening
+      const server = await new Promise<Server>((resolve) => {
+        const started: Server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }, () => resolve(started)) as Server
+      })
+      const { port } = server.address() as { port: number }
+      listener = { server, sockets: attachCollab(server, collab, config.publicUrl, options), listening: { port, collabUrl: `ws://127.0.0.1:${port}${COLLAB_PATH}` } }
+      return listener.listening
+    },
+  }
+}
+
+/**
+ * Closes every test server made since the last call: their sockets, live
+ * rooms and databases. Call it after each scenario that makes servers, or a
+ * spec file keeps every database it cloned.
+ */
+export async function closeTestServers() {
+  for (const close of opened.splice(0))
+    await close()
 }
 
 export type TestServer = Awaited<ReturnType<typeof createTestServer>>
@@ -117,7 +176,7 @@ export class TestBrowser {
     const url = path.startsWith('http') ? path : `${TEST_ORIGIN}${path}`
     const headers = new Headers({ ...init.headers, origin: TEST_ORIGIN })
     if (this.cookies.size)
-      headers.set('cookie', [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; '))
+      headers.set('cookie', this.cookieHeader())
     const response = await this.server.app.request(url, {
       method: init.method,
       headers,
@@ -134,6 +193,11 @@ export class TestBrowser {
         this.cookies.set(name.trim(), value.join('='))
     }
     return response
+  }
+
+  /** The Cookie header this browser sends, for a client that opens its own connections. */
+  cookieHeader(): string {
+    return [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ')
   }
 
   /** The signed in user's email, or undefined. */

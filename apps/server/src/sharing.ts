@@ -1,3 +1,4 @@
+import type { CollabRooms } from './collab/rooms.ts'
 import type { AppDb, Role, SharedRole } from './db.ts'
 import type { Mailer } from './mailer.ts'
 import type { Person, ProjectStore } from './projects.ts'
@@ -46,6 +47,8 @@ export interface SharingDependencies {
   /** Without a mailer, sharing still works; nobody is emailed. */
   mailer?: Mailer
   newId?: () => string
+  /** Live rooms. Someone whose access changes joins again with their new role, or not at all. */
+  rooms?: CollabRooms
 }
 
 interface ResolvedTarget {
@@ -68,13 +71,15 @@ export class SharingStore {
   private readonly publicUrl: string
   private readonly mailer?: Mailer
   private readonly newId: () => string
+  private readonly rooms?: CollabRooms
 
-  constructor({ db, projects, publicUrl, mailer, newId = () => crypto.randomUUID() }: SharingDependencies) {
+  constructor({ db, projects, publicUrl, mailer, newId = () => crypto.randomUUID(), rooms }: SharingDependencies) {
     this.db = db
     this.projects = projects
     this.publicUrl = publicUrl
     this.mailer = mailer
     this.newId = newId
+    this.rooms = rooms
   }
 
   /** Undefined when the target is missing or not shared with the person. */
@@ -147,7 +152,10 @@ export class SharingStore {
       : target.type === 'project'
         ? await this.db.updateTable('project_member').set({ role }).where('project_id', '=', target.id).where('user_id', '=', entry.userId).executeTakeFirst()
         : await this.db.updateTable('deck_member').set({ role }).where('deck_id', '=', target.id).where('user_id', '=', entry.userId).executeTakeFirst()
-    return result.numUpdatedRows > 0n
+    const changed = result.numUpdatedRows > 0n
+    if (changed && 'userId' in entry)
+      await this.letGo(target, entry.userId)
+    return changed
   }
 
   /** The owner removes anyone. Everyone else can only remove themselves, which is leaving. */
@@ -165,7 +173,20 @@ export class SharingStore {
       : target.type === 'project'
         ? await this.db.deleteFrom('project_member').where('project_id', '=', target.id).where('user_id', '=', entry.userId).executeTakeFirst()
         : await this.db.deleteFrom('deck_member').where('deck_id', '=', target.id).where('user_id', '=', entry.userId).executeTakeFirst()
-    return result.numDeletedRows > 0n
+    const removed = result.numDeletedRows > 0n
+    if (removed && 'userId' in entry)
+      await this.letGo(target, entry.userId)
+    return removed
+  }
+
+  /** Closes the person's live connections to the target's decks, so they join again with the access they have now. */
+  private async letGo(target: ShareTarget, userId: string) {
+    if (!this.rooms)
+      return
+    const deckIds = target.type === 'deck'
+      ? [target.id]
+      : (await this.db.selectFrom('deck').select('id').where('project_id', '=', target.id).execute()).map(row => row.id)
+    this.rooms.revoke(deckIds, userId)
   }
 
   /**

@@ -1,0 +1,332 @@
+[
+  {
+    "name": "get_guide",
+    "title": "Deyslide writing guide",
+    "description": "How to write Deyslide slides: the workflow, Slidev Markdown syntax, layouts, click animations, Magic Move code, Deyslide components and design rules. Read it once before writing slides.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_decks",
+    "title": "List projects and decks",
+    "description": "Lists the person's projects and the decks in each, then projects and decks other people shared with them and the role they have. Includes deck ids, slide counts and editor links.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "create_project",
+    "title": "Create a project",
+    "description": "Creates a project, a folder for decks. Returns its id for create_deck.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Project name, up to 80 characters."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "create_deck",
+    "title": "Create a deck",
+    "description": "Creates a deck in a project from Slidev Markdown. Without markdown the deck starts with one title slide. Returns the deck id and its editor link.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The project id from list_decks or create_project."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Deck name, up to 80 characters."
+        },
+        "markdown": {
+          "description": "The whole deck as Slidev Markdown. Call get_guide first for the syntax.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "name"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "read_deck",
+    "title": "Read a deck",
+    "description": "Returns a deck's Slidev Markdown with each slide wrapped in <slide number=\"N\">, plus its editor link.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "deckId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The deck id from list_decks or create_deck."
+        }
+      },
+      "required": [
+        "deckId"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "write_deck",
+    "title": "Replace a whole deck",
+    "description": "Replaces all of a deck's Markdown. Use it for a first draft or a full rewrite; edit_slides is safer for a few slides. Call read_deck first: edits people make while you work are then kept. Writing a deck you have not read overwrites them. The first slide's frontmatter holds the deck settings.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "deckId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The deck id from list_decks or create_deck."
+        },
+        "markdown": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The whole deck as Slidev Markdown."
+        }
+      },
+      "required": [
+        "deckId",
+        "markdown"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "edit_slides",
+    "title": "Edit slides",
+    "description": "Applies a list of slide edits in order: replace, insert, delete or move. Slide numbers in each edit refer to the deck after the edits before it. Either every edit is saved or none is.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "deckId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The deck id from list_decks or create_deck."
+        },
+        "edits": {
+          "minItems": 1,
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "replace"
+                  },
+                  "slide": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "Slide number, starting at 1."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 20000,
+                    "description": "The whole slide: optional frontmatter between --- lines, Markdown content, then optional speaker notes in an HTML comment. No --- separator between slides."
+                  }
+                },
+                "required": [
+                  "action",
+                  "slide",
+                  "text"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "insert"
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "Number the new slide gets. Use the slide count plus 1 to add it at the end."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 20000,
+                    "description": "The whole slide: optional frontmatter between --- lines, Markdown content, then optional speaker notes in an HTML comment. No --- separator between slides."
+                  }
+                },
+                "required": [
+                  "action",
+                  "position",
+                  "text"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "delete"
+                  },
+                  "slide": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "Slide number, starting at 1."
+                  }
+                },
+                "required": [
+                  "action",
+                  "slide"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "move"
+                  },
+                  "slide": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "Slide number, starting at 1."
+                  },
+                  "to": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "Number the slide has after the move."
+                  }
+                },
+                "required": [
+                  "action",
+                  "slide",
+                  "to"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "deckId",
+        "edits"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "render_slides",
+    "title": "Render slides to images",
+    "description": "Draws slides as PNG images with Deyslide's real renderer, so you can see the design. Also reports each slide's click count, content overflow and render errors. At most 6 slides per call.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "deckId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The deck id from list_decks or create_deck."
+        },
+        "slides": {
+          "description": "Slide numbers to draw. Defaults to the first 6.",
+          "minItems": 1,
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Slide number, starting at 1."
+          }
+        },
+        "click": {
+          "description": "Which click step to show: \"last\" (default) shows everything, \"first\" shows the slide before any click, a number shows that step.",
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "first"
+            },
+            {
+              "type": "string",
+              "const": "last"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          ]
+        }
+      },
+      "required": [
+        "deckId"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  }
+]

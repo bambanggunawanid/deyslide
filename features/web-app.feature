@@ -26,6 +26,13 @@ Feature: Web app pages
     When they download the deck as Markdown
     Then the browser saves the file "Sorting.md"
 
+  Scenario: Delete a deck from the project page
+    Given the project "Algorithms 101" with the decks "Graphs" and "Sorting" is open
+    When they delete the deck "Graphs" from the project page
+    Then the question said "Graphs will be removed from this browser. This cannot be undone."
+    And the project page lists only the deck "Sorting"
+    And the browser no longer holds the deck "Graphs"
+
   Scenario: A project name is required
     When they try to create a project with an empty name
     Then the dialog stays open with the error "A project needs a name"

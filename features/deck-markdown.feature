@@ -42,6 +42,28 @@ Feature: Deck and Slidev Markdown round trips
     When the Markdown is converted to a deck
     Then the whole v-drag block is kept as one raw element
 
+  Scenario Outline: A v-drag block with an attribute the model does not read stays raw
+    Given a v-drag block whose opening tag has <attribute>
+    When the Markdown is converted to a deck and back
+    Then the whole v-drag block is kept as one raw element
+    And the Markdown is written back unchanged
+
+    Examples:
+      | attribute                   |
+      | a class                     |
+      | a data-type other than text |
+
+  Scenario: A v-drag whose opening tag spans two lines is read as a box
+    Given a v-drag block whose opening tag puts its position on a second line
+    When the Markdown is converted to a deck
+    Then the block is one text box at that position
+
+  Scenario: A Magic Move whose step holds a fence line reads as a text box
+    Given a v-drag block with a Magic Move whose second step holds a line "```js"
+    When the Markdown is converted to a deck and back
+    Then the block is one text box holding the whole fence
+    And the Markdown is written back unchanged
+
   Scenario: Hand written Markdown gets stable ids
     Given Slidev Markdown with two slides, no ids, and a v-drag block without data-id
     When it is converted to a deck twice

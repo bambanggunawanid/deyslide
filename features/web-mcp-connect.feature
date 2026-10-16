@@ -41,15 +41,15 @@ Feature: Connecting Claude Code from the web app
     When I open the consent page directly
     Then it says to start again from the app
 
-  Scenario: An open deck picks up changes made from Claude Code
+  Scenario: An open deck shows changes from Claude Code at once
     Given I am signed in with the blank deck "Graphs" open
     When Claude Code saves a second slide to that deck
-    And I come back to the tab
     Then the editor holds the second slide
+    And the page says "Saved"
 
-  Scenario: Unsaved typing is never replaced
-    Given I am signed in with the blank deck "Graphs" open
-    And I typed a change that is not saved yet
-    When Claude Code saves a second slide to that deck
-    And I come back to the tab
-    Then the editor still holds my change
+  Scenario: Typing on one slide and a Claude Code edit to another slide both survive
+    Given I am signed in with the deck "Graphs" open, its slides "# Graphs" and "# Second"
+    And I typed "# Graphs, typed" on the first slide a moment ago
+    When Claude Code saves the deck with the second slide changed to "# Second, from Claude Code"
+    Then the editor holds "# Graphs, typed" and "# Second, from Claude Code"
+    And the account's deck holds both changes

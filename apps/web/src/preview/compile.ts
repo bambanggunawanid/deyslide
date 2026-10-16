@@ -4,6 +4,7 @@ import { compile, DOMErrorMessages, errorMessages } from '@vue/compiler-dom'
 import * as Vue from 'vue'
 import { clickTransform } from './clicks'
 import { createMarkdownRenderer, splitSlots } from './markdown'
+import { mediaLink, mediaTransform } from './media'
 
 export class SlideCompileError extends Error {}
 
@@ -22,6 +23,8 @@ export interface SlideSource {
 
 /** Frontmatter keys that Slidev passes on to the layout. */
 const LAYOUT_PROPS = ['class', 'layoutClass', 'background', 'image', 'backgroundSize', 'url', 'scale']
+/** Layout settings that may name a picture, such as a cover's background. */
+const LAYOUT_PICTURES = new Set(['background', 'image'])
 
 export function layoutName({ frontmatter, first }: Pick<SlideSource, 'frontmatter' | 'first'>) {
   return typeof frontmatter.layout === 'string' ? frontmatter.layout : first ? 'cover' : 'default'
@@ -32,13 +35,13 @@ function isCustomElement(tag: string) {
 }
 
 /** Compiles a template the way Vue's full build does, so the preview can render any slide. */
-function toRenderFunction(template: string, counter: ClickCounter) {
+function toRenderFunction(template: string, counter: ClickCounter, media: Record<string, string>) {
   const errors: string[] = []
   const { code } = compile(template, {
     mode: 'function',
     hoistStatic: false,
     isCustomElement,
-    nodeTransforms: [clickTransform(counter)],
+    nodeTransforms: [clickTransform(counter), mediaTransform(media)],
     // Production builds of the compiler only carry error codes. Look up the words.
     onError: (error) => {
       const code = Number(error.code)
@@ -54,18 +57,23 @@ function toRenderFunction(template: string, counter: ClickCounter) {
 
 /**
  * Builds a component for one slide: Markdown to a Vue template in the
- * slide's layout, with named slots for `::right::` and the like.
+ * slide's layout, with named slots for `::right::` and the like. A media
+ * link that is a key of `media`, in an attribute or in the layout's
+ * `background` or `image`, loads its value instead.
  */
-export function compileSlide(source: SlideSource, markdown: ReturnType<typeof createMarkdownRenderer>, layouts: Record<string, Component>): CompiledSlide {
+export function compileSlide(source: SlideSource, markdown: ReturnType<typeof createMarkdownRenderer>, layouts: Record<string, Component>, media: Record<string, string> = {}): CompiledSlide {
   const slots = Object.entries(splitSlots(source.content))
     .map(([name, part]) => `<template #${name}>${markdown(part)}</template>`)
     .join('\n')
   const template = `<SlideLayout v-bind="layoutProps">${slots}</SlideLayout>`
   const counter: ClickCounter = { total: 0 }
-  const render = toRenderFunction(template, counter)
+  const render = toRenderFunction(template, counter, media)
 
   const name = layoutName(source)
-  const layoutProps = Object.fromEntries(LAYOUT_PROPS.filter(key => key in source.frontmatter).map(key => [key, source.frontmatter[key]]))
+  const layoutProps = Object.fromEntries(LAYOUT_PROPS.filter(key => key in source.frontmatter).map((key) => {
+    const value = source.frontmatter[key]
+    return [key, LAYOUT_PICTURES.has(key) ? mediaLink(media, value) : value]
+  }))
   const frontmatterClicks = Number(source.frontmatter.clicks)
 
   return {

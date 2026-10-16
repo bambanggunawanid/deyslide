@@ -14,8 +14,8 @@ const open = defineModel<boolean>('open', { required: true })
 <template>
   <AlertDialogRoot v-model:open="open">
     <AlertDialogPortal>
-      <AlertDialogOverlay class="fixed inset-0 bg-black/60" />
-      <AlertDialogContent class="dey-panel fixed left-1/2 top-1/2 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2" data-testid="confirm-dialog">
+      <AlertDialogOverlay class="fixed inset-0 z-40 bg-black/60" />
+      <AlertDialogContent class="dey-panel fixed z-50 left-1/2 top-1/2 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2" data-testid="confirm-dialog">
         <AlertDialogTitle class="m-0 text-lg font-semibold">
           {{ title }}
         </AlertDialogTitle>

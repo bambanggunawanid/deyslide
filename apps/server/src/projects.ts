@@ -1,11 +1,14 @@
+import type { Deck } from '@deyslide/deck-model'
+import type { CollabRooms } from './collab/rooms.ts'
 import type { AppDb, Role, SharedRole } from './db.ts'
 import { yDocToDeck } from '@deyslide/deck-model'
 import * as Y from 'yjs'
 import { z } from 'zod'
+import { DECK_MAX_BYTES, deckOverLimit, DeckTooBigError } from './collab/limits.ts'
+
+export { DECK_MAX_BYTES, DECK_MAX_SLIDES } from './collab/limits.ts'
 
 export const NAME_MAX_LENGTH = 80
-/** A deck document larger than this is refused. Media lives in R2, not in the deck. */
-export const DECK_MAX_BYTES = 5 * 1024 * 1024
 
 export const NameSchema = z.string().trim()
   .min(1, 'A name is required')
@@ -34,14 +37,14 @@ export class DeckContentError extends Error {
   }
 }
 
-/** Checks that `state` is a Yjs document holding a valid deck, and counts its slides. */
-export function readDeckState(state: Uint8Array): { slideCount: number } {
+/** The deck in `state`, a Yjs document. Throws `DeckContentError` when it holds no valid deck. */
+export function deckOfState(state: Uint8Array): Deck {
   if (state.byteLength === 0 || state.byteLength > DECK_MAX_BYTES)
     throw new DeckContentError()
   const doc = new Y.Doc()
   try {
     Y.applyUpdate(doc, state)
-    return { slideCount: yDocToDeck(doc).slides.length }
+    return yDocToDeck(doc)
   }
   catch {
     throw new DeckContentError()
@@ -49,6 +52,18 @@ export function readDeckState(state: Uint8Array): { slideCount: number } {
   finally {
     doc.destroy()
   }
+}
+
+/**
+ * Checks that `state` is a Yjs document holding a valid deck that fits a
+ * live room, and counts its slides. Throws `DeckTooBigError` for a deck
+ * that does not fit, since nobody could edit it live.
+ */
+export function readDeckState(state: Uint8Array): { slideCount: number } {
+  const deck = deckOfState(state)
+  if (deckOverLimit(deck))
+    throw new DeckTooBigError()
+  return { slideCount: deck.slides.length }
 }
 
 export interface ImportedDeck {
@@ -110,18 +125,28 @@ export interface SharedProject {
   decks: SharedDeckSummary[]
 }
 
+export interface ProjectStoreOptions {
+  newId?: () => string
+  /** Live rooms, closed for everyone in them when their deck goes away. */
+  rooms?: CollabRooms
+}
+
 /**
  * Projects and decks in Postgres. Every method takes the signed in user and
  * only touches what that user owns or what is shared with them, within their
- * role. Anything else reads as missing.
+ * role. Anything else reads as missing. A deck's content is read and changed
+ * through its live room (see `DeckDocuments`); the room loads and stores it
+ * here.
  */
 export class ProjectStore {
   private readonly db: AppDb
   private readonly newId: () => string
+  private readonly rooms?: CollabRooms
 
-  constructor(db: AppDb, newId: () => string = () => crypto.randomUUID()) {
+  constructor(db: AppDb, { newId = () => crypto.randomUUID(), rooms }: ProjectStoreOptions = {}) {
     this.db = db
     this.newId = newId
+    this.rooms = rooms
   }
 
   async list(userId: string): Promise<Project[]> {
@@ -261,21 +286,26 @@ export class ProjectStore {
     return true
   }
 
-  /** The owner only. Sharing and pending invites for the project and its decks go with it. */
+  /**
+   * The owner only. Sharing and pending invites for the project and its
+   * decks go with it, and people who have one of its decks open are let go.
+   */
   async deleteProject(userId: string, projectId: string) {
     const role = await this.projectRole(userId, projectId)
     if (!role)
       return false
     if (role !== 'owner')
       throw new ForbiddenError('Only the owner can delete this project.')
-    await this.db.transaction().execute(async (trx) => {
+    const deckIds = await this.db.transaction().execute(async (trx) => {
       const deckIds = (await trx.selectFrom('deck').select('id').where('project_id', '=', projectId).execute()).map(row => row.id)
       await trx.deleteFrom('invite').where(eb => eb.or([
         eb.and([eb('target_type', '=', 'project'), eb('target_id', '=', projectId)]),
         ...(deckIds.length ? [eb.and([eb('target_type', '=', 'deck'), eb('target_id', 'in', deckIds)])] : []),
       ])).execute()
       await trx.deleteFrom('project').where('id', '=', projectId).execute()
+      return deckIds
     })
+    this.rooms?.revoke(deckIds)
     return true
   }
 
@@ -309,7 +339,7 @@ export class ProjectStore {
     return true
   }
 
-  /** The project's owner only. */
+  /** The project's owner only. People who have the deck open are let go. */
   async deleteDeck(userId: string, deckId: string) {
     const access = await this.deckAccess(userId, deckId)
     if (!access)
@@ -321,29 +351,28 @@ export class ProjectStore {
       await trx.deleteFrom('deck').where('id', '=', deckId).execute()
       await trx.updateTable('project').set({ updated_at: new Date() }).where('id', '=', access.projectId).execute()
     })
+    this.rooms?.revoke([deckId])
     return true
   }
 
-  /** Replaces a deck's content. Owners and editors. Returns false when the deck is missing or not shared with the user. */
-  async saveDeckState(userId: string, deckId: string, state: Uint8Array) {
-    const { slideCount } = readDeckState(state)
-    const access = await this.editableDeck(userId, deckId, 'You can view this deck but not change it.')
-    if (!access)
-      return false
-    const now = new Date()
-    await this.db.transaction().execute(async (trx) => {
-      await trx.updateTable('deck').set({ state, slide_count: slideCount, updated_at: now }).where('id', '=', deckId).execute()
-      await trx.updateTable('project').set({ updated_at: now }).where('id', '=', access.projectId).execute()
-    })
-    return true
-  }
-
-  /** Anyone the deck is shared with can read it. */
-  async deckState(userId: string, deckId: string): Promise<Uint8Array | undefined> {
-    if (!(await this.deckAccess(userId, deckId)))
-      return undefined
+  /** What the deck's live room starts from. No role check: the room checks everyone who joins. */
+  async storedState(deckId: string): Promise<Uint8Array | undefined> {
     const row = await this.db.selectFrom('deck').select('state').where('id', '=', deckId).executeTakeFirst()
     return row && new Uint8Array(row.state)
+  }
+
+  /**
+   * Saves what the deck's live room holds. No role check: everyone who
+   * changed it was checked when they joined. A deck deleted meanwhile stays
+   * deleted.
+   */
+  async storeState(deckId: string, state: Uint8Array, slideCount: number) {
+    const now = new Date()
+    await this.db.transaction().execute(async (trx) => {
+      const deck = await trx.updateTable('deck').set({ state, slide_count: slideCount, updated_at: now }).where('id', '=', deckId).returning('project_id').executeTakeFirst()
+      if (deck)
+        await trx.updateTable('project').set({ updated_at: now }).where('id', '=', deck.project_id).execute()
+    })
   }
 
   /**
@@ -391,7 +420,7 @@ export class ProjectStore {
   }
 
   /** Undefined when the deck is missing or not shared with the user. Throws when they may only view it. */
-  private async editableDeck(userId: string, deckId: string, viewOnly: string) {
+  async editableDeck(userId: string, deckId: string, viewOnly: string) {
     const access = await this.deckAccess(userId, deckId)
     if (access && !atLeast(access.role, 'editor'))
       throw new ForbiddenError(viewOnly)

@@ -1,0 +1,41 @@
+[package]
+name = "deyslide-core"
+description = "Deyslide's library on disk, its Slidev slide splitter and the MCP server Claude Code runs on this computer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "deyslide_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "deyslide-mcp"
+path = "src/bin/deyslide-mcp.rs"
+
+[dependencies]
+base64 = "0.22"
+dirs = "7"
+dunce = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+rmcp = { version = "3.5", default-features = false, features = ["server", "transport-io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_norway = "0.9"
+sha2 = "0.10"
+tokio = { version = "1", features = ["io-std", "macros", "net", "rt-multi-thread", "sync", "time"] }
+
+# std's `File::lock` is not implemented on Android, so Unix systems call
+# `flock` directly. Both also tell whether the app's process still runs.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -44,8 +44,17 @@ export function slide(page: Page) {
   return page.frameLocator('[data-testid="preview-frame"]').getByTestId('slide')
 }
 
+/** Shows the open deck's Markdown view, where the CodeMirror editor is. */
+export async function openMarkdownView(page: Page) {
+  const button = page.getByTestId('view-markdown')
+  if (await button.getAttribute('aria-pressed') !== 'true')
+    await button.click()
+  await expect(page.locator('.cm-content')).toBeAttached()
+}
+
 /** Replaces everything in the Markdown editor. */
 export async function replaceMarkdown(page: Page, markdown: string) {
+  await openMarkdownView(page)
   const editor = page.locator('.cm-content')
   await editor.click()
   await page.keyboard.press('ControlOrMeta+A')

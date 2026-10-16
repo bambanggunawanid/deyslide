@@ -21,15 +21,20 @@ const SAMPLES: Record<string, string> = {
   'two columns': '# Left\n\n::right::\n\n# Right',
   'a list revealed by clicks': '<v-clicks>\n\n- One\n- Two\n- Three\n\n</v-clicks>',
   'an expression using the click count': `<span class="step">{{ ['a', 'b', 'c'][$clicks] }}</span>`,
+  'the click count read through $slidev': '<span class="step">{{ $slidev.nav.clicks }}</span>',
+  'images from the media library': '<img src="/api/media/m1/file" alt="Diagram">\n\n![Chart](/api/media/m1/file)\n\nThe file lives at `/api/media/m1/file`.',
+  'a poster and an inline style from the media library': '<video src="/api/media/m2/file" poster="/api/media/m1/file"></video>\n\n<div class="panel" style="background-image: url(\'/api/media/m1/file\'); color: red"></div>',
   'code containing braces': '```ts\nconst a = {{ b }}\n```',
   'a two step Magic Move': '````md magic-move\n```ts\nlet a = 1\n```\n```ts\nconst a = 1\n```\n````',
   'an ellipse shape': '<DeyslideShape shape="ellipse" fill="#f00" />',
   'a positioned box': '<v-drag pos="100,50,200,80,0">\n\nBox\n\n</v-drag>',
   'an empty v-if': '<div v-if="">oops</div>',
+  'v-click elements': '<v-click>\n\n<p class="first">First</p>\n\n</v-click>\n\n<p class="second-line"><v-click>Second</v-click></p>\n\n<v-click hide at="+1"><p class="hidden-at-three">Hidden at three</p></v-click>\n\n<v-click at="4"><p class="fourth">Fourth</p></v-click>',
+  'a v-after element': '<p v-click class="shown">Shown</p>\n\n<v-after><p class="also">Also shown</p></v-after>',
   'a component with attributes on several lines': '<div>\n  <DeyslideShape\n    shape="ellipse"\n    fill="#f00"\n  >\n    <template #default>\n      <span>inside</span>\n    </template>\n  </DeyslideShape>\n</div>',
 }
 
-describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
+describeFeature(feature, ({ Scenario, ScenarioOutline, AfterEachScenario }) => {
   let wrapper: VueWrapper | undefined
   let slideClicks = 0
   let error: unknown
@@ -40,11 +45,11 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     clicks.value = 0
   })
 
-  async function preview(content: string, frontmatter: Record<string, unknown> = {}, first = false) {
+  async function preview(content: string, frontmatter: Record<string, unknown> = {}, first = false, media?: Record<string, string>) {
     wrapper?.unmount()
     error = undefined
     try {
-      const compiled = await renderSlide({ content, frontmatter, first }, LAYOUTS)
+      const compiled = await renderSlide({ content, frontmatter, first }, LAYOUTS, media)
       slideClicks = compiled.clicks
       wrapper = mount(compiled.component, { global: { plugins: [{ install: installPreview }] } })
       await flushPromises()
@@ -105,6 +110,71 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  const hidden = (selector: string) => find(selector).classes().includes('slidev-vclick-hidden')
+  const at = async (count: number) => {
+    clicks.value = count
+    await flushPromises()
+  }
+
+  Scenario('The v-click element reveals its content at its click, as in Slidev', ({ When, Then, And }) => {
+    When('the preview renders the "v-click elements" sample', () => preview(SAMPLES['v-click elements']))
+    Then('the slide has 4 clicks', () => {
+      expect(error).toBeUndefined()
+      expect(slideClicks).toBe(4)
+    })
+    And('at click 0 only "Hidden at three" shows', () => {
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three'), hidden('.fourth')]).toEqual([true, true, false, true])
+    })
+    When('the preview is at click 1', () => at(1))
+    Then('"First" and "Hidden at three" show, and the text "Second" is wrapped in a hidden span', () => {
+      expect(find('.second-line > span').text()).toBe('Second')
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three')]).toEqual([false, true, false])
+    })
+    When('the preview is at click 3', () => at(3))
+    Then('"First" and "Second" show and "Hidden at three" is hidden', () => {
+      expect([hidden('.first'), hidden('.second-line > span'), hidden('.hidden-at-three'), hidden('.fourth')]).toEqual([false, false, true, true])
+    })
+    When('the preview is at click 4', () => at(4))
+    Then('"Fourth" shows too', () => {
+      expect(hidden('.fourth')).toBe(false)
+    })
+  })
+
+  Scenario('The v-after element shows with the click before it', ({ When, Then }) => {
+    When('the preview renders the "a v-after element" sample', () => preview(SAMPLES['a v-after element']))
+    Then('the slide has 1 click', () => {
+      expect(slideClicks).toBe(1)
+      expect([hidden('.shown'), hidden('.also')]).toEqual([true, true])
+    })
+    When('the preview is at click 1', () => at(1))
+    Then('"Shown" and "Also shown" show together', () => {
+      expect([hidden('.shown'), hidden('.also')]).toEqual([false, false])
+    })
+  })
+
+  ScenarioOutline('Image layouts show their image', ({ When, Then }, variables) => {
+    const image = 'data:image/png;base64,iVBORw0KGgo='
+    When('the preview renders "Pictures" with the layout "<layout>" and an image', () => preview('# Pictures', { layout: variables.layout, image }))
+    Then('the slide shows "Pictures" and the image as a background <where>', () => {
+      expect(find('h1').text()).toBe('Pictures')
+      const pictured = wrapper!.findAll('[style]').filter(element => element.attributes('style')?.includes(`url("${image}")`))
+      expect(pictured).toHaveLength(1)
+      const [picture] = pictured
+      if (variables.layout === 'image') {
+        // The text sits on the picture.
+        expect(picture.find('h1').exists()).toBe(true)
+      }
+      else {
+        // Two columns: the picture is one, the text the other, in Slidev's order.
+        const columns = wrapper!.find('.grid-cols-2').element.children
+        expect(columns).toHaveLength(2)
+        const side = variables.layout === 'image-right' ? 1 : 0
+        expect(columns[side]).toBe(picture.element)
+        expect(columns[1 - side].querySelector('h1')?.textContent).toBe('Pictures')
+      }
+    })
+  })
+
   Scenario('The click count drives expressions', ({ When, And, Then }) => {
     When('the preview renders the "an expression using the click count" sample', () => preview(SAMPLES['an expression using the click count']))
     And('the preview is at click 1', async () => {
@@ -113,6 +183,42 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
     Then('the slide shows "b"', () => {
       expect(find('.step').text()).toBe('b')
+    })
+  })
+
+  Scenario('Slides read the click count through $slidev, as in Slidev', ({ When, And, Then }) => {
+    When('the preview renders the "the click count read through $slidev" sample', () => preview(SAMPLES['the click count read through $slidev']))
+    And('the preview is at click 2', async () => {
+      clicks.value = 2
+      await flushPromises()
+    })
+    Then('the slide shows "2"', () => {
+      expect(find('.step').text()).toBe('2')
+    })
+  })
+
+  Scenario('Media links are swapped for ones the preview can load', ({ When, Then, And }) => {
+    const signed = 'https://media.example/m1?X-Signature=a1&expires=9'
+    When('the preview renders the "images from the media library" sample with "/api/media/m1/file" mapped to a signed link', () => preview(SAMPLES['images from the media library'], {}, false, { '/api/media/m1/file': signed }))
+    Then('both images load the signed link', () => {
+      expect(wrapper!.findAll('img').map(image => image.attributes('src'))).toEqual([signed, signed])
+    })
+    And('the text that mentions "/api/media/m1/file" is unchanged', () => {
+      expect(find('code').text()).toBe('/api/media/m1/file')
+    })
+  })
+
+  Scenario('Media links in a cover background, a video poster and an inline style are swapped too', ({ When, Then }) => {
+    const signed = 'https://media.example/m1?X-Signature=a1&expires=9'
+    When('the preview renders the "a poster and an inline style from the media library" sample on a cover whose background is "/api/media/m1/file", mapped to a signed link', () => preview(SAMPLES['a poster and an inline style from the media library'], { layout: 'cover', background: '/api/media/m1/file' }, false, { '/api/media/m1/file': signed }))
+    Then('the cover background, the video poster and the inline style load the signed link', () => {
+      expect(find('.slidev-layout.cover').attributes('style')).toContain(`url("${signed}")`)
+      expect(find('video').attributes('poster')).toBe(signed)
+      // A link with no entry in the map stays as written.
+      expect(find('video').attributes('src')).toBe('/api/media/m2/file')
+      expect(find('.panel').attributes('style')).toContain(`url("${signed}")`)
+      expect(find('.panel').attributes('style')).toContain('color: red')
+      expect(wrapper!.html()).not.toContain('/api/media/m1/file')
     })
   })
 

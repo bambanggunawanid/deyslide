@@ -3,7 +3,8 @@ node_modules/
 
 # Build and export output
 dist/
-exports/
+dist-app/
+/exports/
 apps/deck/public/animations/
 
 # Motion Canvas editor output
@@ -27,3 +28,8 @@ Thumbs.db
 # Playwright
 test-results/
 playwright-report/
+
+# Rust and Tauri build output
+/target/
+apps/native/src-tauri/target/
+apps/native/src-tauri/gen/schemas/

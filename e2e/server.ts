@@ -1,6 +1,7 @@
 // The Deyslide API for end to end tests: the real server code on PGlite
 // (in-memory Postgres), with sent emails kept in memory and a fake Claude.
 // Never deployed.
+import type { Server } from 'node:http'
 import type { Email, Mailer } from '../apps/server/src/mailer.ts'
 import process from 'node:process'
 import { PGlite } from '@electric-sql/pglite'
@@ -8,6 +9,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { Kysely } from 'kysely'
 import { PGliteDialect } from 'kysely-pglite-dialect'
+import { attachCollab } from '../apps/server/src/collab/attach.ts'
 import { readConfig } from '../apps/server/src/config.ts'
 import { HttpSlideRenderer } from '../apps/server/src/mcp/renderer.ts'
 import { createServer } from '../apps/server/src/server.ts'
@@ -26,7 +28,7 @@ const db = new Kysely<any>({ dialect: new PGliteDialect(new PGlite()) })
 // The assistant answers with a keyword fake instead of Claude.
 // Slides for the MCP server's render_slides come from the real renderer, started by Playwright.
 const renderer = process.env.E2E_RENDERER_URL ? new HttpSlideRenderer(process.env.E2E_RENDERER_URL) : undefined
-const { app } = await createServer({ config, db, mailer, assistantModel: new KeywordModel(), renderer })
+const { app, collab } = await createServer({ config, db, mailer, assistantModel: new KeywordModel(), renderer })
 
 const root = new Hono()
 // The newest email to an address, so a test can open the link in it.
@@ -36,4 +38,6 @@ root.get('/__e2e/emails/:to', (c) => {
 })
 root.route('/', app)
 
-serve({ fetch: root.fetch, port, hostname: '127.0.0.1' }, info => console.info(`e2e API on http://127.0.0.1:${info.port}`))
+const server = serve({ fetch: root.fetch, port, hostname: '127.0.0.1' }, info => console.info(`e2e API on http://127.0.0.1:${info.port}`))
+// Live editing, as in production.
+attachCollab(server as Server, collab, config.publicUrl)

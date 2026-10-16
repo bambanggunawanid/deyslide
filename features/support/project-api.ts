@@ -1,9 +1,66 @@
-import type { DeckSummary, Project, SharedRole } from '../../apps/web/src/guest/types'
-import type { ProjectApi } from '../../apps/web/src/projects/api'
+import type { Awareness } from 'y-protocols/awareness'
+import type { SessionStatus } from '../../apps/web/src/deck/session'
+import type { DeckSummary, Project, Role, SharedRole } from '../../apps/web/src/guest/types'
+import type { DeckConnection, ProjectApi } from '../../apps/web/src/projects/api'
 import type { ListEntry, ShareList, ShareTarget } from '../../apps/web/src/projects/sharing'
 import type { ExportedProject } from '../../apps/web/src/projects/types'
+import { ref } from 'vue'
+import { applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
+import { NO_ACCESS, VIEW_ONLY_NOW } from '../../apps/web/src/projects/collab'
 import { StoreError } from '../../apps/web/src/projects/names'
+import { deckRole } from '../../apps/web/src/projects/roles'
+import { applyDeck, readDeckDoc } from '../../packages/deck-model/src'
+
+/** The origin a write from "Claude Code" (or any server writer) has on the server's document. */
+export const SERVER_WRITER = Symbol('server writer')
+
+/**
+ * One page's live connection to a deck's room. Like Hocuspocus, it relays
+ * changes both ways while online, and the page's document gets the room's
+ * changes with the connection as their origin.
+ */
+class FakeConnection {
+  readonly status = ref<SessionStatus>('connecting')
+  readonly synced = ref(false)
+  readonly readOnly = ref(true)
+  readonly error = ref('')
+  readonly unsaved = ref(false)
+  /** Changes the room has not confirmed yet, while the server is slow to confirm. */
+  readonly unconfirmed: Uint8Array[] = []
+  /** The page changed its deck while the connection was down. */
+  changedOffline = false
+  live = false
+  failed = false
+  viewer = false
+  /** The server closed the connection after a role change; the page joins again. */
+  rejoining = false
+  /** The role a scenario gave this page's person, over what the projects say. */
+  role?: Role
+  closed = false
+
+  constructor(
+    readonly api: FakeProjectApi,
+    readonly deckId: string,
+    readonly doc: Y.Doc,
+    readonly awareness: Awareness,
+    readonly token: () => Promise<string>,
+  ) {}
+
+  update() {
+    this.unsaved.value = this.synced.value && !this.failed && !this.viewer && (this.unconfirmed.length > 0 || this.changedOffline)
+    if (this.failed) {
+      this.status.value = 'failed'
+      this.readOnly.value = true
+      return
+    }
+    this.readOnly.value = !this.synced.value || this.viewer || this.rejoining
+    if (!this.live)
+      this.status.value = this.api.online || this.rejoining ? 'connecting' : 'offline'
+    else
+      this.status.value = this.unconfirmed.length > 0 && !this.viewer ? 'saving' : 'saved'
+  }
+}
 
 /** An in-memory stand in for the project API, for page scenarios. The API has its own scenarios. */
 export class FakeProjectApi implements ProjectApi {
@@ -14,6 +71,17 @@ export class FakeProjectApi implements ProjectApi {
   failWith = ''
   /** When true, only imports fail, like a server that refuses them. */
   failImports = false
+  /** False while the connection to the server is down. Change it with `goOffline` and `goOnline`. */
+  online = true
+  /** When true, the server takes its time to confirm changes. `confirmChanges` confirms them. */
+  slowToConfirm = false
+  /** Each deck's live document on the server, while it is open or after it was. */
+  readonly rooms = new Map<string, Y.Doc>()
+  private readonly connections = new Set<FakeConnection>()
+  /** Why the server refuses every connection from now on, once it does. */
+  private refusal = ''
+  /** Tokens pages sent when they connected, in order. */
+  readonly tokens: string[] = []
 
   private check() {
     if (this.failWith)
@@ -78,19 +146,268 @@ export class FakeProjectApi implements ProjectApi {
 
   async deckState(deckId: string) {
     this.check()
-    const state = this.states.get(deckId)
+    const room = this.rooms.get(deckId)
+    const state = room ? Y.encodeStateAsUpdate(room) : this.states.get(deckId)
     if (!state)
       throw new StoreError('That project or deck no longer exists.')
     return state
   }
 
+  /**
+   * Saves a whole deck, as Claude Code or an older page does. Like the
+   * server, it changes only what differs in the deck's live room, so pages
+   * with the deck open see the change at once.
+   */
   async saveDeckState(deckId: string, state: Uint8Array) {
     this.check()
     const deck = this.projects.flatMap(project => project.decks).find(item => item.id === deckId)
     if (!deck)
       throw new StoreError('That project or deck no longer exists.')
     deck.slideCount = this.slides(state)
-    this.states.set(deckId, state)
+    const room = this.rooms.get(deckId)
+    if (!room) {
+      this.states.set(deckId, state)
+      return
+    }
+    const saved = new Y.Doc()
+    Y.applyUpdate(saved, state)
+    applyDeck(room, readDeckDoc(saved), SERVER_WRITER)
+    saved.destroy()
+  }
+
+  /** Changes a deck's live room directly, as another server writer would. */
+  changeRoom(deckId: string, change: (doc: Y.Doc) => void) {
+    const room = this.room(deckId)
+    if (!room)
+      throw new Error(`No deck ${deckId}`)
+    room.transact(() => change(room), SERVER_WRITER)
+  }
+
+  // Live editing -------------------------------------------------------------
+
+  connectDeck(deckId: string, doc: Y.Doc, awareness: Awareness, token: () => Promise<string>): DeckConnection {
+    const connection = new FakeConnection(this, deckId, doc, awareness, token)
+    this.connections.add(connection)
+    doc.on('update', (update: Uint8Array, origin: unknown) => {
+      if (origin === connection)
+        return
+      if (!connection.live)
+        connection.changedOffline = true
+      this.send(connection, update)
+    })
+    // The page's own presence goes to everyone else; what it received from them does not go back.
+    awareness.on('update', ({ added, updated, removed }: { added: number[], updated: number[], removed: number[] }, origin: unknown) => {
+      const own = [...added, ...updated, ...removed].filter(client => client === doc.clientID)
+      if (!(origin instanceof FakeConnection) && connection.live && own.length > 0)
+        this.relayPresence(connection, own)
+    })
+    connection.update()
+    // Like a socket, the connection opens a moment later.
+    queueMicrotask(() => void this.connect(connection))
+    return {
+      status: connection.status,
+      synced: connection.synced,
+      readOnly: connection.readOnly,
+      error: connection.error,
+      unsaved: connection.unsaved,
+      flush: async () => {},
+      destroy: () => this.disconnect(connection, true),
+    }
+  }
+
+  /** The connection to the server drops for every page. */
+  goOffline() {
+    this.online = false
+    for (const connection of this.connections)
+      this.disconnect(connection, false)
+  }
+
+  /** The connection comes back, and every page joins its deck again. */
+  goOnline() {
+    this.online = true
+    for (const connection of this.connections)
+      void this.connect(connection)
+  }
+
+  /** The server refuses the person from now on, like after they were removed from the deck. */
+  failAuth(message = NO_ACCESS) {
+    this.refusal = message
+    for (const connection of this.connections) {
+      this.disconnect(connection, false)
+      connection.failed = true
+      connection.error.value = message
+      connection.update()
+    }
+  }
+
+  /**
+   * The person's role changes, on the page holding `target` (a document) or
+   * on every page with the deck `target` open. Like the real server, this
+   * closes those connections, and each page joins again with the new role.
+   */
+  rejoinAs(target: Y.Doc | string, role: Role) {
+    for (const connection of this.connections) {
+      if ((connection.doc !== target && connection.deckId !== target) || !connection.live)
+        continue
+      connection.role = role
+      this.disconnect(connection, false)
+      connection.rejoining = true
+      connection.update()
+      void this.connect(connection)
+    }
+  }
+
+  /** The server confirms every change it holds back while it is slow to confirm. */
+  confirmChanges() {
+    for (const connection of this.connections) {
+      const updates = connection.unconfirmed.splice(0)
+      const room = this.rooms.get(connection.deckId)
+      if (room && connection.live) {
+        for (const update of updates)
+          Y.applyUpdate(room, update, connection)
+      }
+      connection.update()
+    }
+  }
+
+  /** What the person may do with a deck, as the server would decide. */
+  private role(deckId: string): Role | undefined {
+    if (this.projects.some(project => project.decks.some(deck => deck.id === deckId)))
+      return 'owner'
+    for (const project of this.sharedProjects) {
+      const deck = project.decks.find(item => item.id === deckId)
+      if (deck)
+        return deckRole(project, deck)
+    }
+    return undefined
+  }
+
+  private room(deckId: string) {
+    let room = this.rooms.get(deckId)
+    const state = this.states.get(deckId)
+    if (!room && state) {
+      room = new Y.Doc()
+      Y.applyUpdate(room, state)
+      const opened = room
+      opened.on('update', (update: Uint8Array, origin: unknown) => {
+        const deck = this.projects.flatMap(project => project.decks).find(item => item.id === deckId)
+        if (deck)
+          deck.slideCount = readDeckDoc(opened).slides.length
+        for (const connection of this.connections) {
+          if (connection.deckId === deckId && connection.live && origin !== connection)
+            Y.applyUpdate(connection.doc, update, connection)
+        }
+      })
+      this.rooms.set(deckId, room)
+    }
+    return room
+  }
+
+  private async connect(connection: FakeConnection) {
+    if (connection.closed || connection.live || connection.failed)
+      return
+    this.tokens.push(await connection.token())
+    if (connection.closed || connection.live || connection.failed || !this.online) {
+      connection.update()
+      return
+    }
+    const access = this.role(connection.deckId)
+    // A role a scenario gave the page counts while the person has access at all.
+    const role = access && (connection.role ?? access)
+    const room = role && !this.refusal ? this.room(connection.deckId) : undefined
+    if (!role || !room) {
+      connection.failed = true
+      connection.error.value = this.refusal || NO_ACCESS
+      connection.update()
+      return
+    }
+    connection.viewer = role === 'viewer'
+    connection.rejoining = false
+    // Like the server, a viewer's changes are turned down, and the page is told.
+    if (connection.viewer && this.adds(connection.doc, room)) {
+      this.refuse(connection)
+      return
+    }
+    connection.live = true
+    // Sync: the page gets what the room has, and the room what the page changed meanwhile.
+    Y.applyUpdate(connection.doc, Y.encodeStateAsUpdate(room, Y.encodeStateVector(connection.doc)), connection)
+    if (!connection.viewer) {
+      Y.applyUpdate(room, Y.encodeStateAsUpdate(connection.doc, Y.encodeStateVector(room)), connection)
+      connection.changedOffline = false
+    }
+    connection.synced.value = true
+    // Presence both ways: the page's own, and everyone else's.
+    for (const other of this.connections) {
+      if (other !== connection && other.deckId === connection.deckId && other.live) {
+        const clients = [...other.awareness.getStates().keys()].filter(client => client === other.doc.clientID)
+        if (clients.length)
+          applyAwarenessUpdate(connection.awareness, encodeAwarenessUpdate(other.awareness, clients), connection)
+      }
+    }
+    this.relayPresence(connection, [connection.doc.clientID])
+    connection.update()
+  }
+
+  private disconnect(connection: FakeConnection, closing: boolean) {
+    if (closing) {
+      connection.closed = true
+      this.connections.delete(connection)
+    }
+    if (!connection.live) {
+      connection.update()
+      return
+    }
+    connection.live = false
+    // Others stop seeing this page, and this page stops seeing them.
+    for (const other of this.connections) {
+      if (other !== connection && other.deckId === connection.deckId) {
+        removeAwarenessStates(other.awareness, [connection.doc.clientID], connection)
+        removeAwarenessStates(connection.awareness, [other.doc.clientID], connection)
+      }
+    }
+    connection.update()
+  }
+
+  /** Whether `doc` holds changes `room` does not have. */
+  private adds(doc: Y.Doc, room: Y.Doc) {
+    const known = Y.encodeStateVector(room)
+    const missing = Y.decodeStateVector(Y.encodeStateVectorFromUpdate(Y.encodeStateAsUpdate(doc, known)))
+    const has = Y.decodeStateVector(known)
+    return [...missing].some(([client, clock]) => clock > (has.get(client) ?? 0))
+  }
+
+  /** A viewer's page sent a change: the server turns it down and the page stops. */
+  private refuse(connection: FakeConnection) {
+    this.disconnect(connection, false)
+    connection.failed = true
+    connection.error.value = VIEW_ONLY_NOW
+    connection.update()
+  }
+
+  /** Sends a page's change to the room, unless it is offline, a viewer, or the room is slow to confirm. */
+  private send(connection: FakeConnection, update: Uint8Array) {
+    const room = this.rooms.get(connection.deckId)
+    if (connection.live && connection.viewer) {
+      this.refuse(connection)
+      return
+    }
+    if (!connection.live || !room) {
+      connection.update()
+      return
+    }
+    if (this.slowToConfirm)
+      connection.unconfirmed.push(update)
+    else
+      Y.applyUpdate(room, update, connection)
+    connection.update()
+  }
+
+  private relayPresence(from: FakeConnection, clients: number[]) {
+    const update = encodeAwarenessUpdate(from.awareness, clients)
+    for (const other of this.connections) {
+      if (other !== from && other.deckId === from.deckId && other.live)
+        applyAwarenessUpdate(other.awareness, update, from)
+    }
   }
 
   /** Stores a deck's content directly, for decks scenarios set up by hand. */

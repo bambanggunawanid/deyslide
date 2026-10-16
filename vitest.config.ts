@@ -11,11 +11,15 @@ export default defineConfig({
       // Tests swap in a small double that exposes the same composables.
       // Only the bare name: the preview imports Slidev's layouts from subpaths.
       { find: /^@slidev\/client$/, replacement: fileURLToPath(new URL('./features/support/slidev-client.ts', import.meta.url)) },
+      // The web app's entry loads the styles UnoCSS generates, which only its Vite plugin makes.
+      { find: /^virtual:uno\.css$/, replacement: fileURLToPath(new URL('./features/support/no-styles.css', import.meta.url)) },
     ],
   },
   test: {
     environment: 'happy-dom',
     include: ['features/**/*.spec.ts'],
+    // Builds the on-device MCP server once for the specs that run it.
+    globalSetup: ['./features/support/build-deyslide-mcp.ts'],
     // vitest-cucumber runs every Gherkin step as its own test. Vitest 5 clears
     // mock calls between tests by default, which would erase a call made in a
     // When step before the Then step can assert on it.

@@ -14,7 +14,7 @@ export const MCP_GUIDE = `# Writing Deyslide decks
 
 1. Find or make the deck: list_decks, create_project, create_deck.
 2. Read it with read_deck. Each slide comes wrapped in <slide number="N">.
-3. Change it. edit_slides takes a batch of replace, insert, delete and move edits and saves all of them or none. write_deck replaces the whole deck, which suits a first draft.
+3. Change it. edit_slides takes a batch of replace, insert, delete and move edits and saves all of them or none. write_deck replaces the whole deck, which suits a first draft. People can have the deck open while you work and see your changes at once. Read the deck before you change it, so what they do meanwhile is kept.
 4. Look at it with render_slides. Each image shows the slide at its last click step unless you ask for another step. The result also says how many clicks a slide has, whether its content overflows and any render error.
 5. Fix what you see and render again. Stop when every slide renders without errors or overflow.
 6. Share the editor link from the result, so the person can present or keep editing.

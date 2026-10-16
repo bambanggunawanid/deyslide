@@ -37,15 +37,67 @@ function literal(exp: DirectiveNode['exp']) {
   return Number.isInteger(value) ? value : undefined
 }
 
+/** Slidev's click elements: `<v-click>` shows its content at the next click, `<v-after>` at the click before. */
+const CLICK_ELEMENTS = new Set(['v-click', 'VClick'])
+const AFTER_ELEMENTS = new Set(['v-after', 'VAfter'])
+
+/** The `at` an element names, written `at="+2"` or `:at="3"`, without quotes. */
+function atValue(node: ElementNode) {
+  for (const prop of node.props) {
+    if (prop.type === NodeTypes.ATTRIBUTE && prop.name === 'at')
+      return prop.value?.content.trim()
+    if (prop.type === NodeTypes.DIRECTIVE && prop.name === 'bind' && (prop.arg as SimpleExpressionNode | undefined)?.content === 'at')
+      return (prop.exp as SimpleExpressionNode | undefined)?.content.trim().replace(/^(['"])(.*)\1$/, '$2')
+  }
+  return undefined
+}
+
 /**
- * Gives every `v-click` the click it appears on, `v-after` the click before
- * it, each item of a `<v-clicks>` list its own click, and a Magic Move one
- * click per step after the first. Slidev numbers them the same way.
+ * The click an element's `at` stands for: `+n` (the default is `+1`) is n
+ * clicks after the ones counted so far, a plain number is that click.
+ */
+function clickAt(at: string | undefined, counter: ClickCounter) {
+  const relative = /^[+-]\s*\d+$/.test(at ?? '+1') ? Number((at ?? '+1').replace(/\s/g, '')) : undefined
+  if (relative !== undefined)
+    return Math.max(counter.total + relative, 0)
+  const value = Number(at)
+  return Number.isInteger(value) && value >= 0 ? value : counter.total + 1
+}
+
+/** Gives a click element the click it shows at, in place of the `at` it was written with. */
+function setAt(node: ElementNode, at: number) {
+  node.props = node.props.filter(prop => !(prop.type === NodeTypes.ATTRIBUTE && prop.name === 'at')
+    && !(prop.type === NodeTypes.DIRECTIVE && prop.name === 'bind' && (prop.arg as SimpleExpressionNode | undefined)?.content === 'at'))
+  node.props.push({
+    type: NodeTypes.DIRECTIVE,
+    name: 'bind',
+    rawName: ':at',
+    arg: createSimpleExpression('at', true, node.loc, 3),
+    exp: createSimpleExpression(String(at), false, node.loc, 3),
+    modifiers: [],
+    loc: node.loc,
+  })
+}
+
+/**
+ * Gives every `v-click` (directive or element) the click it appears on,
+ * `v-after` the click before it, each item of a `<v-clicks>` list its own
+ * click, and a Magic Move one click per step after the first. Slidev
+ * numbers them the same way.
  */
 export function clickTransform(counter: ClickCounter): NodeTransform {
   return (node) => {
     if (!isElement(node))
       return
+
+    if (CLICK_ELEMENTS.has(node.tag)) {
+      const at = clickAt(atValue(node), counter)
+      counter.total = Math.max(counter.total, at)
+      setAt(node, at)
+    }
+    else if (AFTER_ELEMENTS.has(node.tag)) {
+      setAt(node, Math.max(counter.total, 1))
+    }
 
     if (node.tag === 'v-clicks') {
       node.tag = 'div'

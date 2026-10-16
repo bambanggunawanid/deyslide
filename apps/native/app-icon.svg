@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The Deyslide mark: a slide in the accent color on the app's dark background. -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="#0b1020"/>
+  <rect x="160" y="314" width="704" height="396" rx="56" fill="#38bdf8"/>
+  <rect x="244" y="410" width="336" height="60" rx="30" fill="#0b1020"/>
+  <rect x="244" y="514" width="216" height="40" rx="20" fill="#0b1020" fill-opacity="0.5"/>
+</svg>

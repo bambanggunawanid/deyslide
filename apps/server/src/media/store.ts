@@ -1,9 +1,10 @@
+import type { DeckDocuments } from '../collab/documents.ts'
 import type { AppDb, MediaTable } from '../db.ts'
 import type { ProjectStore } from '../projects.ts'
 import type { MediaStorage } from './storage.ts'
-import { toMarkdown, yDocToDeck } from '@deyslide/deck-model'
+import { deckMarkdown } from '@deyslide/deck-model'
 import { sql } from 'kysely'
-import * as Y from 'yjs'
+import { DeckGoneError } from '../collab/hocuspocus.ts'
 import { atLeast, ForbiddenError } from '../projects.ts'
 import { ACCEPTED_TYPES_MESSAGE, HEAD_BYTES, isMediaType, MEDIA_KINDS } from './kinds.ts'
 
@@ -73,7 +74,8 @@ export interface MediaStoreOptions {
  * bucket and are opened only through short signed links. Everyone the
  * project is shared with can open its files, editors add files, and only
  * the owner deletes them. Someone given a single deck can open the files
- * that deck's slides use. Files count toward the project owner's storage.
+ * that deck's slides use, as its live room holds it. Files count toward
+ * the project owner's storage.
  *
  * Uploading is two steps: ask for a link and PUT the file straight to
  * storage, then finish, which checks the size and the first bytes.
@@ -82,14 +84,16 @@ export class MediaStore {
   private readonly db: AppDb
   private readonly storage: MediaStorage
   private readonly projects: ProjectStore
+  private readonly documents: DeckDocuments
   private readonly limit: number
   private readonly newId: () => string
   private readonly now: () => Date
 
-  constructor(db: AppDb, storage: MediaStorage, projects: ProjectStore, { accountLimitBytes = DEFAULT_ACCOUNT_LIMIT_BYTES, newId = () => crypto.randomUUID(), now = () => new Date() }: MediaStoreOptions = {}) {
+  constructor(db: AppDb, storage: MediaStorage, projects: ProjectStore, documents: DeckDocuments, { accountLimitBytes = DEFAULT_ACCOUNT_LIMIT_BYTES, newId = () => crypto.randomUUID(), now = () => new Date() }: MediaStoreOptions = {}) {
     this.db = db
     this.storage = storage
     this.projects = projects
+    this.documents = documents
     this.limit = accountLimitBytes
     this.newId = newId
     this.now = now
@@ -187,6 +191,37 @@ export class MediaStore {
     return { media: toFile(row), url, expiresAt: new Date(this.now().getTime() + DOWNLOAD_LINK_SECONDS * 1000).toISOString() }
   }
 
+  /**
+   * A short lived download link for a file a deck shows, for its preview.
+   * Slides can run code that reads the link, so the file must belong to the
+   * deck's own project: a deck elsewhere that names the file gets nothing,
+   * whoever looks at it. The person needs access to the deck, and to the
+   * project or to a deck there that shows the file.
+   */
+  async deckLink(userId: string, deckId: string, mediaId: string): Promise<{ media: MediaFile, url: string, expiresAt: string } | undefined> {
+    const row = await this.row(mediaId)
+    if (!row || row.status !== 'ready')
+      return undefined
+    const access = await this.projects.deckAccess(userId, deckId)
+    if (access?.projectId !== row.project_id || !(await this.canOpen(userId, row.project_id, mediaId)))
+      return undefined
+    const url = await this.storage.downloadUrl(row.key, DOWNLOAD_LINK_SECONDS)
+    return { media: toFile(row), url, expiresAt: new Date(this.now().getTime() + DOWNLOAD_LINK_SECONDS * 1000).toISOString() }
+  }
+
+  /**
+   * A file's type and size, and a way to read it, for anyone who may open
+   * it. Exports put the files slides use into the slides themselves, since
+   * the slide renderer has no network.
+   */
+  async contents(userId: string, mediaId: string): Promise<{ type: string, size: number, read: () => Promise<Uint8Array> } | undefined> {
+    const row = await this.row(mediaId)
+    if (!row || row.status !== 'ready' || !(await this.canOpen(userId, row.project_id, mediaId)))
+      return undefined
+    // The file's first `size` bytes are all of it.
+    return { type: row.type, size: row.size, read: () => this.storage.head(row.key, row.size) }
+  }
+
   /** The project owner only. */
   async delete(userId: string, mediaId: string): Promise<boolean> {
     const row = await this.row(mediaId)
@@ -225,24 +260,39 @@ export class MediaStore {
       return true
     const decks = await this.db.selectFrom('deck')
       .innerJoin('deck_member', 'deck_member.deck_id', 'deck.id')
-      .select('deck.state')
+      .select('deck.id')
       .where('deck.project_id', '=', projectId)
       .where('deck_member.user_id', '=', userId)
       .execute()
-    return decks.some(deck => this.deckUses(new Uint8Array(deck.state), mediaId))
+    for (const deck of decks) {
+      if (await this.deckUses(userId, deck.id, mediaId))
+        return true
+    }
+    return false
   }
 
-  private deckUses(state: Uint8Array, mediaId: string) {
-    const doc = new Y.Doc()
+  /**
+   * Whether the deck links to the file. It is read in its live room, not
+   * from the stored copy, which the room saves seconds after a change, so
+   * a file added to the deck a moment ago opens at once.
+   */
+  private async deckUses(userId: string, deckId: string, mediaId: string) {
     try {
-      Y.applyUpdate(doc, state)
-      return toMarkdown(yDocToDeck(doc), { ids: false }).includes(mediaAddress(mediaId))
+      return await this.documents.read(deckId, (doc) => {
+        try {
+          return deckMarkdown(doc).includes(mediaAddress(mediaId))
+        }
+        catch {
+          // A room without a readable deck links to no files.
+          return false
+        }
+      }, { userId })
     }
-    catch {
-      return false
-    }
-    finally {
-      doc.destroy()
+    catch (error) {
+      // Nor does a deck deleted in the meantime.
+      if (error instanceof DeckGoneError)
+        return false
+      throw error
     }
   }
 

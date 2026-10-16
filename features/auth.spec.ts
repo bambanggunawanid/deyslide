@@ -3,13 +3,15 @@ import type { Email } from '../apps/server/src/mailer'
 import type { TestServer } from './support/server'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect } from 'vitest'
-import { createTestServer, DATABASE_WARM_UP_MS, MemoryMailer, TestBrowser, warmUpDatabase } from './support/server'
+import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, MemoryMailer, TestBrowser, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./auth.feature')
 
 beforeAll(warmUpDatabase, DATABASE_WARM_UP_MS)
 
-describeFeature(feature, ({ Background, Scenario }) => {
+describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
+  AfterEachScenario(closeTestServers)
+
   let server: TestServer
   let browser: TestBrowser
   let email: Email
