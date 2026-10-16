@@ -23,6 +23,18 @@ Feature: Merging Markdown written against an older deck
     And the shape box is at x 600 and the body box reads "Nodes and edges today"
     But applying Ana's Markdown directly would have put the box and the text back
 
+  Scenario: A new slide before a slide Ana edits leaves Budi's typing in the edited slide
+    Given Budi types " today" after "Nodes and edges"
+    When Ana merges their Markdown with a slide "# Trees" added before the second slide, whose body box now reads "Nodes and links"
+    Then the second slide keeps its id, and its body box reads "Nodes and links today"
+    And "# Trees" is a slide of its own, with a new id, before it
+
+  Scenario: Deleting a slide next to one Ana edits keeps the edited slide and Budi's typing in it
+    Given Budi types " today" after "Nodes and edges"
+    When Ana merges their Markdown without the first slide, and with the body box reading "Nodes and links"
+    Then the live deck has the second and the closing slide, under their own ids
+    And the body box reads "Nodes and links today"
+
   Scenario: Typing in the same box merges by character
     Given Budi types "Big " into the title after "# "
     When Ana merges their Markdown with " today" added to the end of the title

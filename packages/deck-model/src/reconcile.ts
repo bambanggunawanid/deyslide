@@ -205,6 +205,84 @@ function slidesByPlace(old: number[], next: number[]): [number, number][] {
   return old.slice(0, next.length).map((from, index) => [from, next[index]])
 }
 
+/** Gaps with more possible pairs than this pair by place, so a huge rewrite stays fast. */
+const SIMILAR_PAIRS_MAX = 400
+
+/**
+ * What a pair is worth before its similarity: enough that slides in a gap
+ * of the same size keep pairing in place, as an edit of each, unless one
+ * slide clearly continues another.
+ */
+const PAIR_WORTH = 0.5
+
+/** Each pair of characters in a text, counted. */
+function bigrams(text: string) {
+  const counts = new Map<string, number>()
+  for (let index = 0; index < text.length - 1; index++) {
+    const pair = text.slice(index, index + 2)
+    counts.set(pair, (counts.get(pair) ?? 0) + 1)
+  }
+  return counts
+}
+
+/** How alike two texts are, from 0 to 1, by the pairs of characters they share (the Dice coefficient). */
+function likeness(a: Map<string, number>, b: Map<string, number>) {
+  let total = 0
+  let shared = 0
+  for (const count of a.values())
+    total += count
+  for (const [pair, count] of b) {
+    total += count
+    shared += Math.min(count, a.get(pair) ?? 0)
+  }
+  return total === 0 ? 1 : (2 * shared) / total
+}
+
+/**
+ * Slides left in a gap pair up by what they say, in order: when a change
+ * inserts or deletes a slide next to one it edits, the edited slide keeps
+ * pairing with itself, so its id and text (and what others type in it)
+ * stay with it. Gaps of the same size pair in place unless a slide clearly
+ * continues another.
+ */
+function slidesByLikeness(keys: { old: (string | undefined)[], next: (string | undefined)[] }) {
+  return (old: number[], next: number[]): [number, number][] => {
+    if (old.length === 0 || next.length === 0)
+      return []
+    if (old.length * next.length > SIMILAR_PAIRS_MAX)
+      return slidesByPlace(old, next)
+    const oldGrams = old.map(index => bigrams(keys.old[index] ?? ''))
+    const nextGrams = next.map(index => bigrams(keys.next[index] ?? ''))
+    const worth = old.map((_, i) => next.map((_, j) => PAIR_WORTH + likeness(oldGrams[i]!, nextGrams[j]!)))
+    // best[i][j]: the most the pairs among old[i..] and next[j..] are worth.
+    const width = next.length + 1
+    const best = new Float64Array((old.length + 1) * width)
+    for (let i = old.length - 1; i >= 0; i--) {
+      for (let j = next.length - 1; j >= 0; j--)
+        best[i * width + j] = Math.max(best[(i + 1) * width + j + 1] + worth[i]![j]!, best[(i + 1) * width + j], best[i * width + j + 1])
+    }
+    // From the start, pairing when it is worth as much, so ties pair in place.
+    const pairs: [number, number][] = []
+    let i = 0
+    let j = 0
+    while (i < old.length && j < next.length) {
+      const here = best[i * width + j]
+      if (here === best[(i + 1) * width + j + 1] + worth[i]![j]!) {
+        pairs.push([old[i]!, next[j]!])
+        i++
+        j++
+      }
+      else if (here === best[(i + 1) * width + j]) {
+        i++
+      }
+      else {
+        j++
+      }
+    }
+    return pairs
+  }
+}
+
 // Applying ------------------------------------------------------------------
 
 /** Ids that appear once in a list, the only ones that may pair. */
@@ -436,8 +514,10 @@ export interface ApplyDeckOptions {
  * - Slides, and elements inside a changed slide, whose Markdown is the same
  *   on both sides are not touched at all.
  * - Slides pair by explicit id, then by equal Markdown in order, then by
- *   equal Markdown elsewhere (moved, keeping the id), then by place in each
- *   gap. Old slides left over are deleted; new ones are inserted.
+ *   equal Markdown elsewhere (moved, keeping the id), then by likeness in
+ *   order in each gap (by place when the gap's sides are the same size and
+ *   no slide clearly continues another). Old slides left over are deleted;
+ *   new ones are inserted.
  * - Inside a changed slide, frontmatter is replaced when it differs, notes
  *   change by a text diff, and elements pair the same way (by place and type
  *   in the gaps), then change field by field.
@@ -472,7 +552,7 @@ export function applyDeck(doc: Y.Doc, input: ParsedDeck | Deck, origin?: unknown
   const newKeys = deck.slides.map(slide => slideToMarkdown(slide, PLAIN))
   const oldWithId = new Map(old.flatMap(item => item.id !== undefined ? [[item.id, item] as const] : []))
   const claimed = claimIds(deck.slides.map((slide, index) => ({ id: slide.id, explicit: explicit[index].slide, key: newKeys[index] })), oldWithId)
-  const { match, stays } = align(old, deck.slides.map((_, index) => ({ key: newKeys[index], id: claimed[index] })), slidesByPlace)
+  const { match, stays } = align(old, deck.slides.map((_, index) => ({ key: newKeys[index], id: claimed[index] })), slidesByLikeness({ old: oldKeys, next: newKeys }))
 
   const used = new Set<string>()
   for (const from of match) {

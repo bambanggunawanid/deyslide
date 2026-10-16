@@ -168,6 +168,41 @@ describeFeature(feature, ({ Background, Scenario }) => {
     })
   })
 
+  Scenario('A new slide before a slide Ana edits leaves Budi\'s typing in the edited slide', ({ Given, When, Then, And }) => {
+    Given('Budi types " today" after "Nodes and edges"', () => {
+      budiDoes(doc => elementText(doc, ids[1], 'body').insert(15, ' today'))
+    })
+    When('Ana merges their Markdown with a slide "# Trees" added before the second slide, whose body box now reads "Nodes and links"', () => {
+      merge(text.replace('Nodes and edges', 'Nodes and links').replace('---\n\n<v-drag pos="40,40', '---\n\n# Trees\n\n---\n\n<v-drag pos="40,40'))
+      expect(error).toBeUndefined()
+    })
+    Then('the second slide keeps its id, and its body box reads "Nodes and links today"', () => {
+      expect(slideIds(live)[2]).toBe(ids[1])
+      expect(bodyOf(live)).toBe('Nodes and links today')
+    })
+    And('"# Trees" is a slide of its own, with a new id, before it', () => {
+      expect(slideIds(live)).toHaveLength(4)
+      expect(ids).not.toContain(slideIds(live)[1])
+      expect(readDeckDoc(live).slides[1]!.elements.map(item => (item as { markdown?: string }).markdown)).toEqual(['# Trees'])
+    })
+  })
+
+  Scenario('Deleting a slide next to one Ana edits keeps the edited slide and Budi\'s typing in it', ({ Given, When, Then, And }) => {
+    Given('Budi types " today" after "Nodes and edges"', () => {
+      budiDoes(doc => elementText(doc, ids[1], 'body').insert(15, ' today'))
+    })
+    When('Ana merges their Markdown without the first slide, and with the body box reading "Nodes and links"', () => {
+      merge(text.slice(text.indexOf('<v-drag pos="40,40')).replace('Nodes and edges', 'Nodes and links'))
+      expect(error).toBeUndefined()
+    })
+    Then('the live deck has the second and the closing slide, under their own ids', () => {
+      expect(slideIds(live)).toEqual([ids[1], ids[2]])
+    })
+    And('the body box reads "Nodes and links today"', () => {
+      expect(bodyOf(live)).toBe('Nodes and links today')
+    })
+  })
+
   Scenario('Typing in the same box merges by character', ({ Given, When, Then }) => {
     Given('Budi types "Big " into the title after "# "', () => {
       budiDoes(doc => elementText(doc, ids[0], 'title').insert(2, 'Big '))
