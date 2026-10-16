@@ -7,13 +7,13 @@ import { resolve } from 'node:path'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { defineComponent, h, watch } from 'vue'
-import { statusLabel } from '../apps/web/src/deck/session'
+import { LOCAL_ORIGIN, statusLabel } from '../apps/web/src/deck/session'
 import { saveBeforeClosing } from '../apps/web/src/platform/closing'
 import { startPlatform } from '../apps/web/src/platform/platform'
 import { startRenderBridge } from '../apps/web/src/platform/render-bridge'
 import { LAST_CLICKS } from '../apps/web/src/preview/protocol'
 import { followMoves, LocalStore } from '../apps/web/src/projects/local-store'
-import { deckMarkdown, splitSlides } from '../packages/deck-model/src'
+import { deckMarkdown, moveSlide, readDeckDoc, splitSlides } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { deckIdOf, FakeDeviceLibrary, projectIdOf } from './support/device-library'
 import { resetEditorDoubles } from './support/editor-doubles'
@@ -435,6 +435,34 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     Then('after a moment the app has written nothing more', async () => {
       await wait(A_MOMENT_MS)
       expect(library.writes).toHaveLength(2)
+    })
+  })
+
+  Scenario('A slide moved in the app and on disk at once is written once', ({ Given, When, Then, And }) => {
+    const MOVED = '---\ntitle: Sorting\n---\n\n# Sorting\n\n---\n\n# Insertion sort\n\n---\n\n# Bubble sort\n'
+    const headings = (markdown: string) => splitSlides(markdown).map(slide => slide.content.trim())
+    Given('the deck "Sorting" of 3 slides is open', () => openSorting())
+    When('the person moves slide 3 up to slide 2', () => {
+      const insertion = readDeckDoc(session!.doc).slides[2]!.id
+      session!.transact(() => moveSlide(session!.doc, insertion, 1, LOCAL_ORIGIN))
+    })
+    And('Claude Code makes the same move on disk before the app writes', () => {
+      let once = true
+      library.beforeWrite = () => {
+        if (once)
+          library.put('Talks', 'Sorting', MOVED)
+        once = false
+      }
+    })
+    Then('the file then holds "# Sorting", "# Insertion sort" and "# Bubble sort", each once', async () => {
+      await vi.waitFor(() => expect(said()).toBe('Saved'))
+      await wait(A_MOMENT_MS)
+      expect(headings(library.read('Talks', 'Sorting')!)).toEqual(['# Sorting', '# Insertion sort', '# Bubble sort'])
+    })
+    And('the open deck holds them each once too', () => {
+      expect(headings(deckMarkdown(session!.doc))).toEqual(['# Sorting', '# Insertion sort', '# Bubble sort'])
+      const ids = readDeckDoc(session!.doc).slides.map(slide => slide.id)
+      expect(new Set(ids).size).toBe(3)
     })
   })
 

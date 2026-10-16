@@ -231,6 +231,7 @@ class DeckFile {
       if (this.gone.value)
         throw new StoreError(MOVED)
       applyDeck(this.doc, deck, EXTERNAL_ORIGIN)
+      repairDeckDoc(this.doc, EXTERNAL_ORIGIN)
       await this.write()
     })
   }
@@ -305,6 +306,10 @@ class DeckFile {
       const { textBase } = mergeMarkdown(this.doc, this.base!, current, EXTERNAL_ORIGIN, { writer: this.writer })
       this.base = textBase
       this.baseMarkdown = markdownOf(textBase)
+      // A slide moved in the app and in the file at once comes out twice.
+      // This store is the deck's only writer, so it tidies the merge here;
+      // the next write takes the tidied deck to the file.
+      repairDeckDoc(this.doc, EXTERNAL_ORIGIN)
     }
     catch (error) {
       if (!(error instanceof DeckMarkdownError))

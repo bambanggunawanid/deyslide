@@ -43,6 +43,13 @@ Feature: Decks saved as files on the device
     When the library reports its changes
     Then after a moment the app has written nothing more
 
+  Scenario: A slide moved in the app and on disk at once is written once
+    Given the deck "Sorting" of 3 slides is open
+    When the person moves slide 3 up to slide 2
+    And Claude Code makes the same move on disk before the app writes
+    Then the file then holds "# Sorting", "# Insertion sort" and "# Bubble sort", each once
+    And the open deck holds them each once too
+
   Scenario: A change Claude Code makes on disk shows up in the open deck
     Given the deck "Sorting" of 3 slides is open
     When Claude Code changes slide 2 on disk to "# Quick sort"
