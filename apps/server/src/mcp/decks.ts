@@ -1,7 +1,7 @@
-import type { MergeWriter, ParsedDeck } from '@deyslide/deck-model'
+import type { MergeWriter, ParsedDeck, SourceSlide } from '@deyslide/deck-model'
 import type { DeckDocuments } from '../collab/documents.ts'
 import type { DeckSummary, Project, ProjectStore, SharedProject } from '../projects.ts'
-import { applyDeck, deckMarkdown, DeckMarkdownError, frontmatterErrors, mergeMarkdown, newMergeWriter, parseMarkdown } from '@deyslide/deck-model'
+import { applyDeck, deckMarkdown, DeckMarkdownError, frontmatterErrors, mergeMarkdown, newMergeWriter, parseMarkdown, readDeckDoc, splitSlides } from '@deyslide/deck-model'
 import * as Y from 'yjs'
 import { DeckDraft, MARKDOWN_MAX_LENGTH } from '../assistant/draft.ts'
 import { DeckNotSavedError } from '../collab/documents.ts'
@@ -154,6 +154,65 @@ function markdownAt(state: Uint8Array) {
   }
 }
 
+/** The slide ids of the deck at an earlier state, in order. */
+function slideIdsAt(state: Uint8Array) {
+  const doc = new Y.Doc()
+  try {
+    Y.applyUpdate(doc, state)
+    return readDeckDoc(doc).slides.map(slide => slide.id)
+  }
+  finally {
+    doc.destroy()
+  }
+}
+
+/** The live deck: its Markdown, and each slide's text and id in order. */
+interface LiveSlides {
+  markdown: string
+  slides: SourceSlide[]
+  ids: string[]
+}
+
+function liveSlides(doc: Y.Doc): LiveSlides {
+  const markdown = deckMarkdown(doc)
+  return { markdown, slides: splitSlides(markdown), ids: readDeckDoc(doc).slides.map(slide => slide.id) }
+}
+
+/**
+ * The live deck's slides, numbered the way one Claude Code session knows
+ * the deck: by the version it last read or wrote. Its slide numbers then
+ * keep meaning the slides it was shown, whatever people add, delete or
+ * move meanwhile, until it reads the deck again.
+ */
+export interface SlideNumbering {
+  /** The live slide for each number Claude knows, or undefined when someone deleted it. */
+  slides: (SourceSlide | undefined)[]
+  /** Live slides Claude has not read, which people added since. */
+  added: SourceSlide[]
+  /** True when the numbers are the live deck's own: nothing was added, deleted or moved. */
+  same: boolean
+  /** The live deck's first slide, whose frontmatter holds the deck settings. */
+  first?: SourceSlide
+}
+
+function numberSlides(live: LiveSlides, known: Uint8Array | undefined): SlideNumbering {
+  const own = { slides: live.slides, added: [], same: true, first: live.slides[0] }
+  // Slides the Markdown split and the document disagree on are numbered as they stand.
+  if (!known || live.ids.length !== live.slides.length)
+    return own
+  const ids = slideIdsAt(known)
+  if (ids.length === live.ids.length && ids.every((id, index) => id === live.ids[index]))
+    return own
+  const byId = new Map(live.ids.map((id, index) => [id, live.slides[index]!]))
+  const shown = new Set(ids)
+  return {
+    slides: ids.map(id => byId.get(id)),
+    added: live.ids.filter(id => !shown.has(id)).map(id => byId.get(id)!),
+    same: false,
+    first: live.slides[0],
+  }
+}
+
 /** Undefined when the deck was deleted while the call ran. */
 async function unlessGone<T>(work: Promise<T>): Promise<T | undefined> {
   try {
@@ -180,6 +239,8 @@ function baseKey({ userId, session = '' }: Reader, deckId: string) {
 export interface DeckWrite {
   /** The deck as it is now, with what people changed while Claude worked. */
   markdown: string
+  /** Its slides, numbered the way the session that wrote now knows the deck. */
+  numbering: SlideNumbering
   /**
    * True when Claude's Markdown replaced the deck instead of being merged
    * with a version Claude read: there was no read on record, or the deck
@@ -192,7 +253,7 @@ export interface DeckWrite {
 interface Change {
   textBase: Uint8Array
   replaced: boolean
-  markdown: string
+  live: LiveSlides
 }
 
 /**
@@ -277,10 +338,10 @@ export class MarkdownDecks {
     return this.change(writer, deckId, (doc) => {
       if (base) {
         const { textBase, fallback } = mergeMarkdown(doc, base, markdown, undefined, { writer: mergeWriter })
-        return { textBase, replaced: fallback, markdown: deckMarkdown(doc) }
+        return { textBase, replaced: fallback, live: liveSlides(doc) }
       }
       applyDeck(doc, parsed)
-      return { textBase: Y.encodeStateAsUpdate(doc), replaced: true, markdown: deckMarkdown(doc) }
+      return { textBase: Y.encodeStateAsUpdate(doc), replaced: true, live: liveSlides(doc) }
     })
   }
 
@@ -306,13 +367,13 @@ export class MarkdownDecks {
     return this.change(writer, deckId, (doc) => {
       if (edited !== undefined) {
         const { textBase, fallback } = mergeMarkdown(doc, base!, edited, undefined, { writer: mergeWriter })
-        return { textBase, replaced: fallback, markdown: deckMarkdown(doc) }
+        return { textBase, replaced: fallback, live: liveSlides(doc) }
       }
       // Read, edit and write in one step, so no other change lands in between.
       const draft = new DeckDraft(deckMarkdown(doc))
       edit(draft)
       applyDeck(doc, checkMarkdown(draft.markdown))
-      return { textBase: Y.encodeStateAsUpdate(doc), replaced: false, markdown: deckMarkdown(doc) }
+      return { textBase: Y.encodeStateAsUpdate(doc), replaced: false, live: liveSlides(doc) }
     })
   }
 
@@ -351,8 +412,20 @@ export class MarkdownDecks {
     }
     if (!made)
       return undefined
-    this.remember(writer, deckId, made)
-    return { markdown: made.markdown, replaced: made.replaced }
+    const known = this.remember(writer, deckId, made)
+    return { markdown: made.live.markdown, numbering: numberSlides(made.live, known), replaced: made.replaced }
+  }
+
+  /**
+   * The deck's slides numbered the way this session knows the deck (see
+   * `SlideNumbering`), or as they stand when it read or wrote nothing yet.
+   * Undefined when the deck is not the person's.
+   */
+  async numbered(reader: Reader, deckId: string): Promise<SlideNumbering | undefined> {
+    if (!(await this.projects.deckAccess(reader.userId, deckId)))
+      return undefined
+    const live = await unlessGone(this.documents.read(deckId, liveSlides, { userId: reader.userId }))
+    return live && numberSlides(live, this.bases.get(baseKey(reader, deckId)))
   }
 
   /**
@@ -363,7 +436,9 @@ export class MarkdownDecks {
   private remember(writer: Reader, deckId: string, { textBase, replaced }: Change) {
     const key = baseKey(writer, deckId)
     const known = this.bases.get(key)
-    this.bases.set(writer.userId, key, known && !replaced ? Y.mergeUpdates([known, textBase]) : textBase)
+    const now = known && !replaced ? Y.mergeUpdates([known, textBase]) : textBase
+    this.bases.set(writer.userId, key, now)
+    return now
   }
 
   private writerOf(deckId: string) {

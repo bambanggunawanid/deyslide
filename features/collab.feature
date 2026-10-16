@@ -115,7 +115,20 @@ Feature: Live editing on the server
     When Budi adds "# Insertion sort" as slide 2
     And Claude Code replaces slide 3 with "# Quick sort"
     Then Budi sees the slides "Sorting", "Insertion sort", "Bubble sort" and "Quick sort"
-    And Claude Code is told the deck now has those slides
+    And Claude Code is told the slides numbered as it knows them, "Sorting", "Bubble sort" and "Quick sort", and that someone added "Insertion sort"
+
+  Scenario: Claude Code's next edit by the numbers it was just shown lands on the slide it means
+    Given Ana shared the project with Budi as an editor
+    And Budi has the deck open live
+    And Claude Code is connected as Ana and has read the deck
+    When Budi adds "# Agenda" as slide 2 from the slide strip
+    And Claude Code replaces slide 3 with "# Merge sort, edited"
+    And Claude Code replaces "Bubble sort", by the number its answer gave it, with "# Bubble sort, edited"
+    Then Budi sees the slides "Sorting", "Agenda", "Bubble sort, edited" and "Merge sort, edited"
+    When Claude Code draws "Bubble sort, edited", by the number its answer gave it
+    Then the renderer drew "# Bubble sort, edited"
+    When Budi deletes the slide "Sorting" and Claude Code draws slide 1
+    Then Claude Code is told someone deleted slide 1 since it last read the deck
 
   Scenario: Each Claude Code session's write keeps what people changed since that session read
     Given Ana shared the project with Budi as an editor

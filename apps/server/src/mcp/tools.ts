@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { DeckWrite, MarkdownDecks } from './decks.ts'
+import type { DeckWrite, MarkdownDecks, SlideNumbering } from './decks.ts'
 import type { RenderedSlide, SlideRenderer } from './renderer.ts'
 import type { LeftOut, LeftOutReason, SlideMedia } from './slide-media.ts'
 import { splitSlides } from '@deyslide/deck-model'
@@ -9,6 +9,7 @@ import { DeckDraft, EditError } from '../assistant/draft.ts'
 import { DeckNotSavedError } from '../collab/documents.ts'
 import { DeckTooBigError } from '../collab/limits.ts'
 import { MAX_INLINE_MEDIA_BYTES } from '../exports/media.ts'
+import { LAST_CLICKS } from '../exports/pdf.ts'
 import { ForbiddenError, NameSchema } from '../projects.ts'
 import { DeckInputError } from './decks.ts'
 import { MCP_GUIDE, MCP_INSTRUCTIONS } from './guide.ts'
@@ -89,6 +90,21 @@ function titleOf(content: string) {
 
 function outline(markdown: string) {
   return splitSlides(markdown).map((slide, index) => `${index + 1}. ${titleOf(slide.content)}`).join('\n')
+}
+
+/**
+ * The slides after a write, numbered as Claude knows the deck. When people
+ * added, deleted or moved slides meanwhile, the numbers stay those of
+ * Claude's version, so its next edit lands on the slide it means.
+ */
+function slidesNow(numbering: SlideNumbering) {
+  if (numbering.same)
+    return `The deck now has these slides:\n${numbering.slides.map((slide, index) => `${index + 1}. ${titleOf(slide!.content)}`).join('\n')}`
+  const lines = numbering.slides.map((slide, index) => `${index + 1}. ${slide ? titleOf(slide.content) : '(deleted by someone since)'}`)
+  const added = numbering.added.length
+    ? `\nSomeone also added slides you have not read: ${numbering.added.map(slide => `"${titleOf(slide.content)}"`).join(', ')}.`
+    : ''
+  return `People changed the order of the slides while you worked. The deck now has these slides, numbered as you know them:\n${lines.join('\n')}${added}\nSlide numbers in edit_slides and render_slides keep meaning these slides until you call read_deck again.`
 }
 
 const LEFT_OUT_BECAUSE: Record<LeftOutReason, string> = {
@@ -249,7 +265,7 @@ export function createMcpServer(userId: string, { decks, renderer, media, versio
     const how = written.replaced
       ? 'Saved. There was no read of this deck to merge with (reads are kept for an hour), so your Markdown replaced the whole deck.'
       : 'Saved, merged with what people changed since you read the deck.'
-    return text(`${how} The deck now has these slides:\n${outline(written.markdown)}\n\nCheck them with render_slides.`)
+    return text(`${how} ${slidesNow(written.numbering)}\n\nCheck them with render_slides.`)
   })
 
   server.registerTool('edit_slides', {
@@ -272,7 +288,7 @@ export function createMcpServer(userId: string, { decks, renderer, media, versio
       return problem(NOT_FOUND)
     const saved = `Saved ${edits.length} edit${edits.length === 1 ? '' : 's'}.`
     const how = written.replaced ? ' The deck no longer holds the version you read, so the edited version replaced the whole deck.' : ''
-    return text(`${saved}${how} The deck now has these slides:\n${new DeckDraft(written.markdown).outline()}\n\nCheck them with render_slides.`)
+    return text(`${saved}${how} ${slidesNow(written.numbering)}\n\nCheck them with render_slides.`)
   })
 
   server.registerTool('render_slides', {
@@ -285,24 +301,32 @@ export function createMcpServer(userId: string, { decks, renderer, media, versio
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ deckId, slides, click = 'last' }) => {
-    const found = await deckOrNull(deckId)
-    if (!found)
+    const found = await decks.find(userId, deckId)
+    // Numbered as this session knows the deck, as its edits are.
+    const numbering = found && await decks.numbered(reader, deckId)
+    if (!found || !numbering)
       return problem(NOT_FOUND)
     if (!renderer)
       return problem('Slide images are not available on this Deyslide server. Check the Markdown with read_deck instead.')
-    const source = splitSlides(found.markdown)
-    const numbers = slides ?? source.slice(0, MAX_RENDERED_SLIDES).map((_, index) => index + 1)
+    const source = numbering.slides
+    const numbers = slides ?? source.map((slide, index) => slide && index + 1).filter((number): number is number => number !== undefined).slice(0, MAX_RENDERED_SLIDES)
     const missing = numbers.filter(number => number > source.length)
     if (missing.length)
       return problem(`The deck has ${source.length} slides, so there is no slide ${missing.join(', ')}.`)
-    const clicks = click === 'first' ? 0 : click === 'last' ? 1000 : click
-    const drawing = numbers.map(number => ({
-      content: source[number - 1].content,
-      frontmatter: source[number - 1].frontmatter,
-      headmatter: source[0].frontmatter,
-      first: number === 1,
-      clicks,
-    }))
+    const deleted = numbers.filter(number => !source[number - 1])
+    if (deleted.length)
+      return problem(`Someone deleted slide ${deleted.join(', ')} since you last read the deck. Call read_deck to see the deck as it is now.`)
+    const clicks = click === 'first' ? 0 : click === 'last' ? LAST_CLICKS : click
+    const drawing = numbers.map((number) => {
+      const slide = source[number - 1]!
+      return {
+        content: slide.content,
+        frontmatter: slide.frontmatter,
+        headmatter: numbering.first?.frontmatter ?? {},
+        first: slide === numbering.first,
+        clicks,
+      }
+    })
     const draw = (links: Record<string, string>) => renderer.render(drawing, Object.keys(links).length ? { media: links } : undefined)
     let rendered: RenderedSlide[]
     let left: LeftOut[] = []

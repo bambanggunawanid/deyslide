@@ -2,6 +2,7 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { MockInstance } from 'vitest'
+import type { SlideRenderer } from '../apps/server/src/mcp/renderer'
 import type { Project } from '../apps/server/src/projects'
 import type { Listening, TestBrowser, TestServer } from './support/server'
 import { createHash, randomBytes } from 'node:crypto'
@@ -29,6 +30,16 @@ const SORTING = '---\ntitle: Sorting\n---\n\n# Sorting\n\n---\n\n# Bubble sort\n
 const HEAP = '---\ntitle: Sorting\n---\n\n# Sorting\n\n---\n\n# Heap sort\n'
 /** How long a scenario waits for something to arrive over a socket. */
 const SOON = { timeout: 4000, interval: 20 }
+
+/** What Claude Code's render_slides drew, by each slide's content. */
+const drawn: string[] = []
+/** A renderer that keeps what it is asked to draw. */
+const renderer: SlideRenderer = {
+  render: async (slides) => {
+    drawn.push(...slides.map(slide => slide.content.trim()))
+    return slides.map(() => ({ png: 'iVBORw0KGgo=', clicks: 0, overflow: false }))
+  },
+}
 /** What clients receive when their access changed. Clients depend on these values, so they are spelled out here. */
 const ACCESS_CHANGED = { code: 4001, reason: 'access-changed' }
 const TOO_BIG = { code: 4002, reason: 'This deck is too big to save. Remove some content.' }
@@ -383,7 +394,8 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
   Background(({ Given, And }) => {
     Given('the Deyslide API on a port with live editing', async () => {
       // Short checks and pings, so scenarios see their effects in moments.
-      server = await createTestServer({ signInCheckMs: 200 })
+      drawn.length = 0
+      server = await createTestServer({ signInCheckMs: 200, renderer })
       listening = await server.listen({ pingIntervalMs: 200 })
     })
     And('Ana owns the deck "Sorting" with the slides "Sorting", "Bubble sort" and "Merge sort"', async () => {
@@ -717,8 +729,52 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('Budi sees the slides "Sorting", "Insertion sort", "Bubble sort" and "Quick sort"', async () => {
       await vi.waitFor(() => expect(headingsOf(slidesOf(budi.doc))).toEqual(['Sorting', 'Insertion sort', 'Bubble sort', 'Quick sort']), SOON)
     })
-    And('Claude Code is told the deck now has those slides', () => {
-      expect(resultText()).toContain('The deck now has these slides:\n1. Sorting\n2. Insertion sort\n3. Bubble sort\n4. Quick sort\n')
+    And('Claude Code is told the slides numbered as it knows them, "Sorting", "Bubble sort" and "Quick sort", and that someone added "Insertion sort"', () => {
+      expect(resultText()).toContain('The deck now has these slides, numbered as you know them:\n1. Sorting\n2. Bubble sort\n3. Quick sort\nSomeone also added slides you have not read: "Insertion sort".\n')
+    })
+  })
+
+  Scenario('Claude Code\'s next edit by the numbers it was just shown lands on the slide it means', ({ Given, And, When, Then }) => {
+    Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
+    And('Budi has the deck open live', async () => {
+      budi = await openSynced({ browser: budiBrowser })
+    })
+    And('Claude Code is connected as Ana and has read the deck', async () => {
+      await connectClaude()
+      await readDeck()
+    })
+    /** The number Claude's last answer gave the slide with this title. */
+    const numberOf = (title: string) => Number(resultText().match(new RegExp(`^(\\d+)\\. ${title}$`, 'm'))![1])
+    When('Budi adds "# Agenda" as slide 2 from the slide strip', async () => {
+      insertSlide(budi.doc, 1, { id: newId('s'), frontmatter: {}, elements: [{ id: newId('e'), type: 'raw', markdown: '# Agenda' }] })
+      await sent(budi)
+      expect(headingsOf(slidesOf(budi.doc))).toEqual(['Sorting', 'Agenda', 'Bubble sort', 'Merge sort'])
+    })
+    And('Claude Code replaces slide 3 with "# Merge sort, edited"', async () => {
+      await call('edit_slides', { deckId, edits: [{ action: 'replace', slide: 3, text: '# Merge sort, edited' }] })
+    })
+    And('Claude Code replaces "Bubble sort", by the number its answer gave it, with "# Bubble sort, edited"', async () => {
+      await call('edit_slides', { deckId, edits: [{ action: 'replace', slide: numberOf('Bubble sort'), text: '# Bubble sort, edited' }] })
+    })
+    Then('Budi sees the slides "Sorting", "Agenda", "Bubble sort, edited" and "Merge sort, edited"', async () => {
+      await vi.waitFor(() => expect(headingsOf(slidesOf(budi.doc))).toEqual(['Sorting', 'Agenda', 'Bubble sort, edited', 'Merge sort, edited']), SOON)
+    })
+    When('Claude Code draws "Bubble sort, edited", by the number its answer gave it', async () => {
+      const number = numberOf('Bubble sort, edited')
+      drawn.length = 0
+      await call('render_slides', { deckId, slides: [number] })
+    })
+    Then('the renderer drew "# Bubble sort, edited"', () => {
+      expect(drawn).toEqual(['# Bubble sort, edited'])
+    })
+    When('Budi deletes the slide "Sorting" and Claude Code draws slide 1', async () => {
+      deleteSlide(budi.doc, readDeckDoc(budi.doc).slides[0]!.id)
+      await sent(budi)
+      await callTool('render_slides', { deckId, slides: [1] })
+    })
+    Then('Claude Code is told someone deleted slide 1 since it last read the deck', () => {
+      expect(result.isError).toBe(true)
+      expect(resultText()).toBe('Someone deleted slide 1 since you last read the deck. Call read_deck to see the deck as it is now.')
     })
   })
 
