@@ -9,7 +9,9 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use tauri::http::header::{HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN};
 use tauri::http::{Request, Response};
 use tauri::webview::PageLoadEvent;
-use tauri::{App, AppHandle, Manager, Runtime, WebviewWindowBuilder, WindowEvent};
+#[cfg(desktop)]
+use tauri::Manager;
+use tauri::{App, AppHandle, Runtime, WebviewWindowBuilder, WindowEvent};
 
 use crate::debug;
 
