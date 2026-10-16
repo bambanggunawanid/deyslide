@@ -169,7 +169,7 @@ A deck opens as one live Yjs document that both views, the assistant and Claude 
 - Changes made offline stay in the tab until the server has them, even after leaving the deck, and the browser asks before such a tab closes.
 - Everyone in the deck shows as an avatar in the header and as a dot on their slide in the slide strip. On the canvas, other people's selections show as colored outlines with their name, their pointers as small labeled cursors, and the text cursors of anyone editing the same text box. Names and colors come from the server, so nobody can pose as someone else.
 - Deleting a deck or project, removing someone, changing a role, leaving, signing out and an expired app token close the affected connections, and people reconnect with the access they have now. Someone who lost access sees "You no longer have access to this deck."
-- A room refuses a deck past 200,000 characters of Markdown, 500 slides or 10 MB, and everyone in it sees "This deck is too big to save. Remove some content."
+- A room refuses a deck past 200,000 characters of Markdown, 500 slides or 5 MB, and everyone in it sees "This deck is too big to save. Remove some content." A single change over 2 MB, or one that would take the deck's data past 5 MB, is refused before the room takes it in: only the page that sent it is let go, with the same message. A page that writes anything outside the deck is let go too, and presence passes on only the known fields (who, view, slide, selection, pointer, text cursor), up to 8 KB.
 - Rooms load from the database, store a couple of seconds after changes stop (and try again when a store fails), and repair a deck that concurrent edits left invalid, for everyone at once.
 
 ### Design view

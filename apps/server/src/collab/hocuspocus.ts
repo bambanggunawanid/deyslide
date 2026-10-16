@@ -9,7 +9,7 @@ import * as Y from 'yjs'
 import { verifyAccessToken } from '../access-token.ts'
 import { apiUrl } from '../auth.ts'
 import { atLeast } from '../projects.ts'
-import { overLimit, TOO_BIG } from './limits.ts'
+import { CHANGE_MAX_BYTES, NOT_A_DECK, onlyChangesDeck, overLimit, ROOM_MAX_BYTES, TOO_BIG } from './limits.ts'
 import { ACCESS_CHANGED, closeConnection, closeRoom, deckIdOf } from './rooms.ts'
 
 // Live editing: one Hocuspocus room per open deck, named `deck:<deckId>`.
@@ -75,6 +75,54 @@ const storeProblems = new WeakMap<Y.Doc, StoreProblem>()
  */
 export function storeProblem(document: Y.Doc): StoreProblem | undefined {
   return storeProblems.get(document)
+}
+
+/** Sync messages that carry changes, in y-protocols: the reply to a first sync, and an update. */
+const SYNC_STEP_2 = 1
+const SYNC_UPDATE = 2
+
+/**
+ * Each room's encoded size as last measured, and the bytes of changes it
+ * took in since. A change adds about its own bytes at most, so their sum
+ * stands in for the size between measures.
+ */
+const roomSizes = new WeakMap<Y.Doc, { measured: number, since: number }>()
+
+function measured(document: Y.Doc, state: Uint8Array = Y.encodeStateAsUpdate(document)) {
+  roomSizes.set(document, { measured: state.byteLength, since: 0 })
+  return state
+}
+
+/**
+ * Whether a room can take a change of `bytes` and stay within its limit.
+ * It measures the room again only when the estimate comes close.
+ */
+function roomTakes(document: Y.Doc, bytes: number) {
+  let size = roomSizes.get(document)
+  if (!size || size.measured + size.since + bytes > ROOM_MAX_BYTES) {
+    measured(document)
+    size = roomSizes.get(document)!
+  }
+  if (size.measured + size.since + bytes > ROOM_MAX_BYTES)
+    return false
+  size.since += bytes
+  return true
+}
+
+/** What a page's presence may say: who it is, where it is, and its pointer, selection and text cursor. */
+const PRESENCE_FIELDS = ['user', 'view', 'slideId', 'selection', 'pointer', 'cursor']
+
+/** Presence from one page may take this much JSON, far more than a real one needs. */
+export const PRESENCE_MAX_BYTES = 8 * 1024
+
+/**
+ * The fields of a page's presence that everyone gets, or undefined when it
+ * is too big to pass on. Presence goes to every page in the room, so a page
+ * cannot use it to send them anything else.
+ */
+function presenceOf(state: Record<string, unknown>): Record<string, unknown> | undefined {
+  const kept = Object.fromEntries(PRESENCE_FIELDS.filter(field => field in state).map(field => [field, state[field]]))
+  return JSON.stringify(kept).length > PRESENCE_MAX_BYTES ? undefined : kept
 }
 
 /** Whether a document holds a deck at all, even a broken one. */
@@ -210,7 +258,7 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
   /** Repairs the deck soon after a change, and lets everyone go when it grew too big. */
   async function check(document: Document, deckId: string) {
     try {
-      if (await repair(document, deckId, { source: 'local' }) && !document.isDestroyed && overLimit(document))
+      if (await repair(document, deckId, { source: 'local' }) && !document.isDestroyed && overLimit(document, measured(document)))
         closeRoom(document, TOO_BIG)
     }
     catch (error) {
@@ -296,7 +344,7 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
           unsaved.delete(document)
           return
         }
-        const state = Y.encodeStateAsUpdate(document)
+        const state = measured(document)
         const problem = overLimit(document, state)
         if (problem) {
           // Nothing is saved, and everyone in the room is told why.
@@ -317,6 +365,21 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
         void instance.storeDocumentHooks(document, payload)
         throw error
       }
+    },
+
+    /**
+     * Looks at a page's change before the room takes it in, so a change
+     * that is too big, or that writes anything but the deck, never reaches
+     * the room. The page is let go instead; the others keep editing.
+     */
+    async beforeSync({ type, payload, connection, document }) {
+      // A read only connection takes in nothing.
+      if (connection.readOnly || (type !== SYNC_STEP_2 && type !== SYNC_UPDATE))
+        return
+      if (payload.byteLength > CHANGE_MAX_BYTES || !roomTakes(document, payload.byteLength))
+        closeConnection(connection, TOO_BIG)
+      else if (!onlyChangesDeck(payload))
+        closeConnection(connection, NOT_A_DECK)
     },
 
     async beforeHandleAwareness({ states, removedClients, connection, context, document }) {
@@ -344,10 +407,14 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
         return true
       }
       for (const [clientId, state] of states) {
-        if (own(clientId))
-          state.user = { id: context.userId, name: context.name ?? '', color: presenceColor(context.userId) }
-        else
+        const shown = own(clientId) && presenceOf(state)
+        if (shown) {
+          shown.user = { id: context.userId, name: context.name ?? '', color: presenceColor(context.userId) }
+          states.set(clientId, shown)
+        }
+        else {
           states.delete(clientId)
+        }
       }
       for (const clientId of removedClients) {
         if (presenceIds.get(connection) !== clientId)

@@ -260,12 +260,41 @@ Feature: Live editing on the server
     Then Ana's connection closes with "This deck is too big to save. Remove some content."
     And the saved deck still has the slides "Sorting", "Bubble sort" and "Merge sort"
 
-  Scenario: A deck whose data grows past 10 MB is not saved either
+  Scenario: A page whose changes would take the deck's data past 5 MB is let go, and the others keep editing
     Given Ana shared the project with Budi as an editor
     And Ana and Budi have the deck open live
-    When Budi's page stores 10.6 MB of data that no slide shows
-    Then Ana's and Budi's connections close with "This deck is too big to save. Remove some content."
-    And the saved deck still has the slides "Sorting", "Bubble sort" and "Merge sort"
+    When Budi's page stores 1 MB of data that no slide shows, 6 times
+    Then Budi's connection closes with "This deck is too big to save. Remove some content."
+    And the live deck holds no more than 5 MB
+    When Ana changes slide 2 to "# Insertion sort"
+    And Ana closes the deck
+    Then the saved deck has the slides "Sorting", "Insertion sort" and "Merge sort"
+    And it holds no more than 5 MB
+
+  Scenario: A change too big for one message never reaches the deck
+    Given Ana shared the project with Budi as an editor
+    And Ana and Budi have the deck open live
+    When Budi's page stores 3 MB of data that no slide shows in one change
+    Then Budi's connection closes with "This deck is too big to save. Remove some content."
+    And the live deck does not hold that data
+    And Ana's connection stays open
+
+  Scenario: A page that writes anything but the deck is let go
+    Given Ana shared the project with Budi as an editor
+    And Ana and Budi have the deck open live
+    When Budi's page writes to a part of the document outside the deck
+    Then Budi's connection closes with "This change is not part of the deck."
+    And the live deck holds nothing outside the deck
+    And Ana's connection stays open
+
+  Scenario: Presence passes on only what pages show, and only a little of it
+    Given Ana shared the project with Budi as a viewer
+    And Ana and Budi have the deck open live
+    When Budi's page adds a field of its own to its presence
+    Then Ana sees Budi's presence without that field
+    When Budi's page goes to slide "second" with 100 KB in its selection
+    And then goes to slide "third" with nothing selected
+    Then Ana sees Budi on slide "third", and never saw slide "second" or that selection
 
   Scenario: Decks too big to edit live cannot be added
     When Ana adds a deck with 501 slides

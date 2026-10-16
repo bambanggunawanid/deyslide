@@ -11,7 +11,7 @@ import { beforeAll, expect, vi } from 'vitest'
 import WebSocket from 'ws'
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
-import { presenceColor } from '../apps/server/src/collab/hocuspocus'
+import { CHECK_DELAY_MS, presenceColor } from '../apps/server/src/collab/hocuspocus'
 import { roomName } from '../apps/server/src/collab/rooms'
 import { storeAllRooms } from '../apps/server/src/collab/shutdown'
 import { BASE_LIMITS, RecentBases } from '../apps/server/src/mcp/decks'
@@ -1132,19 +1132,106 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     })
   })
 
-  Scenario('A deck whose data grows past 10 MB is not saved either', ({ Given, And, When, Then }) => {
+  Scenario('A page whose changes would take the deck\'s data past 5 MB is let go, and the others keep editing', ({ Given, When, Then, And }) => {
     Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
     And('Ana and Budi have the deck open live', anaAndBudiOpen)
-    When('Budi\'s page stores 10.6 MB of data that no slide shows', () => {
-      budi.doc.getMap('deck').set('unused', 'x'.repeat(10_600_000))
+    When('Budi\'s page stores 1 MB of data that no slide shows, 6 times', () => {
+      // Each change goes in a message of its own.
+      for (let index = 1; index <= 6; index++)
+        budi.doc.getMap('deck').set(`unused-${index}`, String(index).repeat(1_000_000))
     })
-    Then('Ana\'s and Budi\'s connections close with "This deck is too big to save. Remove some content."', async () => {
-      for (const page of [ana, budi])
-        await vi.waitFor(() => expect(page.closes).toEqual([TOO_BIG]), SOON)
+    Then('Budi\'s connection closes with "This deck is too big to save. Remove some content."', async () => {
+      await vi.waitFor(() => expect(budi.closes).toEqual([TOO_BIG]), SOON)
     })
-    And('the saved deck still has the slides "Sorting", "Bubble sort" and "Merge sort"', async () => {
-      await vi.waitFor(() => expect(room()).toBeUndefined(), SOON)
-      expect(await savedSlides()).toEqual(SORTING_SLIDES)
+    And('the live deck holds no more than 5 MB', () => {
+      expect(Y.encodeStateAsUpdate(room()!).byteLength).toBeLessThanOrEqual(5 * 1024 * 1024)
+      expect(room()!.getMap('deck').has('unused-6')).toBe(false)
+    })
+    When('Ana changes slide 2 to "# Insertion sort"', () => {
+      changeSlide(ana.doc, 2, '# Insertion sort')
+    })
+    And('Ana closes the deck', async () => {
+      await sent(ana)
+      expect(ana.closes).toEqual([])
+      await closeDeck(ana)
+    })
+    Then('the saved deck has the slides "Sorting", "Insertion sort" and "Merge sort"', async () => {
+      expect(headingsOf(await savedSlides())).toEqual(['Sorting', 'Insertion sort', 'Merge sort'])
+    })
+    And('it holds no more than 5 MB', async () => {
+      expect((await server.projects.storedState(deckId))!.byteLength).toBeLessThanOrEqual(5 * 1024 * 1024)
+    })
+  })
+
+  Scenario('A change too big for one message never reaches the deck', ({ Given, When, Then, And }) => {
+    Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
+    And('Ana and Budi have the deck open live', anaAndBudiOpen)
+    When('Budi\'s page stores 3 MB of data that no slide shows in one change', () => {
+      budi.doc.getMap('deck').set('unused', 'x'.repeat(3_000_000))
+    })
+    Then('Budi\'s connection closes with "This deck is too big to save. Remove some content."', async () => {
+      await vi.waitFor(() => expect(budi.closes).toEqual([TOO_BIG]), SOON)
+    })
+    And('the live deck does not hold that data', () => {
+      expect(room()!.getMap('deck').has('unused')).toBe(false)
+    })
+    And('Ana\'s connection stays open', async () => {
+      await sleep(CHECK_DELAY_MS + 200)
+      expect(ana.closes).toEqual([])
+      changeSlide(ana.doc, 2, '# Insertion sort')
+      await sent(ana)
+      expect(slidesOf(room()!)[1]).toContain('# Insertion sort')
+    })
+  })
+
+  Scenario('A page that writes anything but the deck is let go', ({ Given, When, Then, And }) => {
+    Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
+    And('Ana and Budi have the deck open live', anaAndBudiOpen)
+    When('Budi\'s page writes to a part of the document outside the deck', () => {
+      budi.doc.getMap('elsewhere').set('unused', 'x'.repeat(1000))
+    })
+    Then('Budi\'s connection closes with "This change is not part of the deck."', async () => {
+      await vi.waitFor(() => expect(budi.closes).toEqual([{ code: 4003, reason: 'This change is not part of the deck.' }]), SOON)
+    })
+    And('the live deck holds nothing outside the deck', () => {
+      expect([...room()!.share.keys()]).toEqual(['deck'])
+    })
+    And('Ana\'s connection stays open', async () => {
+      await sleep(CHECK_DELAY_MS + 200)
+      expect(ana.closes).toEqual([])
+      changeSlide(ana.doc, 2, '# Insertion sort')
+      await sent(ana)
+      expect(slidesOf(room()!)[1]).toContain('# Insertion sort')
+    })
+  })
+
+  Scenario('Presence passes on only what pages show, and only a little of it', ({ Given, When, Then, And }) => {
+    Given('Ana shared the project with Budi as a viewer', () => shareWithBudi('viewer'))
+    And('Ana and Budi have the deck open live', anaAndBudiOpen)
+    const budiSeen = () => ana.provider.awareness!.getStates().get(budi.doc.clientID)
+    When('Budi\'s page adds a field of its own to its presence', () => {
+      budi.provider.setAwarenessField('slideId', 'first')
+      budi.provider.setAwarenessField('banner', 'Click here')
+    })
+    Then('Ana sees Budi\'s presence without that field', async () => {
+      await vi.waitFor(() => expect(budiSeen()?.slideId).toBe('first'), SOON)
+      expect(budiSeen()).not.toHaveProperty('banner')
+    })
+    const seen: unknown[] = []
+    When('Budi\'s page goes to slide "second" with 100 KB in its selection', () => {
+      ana.provider.awareness!.on('change', () => seen.push(budiSeen()?.slideId, budiSeen()?.selection))
+      budi.provider.setAwarenessField('slideId', 'second')
+      budi.provider.setAwarenessField('selection', ['e'.repeat(100 * 1024)])
+    })
+    And('then goes to slide "third" with nothing selected', () => {
+      budi.provider.setAwarenessField('selection', [])
+      budi.provider.setAwarenessField('slideId', 'third')
+    })
+    Then('Ana sees Budi on slide "third", and never saw slide "second" or that selection', async () => {
+      await vi.waitFor(() => expect(budiSeen()?.slideId).toBe('third'), SOON)
+      expect(budiSeen()?.selection).toEqual([])
+      expect(seen).not.toContain('second')
+      expect(seen.some(selection => Array.isArray(selection) && selection.length > 0)).toBe(false)
     })
   })
 

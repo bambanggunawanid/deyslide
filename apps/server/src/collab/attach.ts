@@ -3,7 +3,7 @@ import type { Peer } from 'crossws'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import crossws from 'crossws/adapters/node'
-import { ROOM_MAX_BYTES } from './limits.ts'
+import { CHANGE_MAX_BYTES } from './limits.ts'
 
 /** Where clients open the live editing socket. */
 export const COLLAB_PATH = '/api/collab'
@@ -11,8 +11,12 @@ export const COLLAB_PATH = '/api/collab'
 /** Idle sockets get a ping this often, so proxies and the server's own idle check keep them. */
 export const PING_INTERVAL_MS = 30_000
 
-/** The largest message a client may send: a whole deck at the room's limit, with room to spare. */
-const MAX_MESSAGE_BYTES = ROOM_MAX_BYTES + 1024 * 1024
+/**
+ * The largest message a client may send. A change up to twice the largest
+ * one a room takes still arrives, so the room can tell the page it is too
+ * big; a larger message closes the socket.
+ */
+const MAX_MESSAGE_BYTES = CHANGE_MAX_BYTES * 2
 
 type ClientConnection = ReturnType<Hocuspocus['handleConnection']>
 
