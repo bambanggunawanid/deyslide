@@ -27,11 +27,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      # A pre-release tag such as v1.2.3-beta.1 is marked as one, so the
+      # download page, which reads the latest release, keeps offering the
+      # last stable version. Build metadata after "+" may hold a hyphen
+      # too, so it is left out of the check.
       - name: Create a draft release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag --draft
+        run: |
+          version="${TAG#v}"
+          extra=()
+          case "${version%%+*}" in
+            *-*) extra=(--prerelease) ;;
+          esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag --draft "${extra[@]}"
 
   windows:
     name: Windows app

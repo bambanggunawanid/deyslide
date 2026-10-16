@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -51,6 +51,29 @@ function jobs(workflow: string) {
 }
 
 const APP_JOBS = ['windows', 'macos', 'linux', 'android']
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+
+/** Runs the release job's script with a stand-in `gh` and returns the arguments it got. */
+function draftRelease(tag: string): string[] {
+  const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
+  const step = jobs(workflow).release!.match(/- name: Create a draft release with generated notes\n[\s\S]*?run: \|\n((?: {10}.*\n)+)/)![1]!
+  const run = step.split('\n').map(line => line.slice(10)).join('\n')
+  const temp = mkdtempSync(join(tmpdir(), 'deyslide-draft-'))
+  try {
+    const gh = join(temp, 'gh')
+    writeFileSync(gh, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${join(temp, 'args')}"\n`)
+    chmodSync(gh, 0o755)
+    execFileSync('bash', ['-e', '-c', run], {
+      env: { ...process.env, PATH: `${temp}:${process.env.PATH}`, TAG: tag, GITHUB_REPOSITORY: 'owner/repo' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    return readFileSync(join(temp, 'args'), 'utf8').trim().split('\n')
+  }
+  finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
+}
 
 describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
   ScenarioOutline('The tag sets the app version', ({ When, Then, And }, variables) => {
@@ -150,6 +173,36 @@ describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
       expect(gradle).toContain('System.getenv(variable)')
       for (const variable of ['ANDROID_KEYSTORE_FILE', 'ANDROID_STORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'])
         expect(gradle).toContain(`"${variable}"`)
+    })
+  })
+
+  ScenarioOutline('A pre-release tag never becomes the latest release', ({ When, Then }, variables) => {
+    let args: string[]
+    When('the release job drafts the release for the tag "<tag>"', () => {
+      args = draftRelease(variables.tag)
+      expect(args.slice(0, 3)).toEqual(['release', 'create', variables.tag])
+      expect(args).toContain('--draft')
+    })
+    Then('the draft is marked as a pre-release: <prerelease>', () => {
+      expect(args.includes('--prerelease')).toBe(variables.prerelease === 'yes')
+    })
+  })
+
+  Scenario('Scripts keep Unix line endings on Windows runners', ({ Given, Then }) => {
+    let checkedOut: string
+    Given('a checkout that turns line endings into Windows ones, as Git for Windows does by default', () => {
+      const temp = execFileSync('git', ['-c', 'core.autocrlf=true', 'checkout-index', '--temp', '--', 'apps/native/scripts/app-version.sh'], { cwd: root, encoding: 'utf8' }).split('\t')[0]!
+      const path = join(root, temp)
+      try {
+        checkedOut = readFileSync(path, 'utf8')
+      }
+      finally {
+        rmSync(path, { force: true })
+      }
+    })
+    Then('the version script still has Unix line endings', () => {
+      expect(checkedOut).toContain('set -euo pipefail\n')
+      expect(checkedOut).not.toContain('\r')
     })
   })
 })

@@ -44,3 +44,18 @@ Feature: Releasing the apps
     Given the Release workflow
     Then no secret is written to a file the runner reads back
     And the Android build reads its signing key from variables
+
+  Scenario Outline: A pre-release tag never becomes the latest release
+    When the release job drafts the release for the tag "<tag>"
+    Then the draft is marked as a pre-release: <prerelease>
+
+    Examples:
+      | tag              | prerelease |
+      | v1.2.3           | no         |
+      | v1.2.3-beta.1    | yes        |
+      | v1.2.3-4         | yes        |
+      | v1.2.3+build-7   | no         |
+
+  Scenario: Scripts keep Unix line endings on Windows runners
+    Given a checkout that turns line endings into Windows ones, as Git for Windows does by default
+    Then the version script still has Unix line endings
