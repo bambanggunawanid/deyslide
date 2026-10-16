@@ -1168,6 +1168,29 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     })
   })
 
+  Scenario('A deck that grows too big keeps the changes made a moment before', ({ Given, And, When, Then }) => {
+    Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
+    And('Ana and Budi have the deck open live', anaAndBudiOpen)
+    When('Budi changes slide 2 to "# Insertion sort"', async () => {
+      changeSlide(budi.doc, 2, '# Insertion sort')
+      await sent(budi)
+    })
+    And('a moment later, before the deck is saved, Ana adds a slide with 210000 characters of text', async () => {
+      // After the room checked Budi's change, and well before it saves (2 seconds after the last change).
+      await sleep(CHECK_DELAY_MS + 300)
+      expect(headingsOf(await savedSlides())).toEqual(['Sorting', 'Bubble sort', 'Merge sort'])
+      insertSlide(ana.doc, 3, { id: newId('s'), frontmatter: {}, elements: [{ id: newId('e'), type: 'raw', markdown: 'words '.repeat(35_000) }] })
+    })
+    Then('Ana\'s and Budi\'s connections close with "This deck is too big to save. Remove some content."', async () => {
+      for (const page of [ana, budi])
+        await vi.waitFor(() => expect(page.closes).toEqual([TOO_BIG]), SOON)
+    })
+    And('the saved deck has the slides "Sorting", "Insertion sort" and "Merge sort"', async () => {
+      await vi.waitFor(() => expect(room()).toBeUndefined(), SOON)
+      expect(headingsOf(await savedSlides())).toEqual(['Sorting', 'Insertion sort', 'Merge sort'])
+    })
+  })
+
   Scenario('A deck past 500 slides is not saved either', ({ Given, When, Then, And }) => {
     Given('Ana has the deck open live', async () => {
       ana = await openSynced({ browser: anaBrowser })

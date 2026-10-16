@@ -267,6 +267,14 @@ Feature: Live editing on the server
     Then Ana's and Budi's connections close with "This deck is too big to save. Remove some content."
     And the saved deck still has the slides "Sorting", "Bubble sort" and "Merge sort"
 
+  Scenario: A deck that grows too big keeps the changes made a moment before
+    Given Ana shared the project with Budi as an editor
+    And Ana and Budi have the deck open live
+    When Budi changes slide 2 to "# Insertion sort"
+    And a moment later, before the deck is saved, Ana adds a slide with 210000 characters of text
+    Then Ana's and Budi's connections close with "This deck is too big to save. Remove some content."
+    And the saved deck has the slides "Sorting", "Insertion sort" and "Merge sort"
+
   Scenario: A deck past 500 slides is not saved either
     Given Ana has the deck open live
     When Ana adds slides until the deck has 501

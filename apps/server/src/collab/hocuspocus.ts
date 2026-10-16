@@ -156,6 +156,12 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
   const audience = apiUrl({ publicUrl })
   /** Rooms with changes since they loaded or last saved. */
   const unsaved = new WeakSet<Document>()
+  /**
+   * Each room's newest state known to fit the limits: from its last save
+   * or its last check. A room that grows too big saves it before everyone
+   * is let go, so the work done since the last save is kept.
+   */
+  const lastFit = new WeakMap<Document, Uint8Array>()
   const checks = new Map<string, ReturnType<typeof setTimeout>>()
   /** Per room, the person who first showed presence under each client id. */
   const presenceOwners = new WeakMap<Document, Map<number, string>>()
@@ -255,11 +261,40 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
     return true
   }
 
+  /**
+   * Saves the room's newest state that fits, when it is newer than the last
+   * save, before a room that grew too big lets everyone go.
+   */
+  async function keepLastFit(document: Document, deckId: string) {
+    const state = lastFit.get(document)
+    if (!state || !unsaved.has(document))
+      return
+    lastFit.delete(document)
+    const fitting = new Y.Doc()
+    try {
+      Y.applyUpdate(fitting, state)
+      await projects.storeState(deckId, state, readDeckDoc(fitting).slides.length)
+    }
+    catch (error) {
+      console.error(`Could not save the live deck ${document.name} as it was before it grew too big`, error)
+    }
+    finally {
+      fitting.destroy()
+    }
+  }
+
   /** Repairs the deck soon after a change, and lets everyone go when it grew too big. */
   async function check(document: Document, deckId: string) {
     try {
-      if (await repair(document, deckId, { source: 'local' }) && !document.isDestroyed && overLimit(document, measured(document)))
-        closeRoom(document, TOO_BIG)
+      if (!(await repair(document, deckId, { source: 'local' })) || document.isDestroyed)
+        return
+      const state = measured(document)
+      if (!overLimit(document, state)) {
+        lastFit.set(document, state)
+        return
+      }
+      await keepLastFit(document, deckId)
+      closeRoom(document, TOO_BIG)
     }
     catch (error) {
       console.error(`Could not check the live deck ${document.name}`, error)
@@ -349,12 +384,14 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
         if (problem) {
           // Nothing is saved, and everyone in the room is told why.
           storeProblems.set(document, 'too-big')
-          console.warn(`The deck ${deckId} was not saved: it has ${problem}.`)
+          console.warn(`The deck ${deckId} was not saved: it has ${problem}. It keeps its last state that fitted.`)
+          await keepLastFit(document, deckId)
           closeRoom(document, TOO_BIG)
           return
         }
         unsaved.delete(document)
         await projects.storeState(deckId, state, readDeckDoc(document).slides.length)
+        lastFit.set(document, state)
         storeProblems.delete(document)
       }
       catch (error) {
