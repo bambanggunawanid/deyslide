@@ -8,6 +8,7 @@ Feature: Updates for the Deyslide app
     When the app starts
     Then it says "Deyslide 0.3.0 is available"
     And it offers to install it
+    And the home page has the update settings
 
   Scenario: The app is up to date
     Given the app on a computer runs version 0.2.0 and the latest release is 0.2.0
@@ -30,11 +31,54 @@ Feature: Updates for the Deyslide app
     Then the file of the deck "Intro" had the slide "Typed before the update" before the update was installed
     And the app restarts once the update is installed
 
+  Scenario: A slide typed while the update installs is saved before the restart
+    Given the app on a computer runs version 0.2.0 and the latest release is 0.3.0
+    And the deck "Intro" is open on this device
+    And installing the update takes a while
+    When they install the update and type a slide "Typed during the install" while it installs
+    And the install finishes
+    Then the file of the deck "Intro" has the slide "Typed during the install" when the app restarts
+
+  Scenario: Changes that cannot be saved after the install keep the app open
+    Given the app on a computer runs version 0.2.0 and the latest release is 0.3.0
+    And the deck "Intro" is open on this device
+    And installing the update takes a while
+    When they install the update and type a slide "Typed during the install" while it installs
+    And the deck file cannot be written when the install finishes
+    And they choose to keep their changes open
+    Then the app does not restart
+    And it says "Deyslide 0.3.0 is installed. Restart once your changes are saved."
+    When the deck file can be written again and they choose "Restart"
+    Then the file of the deck "Intro" has the slide "Typed during the install" when the app restarts
+
   Scenario: An update with a bad signature is refused
     Given the app on a computer runs version 0.2.0 and the latest release is 0.3.0
     And the update file does not match its signature
     When they install the update
     Then the app keeps its version and says "The update to 0.3.0 could not be verified, so it was not installed. You still have Deyslide 0.2.0."
+    And the app does not restart
+
+  Scenario Outline: A signature that cannot be read is refused as well
+    Given the app on a computer runs version 0.2.0 and the latest release is 0.3.0
+    And the updater rejects the downloaded file with "<error>"
+    When they install the update
+    Then the app says "The update to 0.3.0 could not be verified, so it was not installed. You still have Deyslide 0.2.0."
+    And the app does not restart
+
+    Examples:
+      | error                                                                  |
+      | Invalid symbol 33, offset 4.                                           |
+      | Invalid input length: 7                                                |
+      | Invalid last symbol 66, offset 11.                                     |
+      | Invalid padding                                                        |
+      | Invalid encoding in minisign data                                      |
+      | The signature was created with a different key than the one provided |
+
+  Scenario: A download that fails is not taken for a bad signature
+    Given the app on a computer runs version 0.2.0 and the latest release is 0.3.0
+    And the updater rejects the downloaded file with "error sending request for url (https://github.com/bambanggunawanid/deyslide/releases/download/v0.3.0/Deyslide_0.3.0_amd64.AppImage)"
+    When they install the update
+    Then the app says "The update could not be downloaded. Check your connection and try again."
     And the app does not restart
 
   Scenario: A build without the update key links to the download page

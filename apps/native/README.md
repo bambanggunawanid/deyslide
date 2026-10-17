@@ -64,7 +64,7 @@ A computer build installs updates itself only when it carries the updater's publ
 
 In the pages, `src/platform/updates.ts` checks when the app starts and once a day, unless the person turned that off in the **Updates** panel (kept in the page's local storage):
 
-- With the updater, it asks Tauri's updater (`@tauri-apps/plugin-updater`), which reads `latest.json`. **Install** downloads the file, which the updater checks against the key, saves every open deck the way closing the window does (asking before it goes on without changes it cannot save), installs it, and calls `app_restart`. Windows ends the app as soon as its installer starts, which is why the decks are saved before installing.
+- With the updater, it asks Tauri's updater (`@tauri-apps/plugin-updater`), which reads `latest.json`. **Install** downloads the file, which the updater checks against the key, saves every open deck the way closing the window does (asking before it goes on without changes it cannot save), installs it, saves again (macOS and Linux keep the decks open while the update installs), and calls `app_restart`. Windows ends the app as soon as its installer starts, which is why the decks are saved before installing. If the second save leaves changes the person keeps, the app stays open and the note offers **Restart**.
 - Without it, and on Android, it reads the latest release from the GitHub API and offers the download page or the new APK.
 - On iOS it never checks.
 

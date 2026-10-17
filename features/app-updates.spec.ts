@@ -1,6 +1,7 @@
 import type { AppPlatform } from '../apps/web/src/platform/native'
 import type { AppUpdates } from '../apps/web/src/platform/updates'
 import type { WebApp } from './support/web'
+import { resolve } from 'node:path'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { AppAccountService } from '../apps/web/src/account/app'
@@ -28,6 +29,15 @@ const fake = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke }))
 
+// main.ts starts the pages in the app's main window, which draws slides for Claude Code and saves before it closes.
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: () => ({
+    label: 'main',
+    listen: async () => () => {},
+    onCloseRequested: async () => () => {},
+  }),
+}))
+
 vi.mock('@tauri-apps/api/event', () => ({
   listen: async (event: string, handler: FakeListener['handler']) => {
     const listener = { event, handler }
@@ -47,6 +57,8 @@ vi.mock('../apps/web/node_modules/@tauri-apps/plugin-opener/dist-js/index.js', (
 const feature = await loadFeature('./app-updates.feature')
 
 const RUNNING = '0.2.0'
+const happyDom = () => (window as unknown as { happyDOM: { setURL: (url: string) => void } }).happyDOM
+const startUrl = window.location.href
 const apkLink = (version: string) => `https://github.com/bambanggunawanid/deyslide/releases/download/v${version}/Deyslide_${version}_android.apk`
 
 /** What the fake app and GitHub know. */
@@ -60,7 +72,14 @@ interface World {
   offline: boolean
   /** The downloaded file does not match its signature. */
   badSignature: boolean
+  /** What the updater rejects the download with, when it does. */
+  downloadError?: string
+  /** Installing waits for this, as macOS unpacking the app or Linux asking for a password does. */
+  installing?: Promise<void>
 }
+
+/** The root element main.ts mounts the pages on. */
+type AppRoot = HTMLElement & { __vue_app__?: { unmount: () => void, _context: { provides: Record<symbol, unknown> } } }
 
 describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, AfterEachScenario }) => {
   let world: World
@@ -72,6 +91,12 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   let steps: string[]
   /** The deck file "Intro" as it was when the update was installed. */
   let fileAtInstall: string | undefined
+  /** The deck file "Intro" as it was when the app restarted. */
+  let fileAtRestart: string | undefined
+  /** Lets the install finish, while installing takes a while. */
+  let finishInstall: (() => void) | undefined
+  /** How many times main.ts ran. */
+  let mainStarts = 0
 
   function emit(event: string, payload: unknown = null) {
     for (const listener of fake.listeners.filter(listener => listener.event === event))
@@ -82,6 +107,8 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     world = { platform: 'linux', updater: true, latest: RUNNING, offline: false, badSignature: false }
     steps = []
     fileAtInstall = undefined
+    fileAtRestart = undefined
+    finishInstall = undefined
     fake.listeners.length = 0
     localStorage.clear()
     library = new FakeDeviceLibrary(emit)
@@ -99,6 +126,9 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
           throw 'You are signed out.'
         case 'app_restart':
           steps.push('restart')
+          fileAtRestart = library.read('Talks', 'Intro')
+          return undefined
+        case 'render_ready':
           return undefined
       }
       throw new Error(`The fake app has no command ${command}`)
@@ -115,12 +145,15 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
         currentVersion: RUNNING,
         download: async () => {
           steps.push('download')
+          if (world.downloadError)
+            throw world.downloadError
           if (world.badSignature)
             throw 'The signature verification failed'
         },
         install: async () => {
           steps.push('install')
           fileAtInstall = library.read('Talks', 'Intro')
+          await world.installing
         },
         close: async () => {},
       }
@@ -141,6 +174,12 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   AfterEachScenario(() => {
     updates?.stop()
     updates = undefined
+    // The pages main.ts started, with the checks it started.
+    const root = document.querySelector('#app') as AppRoot | null
+    providedUpdates()?.stop()
+    root?.__vue_app__?.unmount()
+    root?.remove()
+    happyDom().setURL(startUrl)
     web?.unmount()
     web = undefined
     local?.close()
@@ -173,6 +212,22 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     await web.settle()
   }
 
+  /** Runs the web app's own entry, main.ts, on a fresh `#app` element. */
+  async function startPages() {
+    const root = document.createElement('div')
+    root.id = 'app'
+    document.body.append(root)
+    // A new query string makes the entry run again, with the modules it imports shared.
+    const entry = `${resolve(import.meta.dirname, '../apps/web/src/main.ts')}?start=${++mainStarts}`
+    await import(/* @vite-ignore */ entry)
+  }
+
+  /** The checks main.ts gave its pages, if any. */
+  function providedUpdates() {
+    const root = document.querySelector('#app') as AppRoot | null
+    return root?.__vue_app__?._context.provides[UPDATES_KEY as symbol] as AppUpdates | undefined
+  }
+
   /** Types a slide at the end of the open deck, in the editor double. */
   async function typeSlide(title: string) {
     const editor = await web!.waitFor('[data-testid="markdown-editor"]') as HTMLTextAreaElement
@@ -199,20 +254,54 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   }
 
   async function opensInBrowser(label: string, link: string) {
-    const button = await web!.waitFor('[data-testid="update-link"]')
+    await vi.waitFor(() => expect(find('[data-testid="update-link"]')).not.toBeNull())
+    const button = find('[data-testid="update-link"]')!
     expect(button.textContent?.trim()).toBe(label)
-    await web!.click('[data-testid="update-link"]')
-    expect(fake.openUrl).toHaveBeenCalledWith(link)
+    button.click()
+    await vi.waitFor(() => expect(fake.openUrl).toHaveBeenCalledWith(link))
+  }
+
+  /** Opens the deck "Intro" in the Markdown view, with installing set to wait. */
+  async function openIntro() {
+    library.put('Talks', 'Intro', '# Intro\n')
+    await startApp(`/p/${projectIdOf('Talks')}/d/${deckIdOf('Talks', 'Intro')}`)
+  }
+
+  function installTakesAWhile() {
+    world.installing = new Promise<void>((resolve) => {
+      finishInstall = resolve
+    })
+  }
+
+  /** Chooses Install, then types while the updater is still installing. */
+  async function typeWhileInstalling(title: string) {
+    await says('Deyslide 0.3.0 is available')
+    await web!.click('[data-testid="update-install"]')
+    await vi.waitFor(() => expect(steps).toContain('install'))
+    expect(updates!.status.value).toBe('installing')
+    await typeSlide(title)
+    expect(steps).not.toContain('restart')
+  }
+
+  async function restartsWith(slide: string) {
+    await vi.waitFor(() => expect(steps).toContain('restart'))
+    expect(fileAtRestart).toContain(`# ${slide}`)
   }
 
   Scenario('A newer version is offered', ({ Given, When, Then, And }) => {
     Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', () => inApp('linux', { latest: '0.3.0' }))
-    When('the app starts', () => startApp())
+    // The app's own entry, so the checks it starts and hands to the pages are the ones tested.
+    When('the app starts', () => startPages())
     Then('it says "Deyslide 0.3.0 is available"', () => says('Deyslide 0.3.0 is available'))
     And('it offers to install it', () => {
       expect(text('[data-testid="update-install"]')).toBe('Install')
       expect(find('[data-testid="update-link"]')).toBeNull()
       expect(steps).toEqual(['check'])
+    })
+    And('the home page has the update settings', async () => {
+      await vi.waitFor(() => expect(text('h1')).toBe('Your projects'))
+      expect(find('[data-testid="updates-panel"]')).not.toBeNull()
+      expect(text('[data-testid="update-status"]')).toBe('Deyslide 0.3.0 is available. See the note at the top of the page.')
     })
   })
 
@@ -263,6 +352,61 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
   })
 
+  Scenario('A slide typed while the update installs is saved before the restart', ({ Given, And, When, Then }) => {
+    Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', () => inApp('linux', { latest: '0.3.0' }))
+    And('the deck "Intro" is open on this device', () => openIntro())
+    And('installing the update takes a while', () => installTakesAWhile())
+    When('they install the update and type a slide "Typed during the install" while it installs', () => typeWhileInstalling('Typed during the install'))
+    And('the install finishes', () => {
+      finishInstall!()
+    })
+    Then('the file of the deck "Intro" has the slide "Typed during the install" when the app restarts', async () => {
+      await restartsWith('Typed during the install')
+      expect(fileAtInstall).not.toContain('Typed during the install')
+      expect(fake.ask).not.toHaveBeenCalled()
+      expect(steps).toEqual(['check', 'download', 'install', 'restart'])
+    })
+  })
+
+  Scenario('Changes that cannot be saved after the install keep the app open', ({ Given, And, When, Then }) => {
+    let answer: ((goOn: boolean) => void) | undefined
+    Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', () => inApp('linux', { latest: '0.3.0' }))
+    And('the deck "Intro" is open on this device', () => openIntro())
+    And('installing the update takes a while', () => installTakesAWhile())
+    When('they install the update and type a slide "Typed during the install" while it installs', () => typeWhileInstalling('Typed during the install'))
+    And('the deck file cannot be written when the install finishes', async () => {
+      fake.ask.mockImplementation(() => new Promise<boolean>((resolve) => {
+        answer = resolve
+      }))
+      library.failNextWrites(1000, 'No space left on device')
+      finishInstall!()
+      await vi.waitFor(() => expect(answer).toBeDefined())
+      expect(fake.ask).toHaveBeenCalledWith('Your last changes to Intro could not be saved yet. The deck\'s page says why.', 'restart')
+    })
+    And('they choose to keep their changes open', async () => {
+      answer!(false)
+      await vi.waitFor(() => expect(updates!.status.value).toBe('installed'))
+    })
+    Then('the app does not restart', () => {
+      expect(steps).not.toContain('restart')
+    })
+    And('it says "Deyslide 0.3.0 is installed. Restart once your changes are saved."', async () => {
+      await says('Deyslide 0.3.0 is installed. Restart once your changes are saved.')
+      expect(find('[data-testid="update-install"]')).toBeNull()
+    })
+    When('the deck file can be written again and they choose "Restart"', async () => {
+      library.failNextWrites(0, '')
+      fake.ask.mockReset()
+      await web!.click('[data-testid="update-restart"]')
+    })
+    Then('the file of the deck "Intro" has the slide "Typed during the install" when the app restarts', async () => {
+      await restartsWith('Typed during the install')
+      expect(fake.ask).not.toHaveBeenCalled()
+      // Installed once: the restart only starts it.
+      expect(steps).toEqual(['check', 'download', 'install', 'restart'])
+    })
+  })
+
   Scenario('An update with a bad signature is refused', ({ Given, And, When, Then }) => {
     Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', async () => {
       await inApp('linux', { latest: '0.3.0' })
@@ -284,6 +428,41 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
   })
 
+  ScenarioOutline('A signature that cannot be read is refused as well', ({ Given, And, When, Then }, variables) => {
+    Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', async () => {
+      await inApp('linux', { latest: '0.3.0' })
+      await startApp()
+    })
+    And('the updater rejects the downloaded file with "<error>"', () => {
+      world.downloadError = variables.error
+    })
+    When('they install the update', () => installUpdate())
+    Then('the app says "The update to 0.3.0 could not be verified, so it was not installed. You still have Deyslide 0.2.0."', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="update-problem"]')).toBe('The update to 0.3.0 could not be verified, so it was not installed. You still have Deyslide 0.2.0.'))
+    })
+    And('the app does not restart', () => {
+      expect(steps).toEqual(['check', 'download'])
+    })
+  })
+
+  Scenario('A download that fails is not taken for a bad signature', ({ Given, And, When, Then }) => {
+    const failure = 'error sending request for url (https://github.com/bambanggunawanid/deyslide/releases/download/v0.3.0/Deyslide_0.3.0_amd64.AppImage)'
+    Given('the app on a computer runs version 0.2.0 and the latest release is 0.3.0', async () => {
+      await inApp('linux', { latest: '0.3.0' })
+      await startApp()
+    })
+    And(`the updater rejects the downloaded file with "${failure}"`, () => {
+      world.downloadError = failure
+    })
+    When('they install the update', () => installUpdate())
+    Then('the app says "The update could not be downloaded. Check your connection and try again."', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="update-problem"]')).toBe('The update could not be downloaded. Check your connection and try again.'))
+    })
+    And('the app does not restart', () => {
+      expect(steps).toEqual(['check', 'download'])
+    })
+  })
+
   Scenario('A build without the update key links to the download page', ({ Given, When, Then, And }) => {
     Given('the app on a computer was built without the update key, runs version 0.2.0, and the latest release is 0.3.0', () => inApp('windows', { updater: false, latest: '0.3.0' }))
     When('the app starts', () => startApp())
@@ -297,7 +476,7 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
 
   Scenario('Android points to the new APK', ({ Given, When, Then, And }) => {
     Given('the Android app runs 0.2.0 and the latest release is 0.3.0', () => inApp('android', { latest: '0.3.0' }))
-    When('the app starts', () => startApp())
+    When('the app starts', () => startPages())
     Then('it says "Deyslide 0.3.0 is available"', () => says('Deyslide 0.3.0 is available'))
     And(`its "Download the APK" button opens "${apkLink('0.3.0')}" in the browser`, async () => {
       await opensInBrowser('Download the APK', apkLink('0.3.0'))
@@ -351,9 +530,10 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
 
   Scenario('iPhones and iPads get new versions from Apple', ({ Given, When, Then, And }) => {
     Given('the iOS app runs 0.2.0 and the latest release is 0.3.0', () => inApp('ios', { latest: '0.3.0' }))
-    When('the app starts', () => startApp())
-    Then('it never looked for updates', () => {
-      expect(updates).toBeUndefined()
+    When('the app starts', () => startPages())
+    Then('it never looked for updates', async () => {
+      await vi.waitFor(() => expect(text('h1')).toBe('Your projects'))
+      expect(providedUpdates()).toBeUndefined()
       expect(steps).toEqual([])
     })
     And('the home page has no update settings', () => {

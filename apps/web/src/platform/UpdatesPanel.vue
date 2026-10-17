@@ -18,6 +18,8 @@ const result = computed(() => {
     case 'installing':
     case 'restarting':
       return `Deyslide ${updates.found.value?.version} is available. See the note at the top of the page.`
+    case 'installed':
+      return `Deyslide ${updates.found.value?.version} is installed. See the note at the top of the page.`
     default:
       return ''
   }

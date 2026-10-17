@@ -38,7 +38,11 @@ export interface NewVersion {
   linkLabel?: string
 }
 
-export type UpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'installing' | 'restarting'
+/**
+ * Where the update stands. `installed` means the new version is on the
+ * device but some changes could not be saved, so the app waits to restart.
+ */
+export type UpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'installing' | 'restarting' | 'installed'
 
 /** The parts of a semantic version that order it: numbers, then pre-release identifiers. */
 function versionParts(version: string) {
@@ -97,10 +101,15 @@ function writeAutomatic(on: boolean) {
   }
 }
 
-/** Whether an updater error is about the file's signature rather than getting the file. */
-function isSignatureError(error: unknown) {
+/**
+ * Whether an updater error is about the file's signature rather than getting
+ * the file. Besides minisign's own errors, a `.sig` that is not valid base64
+ * fails with the base64 decoder's bare message, such as "Invalid symbol 33,
+ * offset 4." or "Invalid padding".
+ */
+export function isSignatureError(error: unknown) {
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
-  return /signature|minisign|public key|base64/i.test(message)
+  return /signature|minisign|public key|base64|signed for|invalid (?:symbol|input length|last symbol|padding)/i.test(message)
 }
 
 export interface AppUpdatesOptions {
@@ -167,7 +176,7 @@ export class AppUpdates {
    * check that finds no connection has nothing useful to say.
    */
   async check({ asked = false } = {}) {
-    if (this.status.value === 'checking' || this.status.value === 'installing' || this.status.value === 'restarting')
+    if (['checking', 'installing', 'restarting', 'installed'].includes(this.status.value))
       return
     this.status.value = 'checking'
     this.checkProblem.value = ''
@@ -213,8 +222,8 @@ export class AppUpdates {
 
   /**
    * Downloads the update and checks its signature, saves every open deck,
-   * installs it and starts the app again. A file that does not match its
-   * signature is never installed.
+   * installs it, saves again and starts the app again. A file that does not
+   * match its signature is never installed.
    */
   async install() {
     const update = this.update
@@ -247,8 +256,33 @@ export class AppUpdates {
       this.installProblem.value = `Deyslide ${found.version} could not be installed. Try again, or get it from the download page.`
       return
     }
+    // The decks stay open while macOS unpacks the new app or Linux asks for
+    // a password, so whatever changed in the meantime is saved before the restart.
+    await this.restart()
+  }
+
+  /**
+   * Saves every open deck, then starts the installed version. When some
+   * changes cannot be saved and the person keeps them, the app stays open
+   * and offers to restart later.
+   */
+  async restart() {
+    const found = this.found.value
+    if (!found || (this.status.value !== 'installing' && this.status.value !== 'installed'))
+      return
     this.status.value = 'restarting'
-    await appRestart()
+    this.installProblem.value = ''
+    if (!(await saveEverything(this.options.stores(), 'restart', this.options.saving))) {
+      this.status.value = 'installed'
+      return
+    }
+    try {
+      await appRestart()
+    }
+    catch {
+      this.status.value = 'installed'
+      this.installProblem.value = `Deyslide could not restart. Close it and open it again to use ${found.version}.`
+    }
   }
 }
 

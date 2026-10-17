@@ -367,7 +367,7 @@ iPhones and iPads get the app through TestFlight once the project's Apple develo
 
 The apps look for a new version when they start and once a day after. When there is one, a note under the header says "Deyslide 0.3.0 is available":
 
-- **Windows, macOS and Linux**: **Install** downloads it, checks its signature against the key built into the app, saves every open deck, installs it and restarts. A file whose signature does not match is never installed, and the note says it could not be verified. Builds made without the updater key (any build outside the release workflow, or a release before the key was set) offer **Open the download page** instead.
+- **Windows, macOS and Linux**: **Install** downloads it, checks its signature against the key built into the app, saves every open deck, installs it, saves anything changed during the install, and restarts. When some changes cannot be saved and you keep them, the app stays open with a **Restart** button. A file whose signature does not match is never installed, and the note says it could not be verified. Builds made without the updater key (any build outside the release workflow, or a release before the key was set) offer **Open the download page** instead.
 - **Android**: an app cannot replace itself there, so **Download the APK** opens the new APK from the latest release in the browser.
 - **iPhone and iPad**: TestFlight and the App Store bring new versions; the app does not look.
 

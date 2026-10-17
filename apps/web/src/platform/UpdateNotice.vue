@@ -8,7 +8,7 @@ const updates = inject(UPDATES_KEY, undefined)
 const shown = computed(() => {
   if (!updates?.found.value || updates.dismissed.value)
     return false
-  return ['available', 'installing', 'restarting'].includes(updates.status.value)
+  return ['available', 'installing', 'restarting', 'installed'].includes(updates.status.value)
 })
 const busy = computed(() => updates?.status.value === 'installing' || updates?.status.value === 'restarting')
 </script>
@@ -19,10 +19,14 @@ const busy = computed(() => updates?.status.value === 'installing' || updates?.s
       <span data-testid="update-message">
         <template v-if="updates.status.value === 'installing'">Installing Deyslide {{ updates.found.value?.version }}. Your decks are saved first, then the app restarts.</template>
         <template v-else-if="updates.status.value === 'restarting'">Deyslide {{ updates.found.value?.version }} is installed. Restarting...</template>
+        <template v-else-if="updates.status.value === 'installed'">Deyslide {{ updates.found.value?.version }} is installed. Restart once your changes are saved.</template>
         <template v-else>Deyslide {{ updates.found.value?.version }} is available</template>
       </span>
       <div class="ml-auto flex items-center gap-2">
-        <button v-if="updates.found.value?.how === 'install'" class="dey-btn-primary text-xs" :disabled="busy" data-testid="update-install" @click="updates.install()">
+        <button v-if="updates.status.value === 'installed'" class="dey-btn-primary text-xs" data-testid="update-restart" @click="updates.restart()">
+          Restart
+        </button>
+        <button v-else-if="updates.found.value?.how === 'install'" class="dey-btn-primary text-xs" :disabled="busy" data-testid="update-install" @click="updates.install()">
           Install
         </button>
         <button v-else class="dey-btn-primary text-xs" data-testid="update-link" @click="updates.openLink()">
