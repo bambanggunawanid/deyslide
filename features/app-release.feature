@@ -59,3 +59,18 @@ Feature: Releasing the apps
   Scenario: Scripts keep Unix line endings on Windows runners
     Given a checkout that turns line endings into Windows ones, as Git for Windows does by default
     Then the version script still has Unix line endings
+
+  Scenario: Each computer build checks the MCP server before it is uploaded
+    Given the Release workflow
+    Then the Windows, macOS and Linux jobs start the executable they built as "deyslide mcp"
+    And they do it before collecting the installers
+
+  Scenario: The MCP check passes a working server
+    Given an executable that runs the on-device MCP server as "deyslide mcp"
+    When the release workflow checks it
+    Then the check passes after it lists the tools and writes a deck to the library folder
+
+  Scenario: The MCP check stops a build whose server does not answer
+    Given an executable that stops as soon as it starts
+    When the release workflow checks it
+    Then the check fails and says "The server stopped before the check finished"

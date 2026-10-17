@@ -80,6 +80,11 @@ jobs:
           VERSION_CONFIG: ${{ steps.version.outputs.config }}
         run: pnpm --filter @deyslide/native tauri build --bundles "$BUNDLES" --config "$VERSION_CONFIG"
 
+      # Claude Code starts the app's executable as `deyslide mcp` with pipes,
+      # so this checks the Windows build answers over them.
+      - name: Check the MCP server
+        run: node apps/native/scripts/smoke-mcp.mjs target/release/deyslide.exe
+
       - name: Collect the installers
         run: |
           mkdir -p out
@@ -149,6 +154,13 @@ jobs:
           fi
           pnpm --filter @deyslide/native tauri build --target universal-apple-darwin --bundles app,dmg --config "$VERSION_CONFIG"
 
+      # The executable inside the app bundle, as Claude Code starts it.
+      - name: Check the MCP server
+        run: |
+          app=(target/universal-apple-darwin/release/bundle/macos/*.app)
+          exe=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${app[0]}/Contents/Info.plist")
+          node apps/native/scripts/smoke-mcp.mjs "${app[0]}/Contents/MacOS/$exe"
+
       - name: Collect the disk image
         run: |
           mkdir -p out
@@ -198,6 +210,9 @@ jobs:
         env:
           VERSION_CONFIG: ${{ steps.version.outputs.config }}
         run: pnpm --filter @deyslide/native tauri build --bundles deb,appimage --config "$VERSION_CONFIG"
+
+      - name: Check the MCP server
+        run: node apps/native/scripts/smoke-mcp.mjs target/release/deyslide
 
       - name: Collect the packages
         run: |

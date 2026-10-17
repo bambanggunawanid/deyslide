@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
+import { deyslideMcp } from './support/local-mcp'
 
 const feature = await loadFeature('./app-release.feature')
 
@@ -37,6 +38,34 @@ function readVersion(env: Record<string, string>): VersionRun {
   finally {
     rmSync(temp, { recursive: true, force: true })
   }
+}
+
+const smokeScript = fileURLToPath(new URL('../apps/native/scripts/smoke-mcp.mjs', import.meta.url))
+
+interface SmokeRun {
+  ok: boolean
+  output: string
+}
+
+/** Runs the release workflow's MCP check against an executable. */
+function smokeCheck(executable: string): SmokeRun {
+  try {
+    const stdout = execFileSync(process.execPath, [smokeScript, executable], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 90_000 })
+    return { ok: true, output: stdout }
+  }
+  catch (error) {
+    const failed = error as { stdout?: string, stderr?: string }
+    return { ok: false, output: `${failed.stdout ?? ''}${failed.stderr ?? ''}` }
+  }
+}
+
+/** A stand-in for the app's executable: a shell script in a fresh folder. */
+function fakeExecutable(body: string) {
+  const temp = mkdtempSync(join(tmpdir(), 'deyslide-exe-'))
+  const path = join(temp, 'deyslide')
+  writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`)
+  chmodSync(path, 0o755)
+  return { path, remove: () => rmSync(temp, { recursive: true, force: true }) }
 }
 
 /** Each job's lines, by job name. */
@@ -203,6 +232,70 @@ describeFeature(feature, ({ Scenario, ScenarioOutline }) => {
     Then('the version script still has Unix line endings', () => {
       expect(checkedOut).toContain('set -euo pipefail\n')
       expect(checkedOut).not.toContain('\r')
+    })
+  })
+
+  Scenario('Each computer build checks the MCP server before it is uploaded', ({ Given, Then, And }) => {
+    let byName: Record<string, string>
+    const computers = ['windows', 'macos', 'linux']
+    Given('the Release workflow', () => {
+      byName = jobs(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'))
+    })
+    Then('the Windows, macOS and Linux jobs start the executable they built as "deyslide mcp"', () => {
+      for (const name of computers) {
+        const step = byName[name]!.split('\n      - ').find(part => part.startsWith('name: Check the MCP server'))
+        expect(step, name).toContain('node apps/native/scripts/smoke-mcp.mjs')
+      }
+    })
+    And('they do it before collecting the installers', () => {
+      for (const name of computers) {
+        const job = byName[name]!
+        expect(job.indexOf('- name: Check the MCP server'), name).toBeGreaterThan(job.indexOf('tauri build'))
+        expect(job.indexOf('- name: Check the MCP server'), name).toBeLessThan(job.indexOf('- name: Collect'))
+      }
+    })
+  })
+
+  Scenario('The MCP check passes a working server', ({ Given, When, Then }) => {
+    let executable: ReturnType<typeof fakeExecutable>
+    let run: SmokeRun
+    Given('an executable that runs the on-device MCP server as "deyslide mcp"', () => {
+      // The app's executable takes "mcp" first; deyslide-mcp is the same server without it.
+      executable = fakeExecutable(`[ "$1" = mcp ] || exit 64\nshift\nexec ${JSON.stringify(deyslideMcp())} "$@"`)
+    })
+    When('the release workflow checks it', () => {
+      try {
+        run = smokeCheck(executable.path)
+      }
+      finally {
+        executable.remove()
+      }
+    })
+    Then('the check passes after it lists the tools and writes a deck to the library folder', () => {
+      expect(run.ok, run.output).toBe(true)
+      expect(run.output).toContain('Tools: create_deck, create_project, edit_slides, get_guide, list_decks, read_deck, render_slides, write_deck')
+      expect(run.output).toMatch(/Library: .*Hello\.md/)
+      expect(run.output).toContain('The MCP server works.')
+    })
+  })
+
+  Scenario('The MCP check stops a build whose server does not answer', ({ Given, When, Then }) => {
+    let executable: ReturnType<typeof fakeExecutable>
+    let run: SmokeRun
+    Given('an executable that stops as soon as it starts', () => {
+      executable = fakeExecutable('exit 3')
+    })
+    When('the release workflow checks it', () => {
+      try {
+        run = smokeCheck(executable.path)
+      }
+      finally {
+        executable.remove()
+      }
+    })
+    Then('the check fails and says "The server stopped before the check finished"', () => {
+      expect(run.ok).toBe(false)
+      expect(run.output).toContain('The server stopped before the check finished (exit code 3).')
     })
   })
 })
