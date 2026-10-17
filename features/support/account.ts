@@ -11,6 +11,9 @@ export class FakeAccountService implements AccountService {
   private readonly accounts = new Map<string, StoredAccount>()
   signedIn: Account | undefined
   readonly calls: string[] = []
+  /** When true, the server does not answer: `current` says nothing and `unsure` is set. */
+  unreachable = false
+  unsure = false
 
   constructor(private readonly available: SignInOptions = { email: true, google: true, github: true }) {}
 
@@ -23,7 +26,8 @@ export class FakeAccountService implements AccountService {
   }
 
   async current() {
-    return this.signedIn
+    this.unsure = this.unreachable
+    return this.unreachable ? undefined : this.signedIn
   }
 
   async signUp({ name, email, password }: { name: string, email: string, password: string }) {
@@ -60,6 +64,8 @@ export class FakeAccountService implements AccountService {
   }
 
   async signOut() {
+    if (this.unreachable)
+      throw new AccountError('Deyslide is unreachable. Check your connection and try again.')
     this.signedIn = undefined
   }
 

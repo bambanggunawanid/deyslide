@@ -1,6 +1,7 @@
 import type { GuestStorage } from './guest/types'
 import { createApp } from 'vue'
 import { followAppAccount } from './account/app'
+import { followRememberedAccount } from './account/remembered'
 import { createAccountService } from './account/service'
 import App from './App.vue'
 import { HttpAssistantApi } from './assistant/api'
@@ -14,6 +15,8 @@ import { MAIN_WINDOW, windowLabel } from './platform/native'
 import { apiFetch, collabToken, collabUrl, isApp, isDesktopApp, routerHistory, startPlatform } from './platform/platform'
 import { EXPORT_KEY, HttpExportApi } from './present/exports'
 import { HttpProjectApi } from './projects/api'
+import { OfflineCache } from './projects/offline-cache'
+import { IndexedDbOfflineStorage, MemoryOfflineStorage } from './projects/offline-storage'
 import { createAppRouter } from './router'
 import { startSession } from './session'
 import '@unocss/reset/tailwind.css'
@@ -33,12 +36,17 @@ function browserStorage(): GuestStorage {
   return typeof indexedDB === 'undefined' ? new MemoryGuestStorage() : new IndexedDbGuestStorage()
 }
 
+// Account decks and project lists kept on this device (the website and the
+// apps alike), so they open and change offline. Signing out deletes them.
+const offline = new OfflineCache(typeof indexedDB === 'undefined' ? new MemoryOfflineStorage() : new IndexedDbOfflineStorage())
+
 const { account, workspace } = await startSession({
   service: await createAccountService(),
   guest: local ? undefined : await GuestStore.open(browserStorage()),
   local,
   api: new HttpProjectApi(apiFetch, { collabUrl }),
   collabToken,
+  offline,
 })
 const router = createAppRouter(routerHistory(), () => account.account.value)
 // Renaming a device project or deck changes its id: the page follows it.
@@ -47,6 +55,9 @@ if (device && local)
 // The app signs in and out outside the page: in the browser, or when the server ends a sign in.
 if (isApp())
   await followAppAccount(account, router)
+// The website shows the person signed in last while the server does not answer, and asks again later.
+else
+  followRememberedAccount(account, router)
 
 createApp(App)
   .provide(WORKSPACE_KEY, workspace)

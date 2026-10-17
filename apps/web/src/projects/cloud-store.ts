@@ -4,14 +4,16 @@ import type { DeckSession, OpenDeckOptions } from '../deck/session'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
 import type { DeckConnection, ProjectApi } from './api'
+import type { DeckCopy, OfflineCache } from './offline-cache'
 import type { SharingApi } from './sharing'
 import type { ExportedProject, ProjectStore } from './types'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { createDeckSession, EXTERNAL_ORIGIN, holdsDeck } from '../deck/session'
 import { deckFromTemplate } from '../guest/templates'
 import { cleanName, StoreError } from './names'
+import { canEdit, deckRole } from './roles'
 
 /** The deck model is large, so it loads the first time a deck is touched. */
 const loadModel = () => import('@deyslide/deck-model')
@@ -22,20 +24,45 @@ export interface CloudStoreOptions {
    * so the server reads the session cookie instead.
    */
   token?: () => Promise<string>
+  /**
+   * Keeps the person's decks and project lists on this device, so they
+   * open and change without a connection. Needs `userId`.
+   */
+  cache?: OfflineCache
+  /** Whose decks the cache keeps. */
+  userId?: string
+  /** How often the store asks the server again while it is out of reach. */
+  retryMs?: number
 }
+
+/** What the page adds to a failure once the deck's copy on this device is gone. */
+export const COPY_DELETED = 'Its copy on this device was deleted.'
+
+/** How often the store asks the server again while it is out of reach, by default. */
+const RETRY_MS = 30_000
 
 /**
  * A deck's live document in this page, shared by every session that has it
  * open and by the store's own reads and saves.
  */
 interface LiveDeck {
+  id: string
   /** Sessions using it. */
   users: number
   doc: Y.Doc
   awareness: Awareness
   connection: DeckConnection
-  /** The document holds the deck: it synced once. */
+  /** The document holds the deck: it synced once, or its copy on this device brought it. */
   loaded: Ref<boolean>
+  /** Changes would not be kept. Before the first sync, a deck from its copy is read only only for viewers and after a failure. */
+  readOnly: Readonly<Ref<boolean>>
+  error: Readonly<Ref<string>>
+  /** Changes made here wait for the server, also those made from the copy before any sync. */
+  unsaved: Readonly<Ref<boolean>>
+  /** The deck's copy on this device, when the store keeps copies. */
+  copy?: DeckCopy
+  /** What the copy holds is in the document (true at once without a copy). */
+  copyLoaded: Ref<boolean>
   /** Stops following the document and the connection. */
   stop: () => void
   /** Set while nobody uses it but the server still waits for changes made here. */
@@ -56,11 +83,30 @@ export class CloudStore implements ProjectStore {
   /** Open sessions and the deck each one shows. */
   private readonly sessions = new Map<DeckSession, string>()
   private readonly warnOnClose = (event: BeforeUnloadEvent) => event.preventDefault()
+  /** The device's cache and whose decks it keeps, when the store keeps copies. */
+  private readonly kept?: { cache: OfflineCache, userId: string }
+  private readonly retryMs: number
+  private readonly offlineState = ref(false)
+  /** True while the lists shown are the ones kept on this device, because the server is out of reach. */
+  readonly offline: Readonly<Ref<boolean>> = computed(() => this.offlineState.value)
+  /** Decks with a copy on this device. */
+  private readonly copies = shallowRef<ReadonlySet<string>>(new Set())
+  private stopRetrying?: () => void
+  private closed = false
+  /** The browser says the network went away: the lists shown are now the last ones read. */
+  private readonly wentOffline = () => {
+    if (this.closed)
+      return
+    this.offlineState.value = true
+    this.retryWhileOffline()
+  }
   readonly sharing: SharingApi
 
   private constructor(api: ProjectApi, options: CloudStoreOptions) {
     this.api = api
     this.token = options.token ?? (async () => 'cookie')
+    this.kept = options.cache && options.userId ? { cache: options.cache, userId: options.userId } : undefined
+    this.retryMs = options.retryMs ?? RETRY_MS
     this.sharing = {
       members: target => api.members(target),
       share: async (target, email, role) => {
@@ -79,10 +125,60 @@ export class CloudStore implements ProjectStore {
     }
   }
 
+  /**
+   * Reads the person's projects. When the server is out of reach, the lists
+   * kept on this device stand in, marked offline, until it answers again.
+   * Without kept lists, that fails.
+   */
   static async open(api: ProjectApi, options: CloudStoreOptions = {}) {
     const store = new CloudStore(api, options)
-    await store.refresh()
+    await store.start()
     return store
+  }
+
+  private async start() {
+    try {
+      await this.refresh()
+    }
+    catch (error) {
+      const lists = this.kept && await this.kept.cache.lists(this.kept.userId)
+      if (!lists)
+        throw error
+      this.projects = lists.projects
+      this.shared = lists.shared
+      this.offlineState.value = true
+      this.retryWhileOffline()
+    }
+    if (!this.kept)
+      return
+    if (typeof window !== 'undefined')
+      window.addEventListener('offline', this.wentOffline)
+    this.copies.value = new Set([...this.copies.value, ...await this.kept.cache.decks(this.kept.userId)])
+    if (!this.offlineState.value)
+      void this.sendPending()
+  }
+
+  /** Whether the deck has a copy on this device, so it opens and changes offline. */
+  keptOnDevice(deckId: string) {
+    return this.copies.value.has(deckId)
+  }
+
+  /** Asks the server again now and then, and as soon as the browser says it is back online. */
+  private retryWhileOffline() {
+    if (this.stopRetrying)
+      return
+    const retry = () => {
+      void this.refresh().catch(() => {})
+    }
+    const timer = setInterval(retry, this.retryMs)
+    if (typeof window !== 'undefined')
+      window.addEventListener('online', retry)
+    this.stopRetrying = () => {
+      clearInterval(timer)
+      if (typeof window !== 'undefined')
+        window.removeEventListener('online', retry)
+      this.stopRetrying = undefined
+    }
   }
 
   onChange(listener: () => void) {
@@ -93,10 +189,19 @@ export class CloudStore implements ProjectStore {
   /** Reloads the project list from the server. */
   async refresh() {
     const [projects, shared] = await Promise.all([this.api.list(), this.api.shared()])
+    if (this.closed)
+      return
     this.projects = projects
     this.shared = shared
+    const wasOffline = this.offlineState.value
+    this.offlineState.value = false
+    this.stopRetrying?.()
+    if (this.kept)
+      void this.kept.cache.saveLists(this.kept.userId, { projects, shared })
     for (const listener of this.listeners)
       listener()
+    if (wasOffline)
+      void this.sendPending()
   }
 
   listProjects() {
@@ -157,9 +262,9 @@ export class CloudStore implements ProjectStore {
     let closed = false
     const session = createDeckSession(deck.doc, deck.awareness, {
       status: connection.status,
-      error: connection.error,
+      error: deck.error,
       ready: computed(() => deck.loaded.value),
-      readOnly: connection.readOnly,
+      readOnly: deck.readOnly,
       flush: () => connection.flush(),
       close: () => {
         if (closed)
@@ -182,7 +287,8 @@ export class CloudStore implements ProjectStore {
   async flushAll(): Promise<string[]> {
     await Promise.all([...this.sessions.keys()].map(session => session.flush().catch(() => {})))
     await Promise.all([...this.live.values()].map(deck => deck.connection.flush().catch(() => {})))
-    const left = new Set([...this.live].filter(([, deck]) => deck.connection.unsaved.value).map(([deckId]) => deckId))
+    // A deck kept on this device loses nothing: its changes go out the next time Deyslide is online.
+    const left = new Set([...this.live].filter(([deckId, deck]) => deck.unsaved.value && !this.keptOnDevice(deckId)).map(([deckId]) => deckId))
     for (const [session, deckId] of this.sessions) {
       if (session.typingPending.value)
         left.add(deckId)
@@ -204,35 +310,166 @@ export class CloudStore implements ProjectStore {
     }
     const doc = new Y.Doc()
     const awareness = new Awareness(doc)
+    // The copy loads first where there is one; the connection syncs whenever it can.
+    const copy = this.kept?.cache.followDeck(this.kept.userId, deckId, doc)
     const connection = this.api.connectDeck(deckId, doc, awareness, this.token)
-    // The document holds the deck once the first sync brought it.
+    /** The copy on this device brought the deck, so it can be read and changed before the first sync. */
+    const fromCopy = ref(false)
+    /** Changed here after the copy loaded and before the first sync. */
+    const changedBeforeSync = ref(false)
+    // Viewers stay viewers offline: the role comes from the lists kept with the copy.
+    const viewer = this.viewerOf(deckId)
+    // The document holds the deck once the first sync or the copy brought it.
     const loaded = ref(false)
     const check = () => {
-      loaded.value = connection.synced.value && holdsDeck(doc)
+      loaded.value = (connection.synced.value || fromCopy.value) && holdsDeck(doc)
       if (loaded.value)
         doc.off('update', check)
     }
+    const noteChange = (_update: Uint8Array, origin: unknown) => {
+      if (fromCopy.value && !connection.synced.value && origin !== copy?.origin)
+        changedBeforeSync.value = true
+    }
     doc.on('update', check)
+    doc.on('update', noteChange)
+    const copyLoaded = ref(!copy)
+    void copy?.loaded.then(() => {
+      fromCopy.value = copy.holdsDeck
+      copyLoaded.value = true
+      check()
+    })
     const stopChecking = watch(connection.synced, check, { immediate: true })
+    const failed = computed(() => connection.status.value === 'failed')
+    /** The copy was deleted because the server refused the deck. */
+    const dropped = ref(false)
+    const readOnlyNow = computed(() => connection.synced.value || !fromCopy.value
+      ? connection.readOnly.value
+      : failed.value || viewer)
+    const unsaved = computed(() => connection.synced.value
+      ? connection.unsaved.value
+      : changedBeforeSync.value && !failed.value)
     // What the person may do changed (the server let them in again after a
     // role change): the project list says so too.
-    const stopFollowing = watch(() => loaded.value && connection.readOnly.value, () => {
+    const stopFollowing = watch(() => connection.synced.value && connection.readOnly.value, () => {
       void this.refresh().catch(() => {})
     })
+    const stopKeeping = this.kept ? this.keep(deckId, { loaded, unsaved, failed, connection, dropped, copy, copyLoaded }) : () => {}
     const deck: LiveDeck = {
+      id: deckId,
       users: 1,
       doc,
       awareness,
       connection,
       loaded,
+      readOnly: readOnlyNow,
+      error: computed(() => dropped.value ? `${connection.error.value} ${COPY_DELETED}` : connection.error.value),
+      unsaved,
+      copy,
+      copyLoaded,
       stop: () => {
         stopChecking()
         stopFollowing()
+        stopKeeping()
         doc.off('update', check)
+        doc.off('update', noteChange)
       },
     }
     this.live.set(deckId, deck)
     return deck
+  }
+
+  /** Whether the person may only view the deck, as the lists say. */
+  private viewerOf(deckId: string) {
+    for (const project of [...this.projects, ...this.shared]) {
+      const deck = project.decks.find(item => item.id === deckId)
+      if (deck)
+        return !canEdit(deckRole(project, deck))
+    }
+    return false
+  }
+
+  /**
+   * Follows a deck's copy on this device: notes when it holds changes the
+   * server does not have yet, so they go out the next time Deyslide is
+   * online, and deletes it when the server refuses the deck. Returns a
+   * function that stops following.
+   */
+  private keep(deckId: string, deck: { loaded: Ref<boolean>, unsaved: Readonly<Ref<boolean>>, failed: Readonly<Ref<boolean>>, connection: DeckConnection, dropped: Ref<boolean>, copy?: DeckCopy, copyLoaded: Ref<boolean> }) {
+    const { cache, userId } = this.kept!
+    const stopListing = watch(deck.loaded, (loaded) => {
+      if (loaded && !this.copies.value.has(deckId))
+        this.copies.value = new Set([...this.copies.value, deckId])
+    }, { immediate: true })
+    // Changes wait for the server, or the server has everything the copy holds. Until either is known, nothing changes.
+    const pending = () => deck.unsaved.value || (deck.copyLoaded.value && deck.connection.synced.value ? false : undefined)
+    const stopNoting = watch(pending, (waiting) => {
+      if (waiting !== undefined)
+        void cache.markPending(userId, deckId, waiting)
+    }, { immediate: true })
+    // Access removed, the deck deleted, or changes the server turned down:
+    // the copy would only bring them back, so it goes.
+    const stopRefusing = watch(deck.failed, async (failed) => {
+      if (!failed)
+        return
+      const copies = new Set(this.copies.value)
+      deck.dropped.value = copies.delete(deckId) || Boolean(deck.copy?.holdsDeck)
+      this.copies.value = copies
+      await deck.copy?.close()
+      await cache.deleteDeck(userId, deckId)
+      void this.refresh().catch(() => {})
+    }, { immediate: true })
+    return () => {
+      stopListing()
+      stopNoting()
+      stopRefusing()
+    }
+  }
+
+  /**
+   * Sends the changes kept on this device that the server does not have
+   * yet, made offline before the page last closed. Each deck joins its
+   * room in the background and lets go once the server has them.
+   */
+  private async sendPending() {
+    if (!this.kept)
+      return
+    for (const deckId of await this.kept.cache.pending(this.kept.userId)) {
+      if (this.closed || this.live.has(deckId))
+        continue
+      const deck = this.hold(deckId)
+      // The copy's changes reach the connection as the copy loads, so the server has them once it confirmed everything after that.
+      const done = () => deck.connection.status.value === 'failed' || (deck.copyLoaded.value && deck.connection.synced.value && !deck.unsaved.value)
+      const stop = watch(done, (finished) => {
+        if (!finished)
+          return
+        // After this change has run its course, not in the middle of it.
+        queueMicrotask(() => {
+          stop()
+          this.letGo(deckId, deck)
+        })
+      })
+    }
+  }
+
+  /** Lets go of every deck and stops asking the server, as the account leaves this page. Nothing is sent after this. */
+  async close() {
+    this.closed = true
+    this.stopRetrying?.()
+    if (typeof window !== 'undefined')
+      window.removeEventListener('offline', this.wentOffline)
+    const decks = [...this.live.values()]
+    this.live.clear()
+    this.sessions.clear()
+    this.waiting.clear()
+    this.warnWhileWaiting()
+    for (const deck of decks) {
+      deck.stopWaiting?.()
+      deck.stop()
+      deck.connection.destroy()
+      deck.awareness.destroy()
+      await deck.copy?.close()
+      deck.doc.destroy()
+    }
   }
 
   /**
@@ -253,13 +490,14 @@ export class CloudStore implements ProjectStore {
       deck.stop()
       deck.connection.destroy()
       deck.awareness.destroy()
+      void deck.copy?.close()
       deck.doc.destroy()
     }
-    if (!deck.connection.unsaved.value) {
+    if (!deck.unsaved.value) {
       close()
       return
     }
-    const stop = watch(deck.connection.unsaved, (unsaved) => {
+    const stop = watch(deck.unsaved, (unsaved) => {
       if (!unsaved)
         close()
     })
@@ -273,11 +511,14 @@ export class CloudStore implements ProjectStore {
     this.warnWhileWaiting()
   }
 
-  /** Closing the tab would drop changes that wait for the server, so the browser asks first. */
+  /**
+   * Closing the tab would drop changes that wait for the server, so the
+   * browser asks first. Decks with a copy on this device lose nothing.
+   */
   private warnWhileWaiting() {
     if (typeof window === 'undefined')
       return
-    if (this.waiting.size > 0)
+    if ([...this.waiting].some(deck => !this.keptOnDevice(deck.id)))
       window.addEventListener('beforeunload', this.warnOnClose)
     else
       window.removeEventListener('beforeunload', this.warnOnClose)
@@ -311,8 +552,8 @@ export class CloudStore implements ProjectStore {
     if (live) {
       const { connection } = live
       // The server would turn the change down, or never get it.
-      if (connection.readOnly.value)
-        throw new StoreError(connection.error.value || 'This deck can only be viewed here right now, so the change was not saved.')
+      if (live.readOnly.value)
+        throw new StoreError(live.error.value || 'This deck can only be viewed here right now, so the change was not saved.')
       // The open deck syncs the change to the server and everyone else.
       applyDeck(live.doc, deck, EXTERNAL_ORIGIN)
       await connection.flush()

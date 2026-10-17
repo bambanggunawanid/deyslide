@@ -165,13 +165,25 @@ The sign in page offers only what the API reports as configured at `/api/config`
 
 A deck opens as one live Yjs document that both views, the assistant and Claude Code change together. Decks in an account join a room on the API through a WebSocket at `/api/collab` ([Hocuspocus](https://tiptap.dev/docs/hocuspocus/introduction), one room per deck). Guest decks share one document per deck inside the browser, and decks on a device are read from and written to their files.
 
-- A deck is read only until it has synced, and for viewers. The header says `Connecting...`, `Saving...`, `Saved`, `Offline. Changes sync when you are back online.`, or `Not saved` with the reason.
-- Changes made offline stay in the tab until the server has them, even after leaving the deck, and the browser asks before such a tab closes.
+- A deck is read only until it has synced, or until its copy on this device has loaded (see below), and always for viewers. The header says `Connecting...`, `Saving...`, `Saved`, `Offline. Changes sync when you are back online.`, or `Not saved` with the reason.
+- Changes made offline stay in the tab until the server has them, even after leaving the deck. Decks with a copy on this device also keep them there; for any other deck the browser asks before such a tab closes.
 - Everyone in the deck shows as an avatar in the header and as a dot on their slide in the slide strip. On the canvas, other people's selections show as colored outlines with their name, their pointers as small labeled cursors, and the text cursors of anyone editing the same text box. Names and colors come from the server, so nobody can pose as someone else.
 - Deleting a deck or project, removing someone, changing a role, leaving, signing out and an expired app token close the affected connections, and people reconnect with the access they have now. Someone who lost access sees "You no longer have access to this deck."
 - A room refuses a deck past 200,000 characters of Markdown, 500 slides or 5 MB, and everyone in it sees "This deck is too big to save. Remove some content." A single change over 2 MB, or one that would take the deck's data past 5 MB, is refused before the room takes it in: only the page that sent it is let go, with the same message. A page that writes anything outside the deck is let go too, and presence passes on only the known fields (who, view, slide, selection, pointer, text cursor), up to 8 KB.
 - Rooms load from the database, store a couple of seconds after changes stop (and try again when a store fails), and repair a deck that concurrent edits left invalid, for everyone at once. A deck stored before block settings and frontmatter were split by key is converted as its room loads, before anyone edits it.
 - Pages and apps say which shape of the live deck their code reads (`?shape=2` on the socket address, `LIVE_SHAPE` in deck-model). The room turns away any other, since older code would read the new frontmatter as empty and write that back for everyone. A current page that is turned away says "Deyslide was updated. Reload the page, or update the app, to keep editing this deck." A page or an app built before this check says "You no longer have access to this deck." instead, and stops without changing the deck.
+
+### Working offline
+
+Account decks open and change without a connection, on the website and in the apps, once they were opened on that device.
+
+- Every account deck opened on a device keeps a copy of its live document there, in IndexedDB (`deyslide-account-<userId>-<deckId>`, apart from guest decks), updated as it changes. A copy only starts once the deck has synced, so it shares the deck's history with the server.
+- A deck with a copy opens at once and can be changed while it connects in the background. Changes made offline merge with what others did meanwhile once the connection is back. If the page closed first, they go out the next time Deyslide opens online, without opening the deck.
+- A deck never opened on the device still waits for its first sync, read only, and says it opens once you are back online. Offline, a project page marks each deck **On this device** or **Needs a connection**.
+- The last project list, and the shared list, are kept per person too. Offline, the home page lists the account's projects with an **Offline** mark, and the person signed in last stays shown. The lists refresh as soon as the server answers again.
+- When the server refuses a deck (access removed, the deck deleted, or changes it turned down), its copy is deleted and the header says so: "Not saved: You no longer have access to this deck. Its copy on this device was deleted."
+- Signing out deletes every deck copy, both lists and the remembered account of that person on the device. In the apps, the same IndexedDB lives inside the webview.
+- The website itself needs a connection to load the page, so offline it works in a tab that is already open.
 
 ### Design view
 
@@ -354,7 +366,7 @@ The home page shows **On this device** and, signed in, **Your account**. On the 
 - A change in the app is written to its file a moment later, and only when the deck differs from the file. Each write checks that the file still holds what the app last read or wrote, so a file Claude Code or another editor changed meanwhile is merged in, never overwritten.
 - Changes made to a file on disk appear in the open deck at once and merge with any typing.
 - A file that does not parse pauses writing and says "The file on disk has an error: ..." until a later change reads, and a deck moved or renamed on disk says so.
-- Closing the window, or the app going to the background, writes what is waiting first and sends account decks' changes to the server. When some cannot be saved (offline, say), closing asks before it goes without them.
+- Closing the window, or the app going to the background, writes what is waiting first and sends account decks' changes to the server. Account decks keep a copy on the device, so offline changes to them are never lost. When other changes cannot be saved (typing held back by a Markdown error, say), closing asks before it goes without them.
 - Deleting a project or deck moves it to the system's trash when there is one.
 
 Decks on a device are not shared and have no live room. Export from them makes a PDF on the device, or, signed in, sends their Markdown to the server for a PDF or a video.
@@ -481,7 +493,7 @@ A new deck starts from one of two templates: **Blank** (one title slide) or **De
 - the production build of the web app with `vite preview`, sending `/api` (WebSockets included), `/mcp` and `/.well-known` to that API
 - the slide renderer from `apps/renderer`, serving that build, for slide images and exports
 
-It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, sharing, two people editing one deck live, the canvas with a mouse and with fingers, the Markdown view and preview, presenting and the presenter view, PDF exports on the device and on the server, the deck assistant, and Claude Code connecting through the MCP server, signing in, building a deck and getting real slide images. It is not part of CI. No test calls the real Claude API. The apps are not covered here; their Rust code has its own tests (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, sharing, two people editing one deck live, an account deck changed offline and synced afterwards, the canvas with a mouse and with fingers, the Markdown view and preview, presenting and the presenter view, PDF exports on the device and on the server, the deck assistant, and Claude Code connecting through the MCP server, signing in, building a deck and getting real slide images. It is not part of CI. No test calls the real Claude API. The apps are not covered here; their Rust code has its own tests (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Install Chromium once with `pnpm exec playwright install chromium`. To use a Chromium you already have instead, set `PLAYWRIGHT_CHROMIUM_PATH` to its executable. After a failure, `pnpm exec playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 

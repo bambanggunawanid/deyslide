@@ -172,6 +172,15 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
     }
   }
 
+  /**
+   * Back online: the provider waits longer after each failed attempt, up to
+   * half a minute, so it tries again at once instead.
+   */
+  function reconnectNow() {
+    if (!destroyed && !failed && !live)
+      void provider?.connect()
+  }
+
   // The provider loads with the first open deck, not with the app.
   function load(delay: number) {
     void import('@hocuspocus/provider').then(({ HocuspocusProvider }) => {
@@ -187,6 +196,8 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
         ...(WebSocketPolyfill ? { WebSocketPolyfill } : {}),
       })
       listen(provider)
+      if (typeof window !== 'undefined')
+        window.addEventListener('online', reconnectNow)
     }, () => {
       if (destroyed)
         return
@@ -221,6 +232,8 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
     destroy() {
       destroyed = true
       clearTimeout(retry)
+      if (typeof window !== 'undefined')
+        window.removeEventListener('online', reconnectNow)
       for (const done of [...waiting])
         done()
       provider?.destroy()

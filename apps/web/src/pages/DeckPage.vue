@@ -546,6 +546,10 @@ onUnmounted(closeSession)
       </div>
     </template>
 
+    <p v-else-if="session?.status.value === 'offline'" class="m-0 text-dey-muted" data-testid="deck-needs-connection">
+      This deck has no copy on this device yet, so it opens once you are back online.
+    </p>
+
     <p v-else class="m-0 text-dey-muted">
       Opening the deck...
     </p>

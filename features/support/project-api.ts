@@ -38,6 +38,8 @@ class FakeConnection {
   /** The role a scenario gave this page's person, over what the projects say. */
   role?: Role
   closed = false
+  /** The token the page last connected with, which says whose page it is. */
+  lastToken?: string
 
   constructor(
     readonly api: FakeProjectApi,
@@ -56,7 +58,7 @@ class FakeConnection {
     }
     this.readOnly.value = !this.synced.value || this.viewer || this.rejoining
     if (!this.live)
-      this.status.value = this.api.online || this.rejoining ? 'connecting' : 'offline'
+      this.status.value = this.api.reaches(this.lastToken) || this.rejoining ? 'connecting' : 'offline'
     else
       this.status.value = this.unconfirmed.length > 0 && !this.viewer ? 'saving' : 'saved'
   }
@@ -215,6 +217,32 @@ export class FakeProjectApi implements ProjectApi {
     }
   }
 
+  /** Pages whose connection is down while everyone else stays online, by the token they connect with. */
+  private readonly down = new Set<string>()
+
+  /** Whether a page that connects with this token reaches the server. */
+  reaches(token?: string) {
+    return this.online && !(token !== undefined && this.down.has(token))
+  }
+
+  /** The connection drops only for the pages that connect with this token, such as one person's. */
+  goOfflineFor(token: string) {
+    this.down.add(token)
+    for (const connection of this.connections) {
+      if (connection.lastToken === token)
+        this.disconnect(connection, false)
+    }
+  }
+
+  /** The connection comes back for the pages that connect with this token, and they join their decks again. */
+  goOnlineFor(token: string) {
+    this.down.delete(token)
+    for (const connection of this.connections) {
+      if (connection.lastToken === token)
+        void this.connect(connection)
+    }
+  }
+
   /** The connection to the server drops for every page. */
   goOffline() {
     this.online = false
@@ -306,8 +334,10 @@ export class FakeProjectApi implements ProjectApi {
   private async connect(connection: FakeConnection) {
     if (connection.closed || connection.live || connection.failed)
       return
-    this.tokens.push(await connection.token())
-    if (connection.closed || connection.live || connection.failed || !this.online) {
+    const token = await connection.token()
+    this.tokens.push(token)
+    connection.lastToken = token
+    if (connection.closed || connection.live || connection.failed || !this.reaches(token)) {
       connection.update()
       return
     }

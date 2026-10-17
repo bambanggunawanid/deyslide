@@ -6,6 +6,7 @@ import type { DeckView } from '../../apps/web/src/deck/view'
 import type { ExportApi } from '../../apps/web/src/present/exports'
 import type { ProjectApi } from '../../apps/web/src/projects/api'
 import type { MediaApi } from '../../apps/web/src/projects/media'
+import type { OfflineCache } from '../../apps/web/src/projects/offline-cache'
 import type { ProjectStore } from '../../apps/web/src/projects/types'
 import { flushPromises, mount } from '@vue/test-utils'
 import { expect, vi } from 'vitest'
@@ -52,16 +53,18 @@ export interface MountOptions {
   exports?: ExportApi
   /** More for the app to provide, by injection key. */
   provide?: Record<symbol, unknown>
+  /** Account decks and project lists kept on the device. None unless a scenario passes it. */
+  offline?: OfflineCache
 }
 
 /** The web app as it runs in the browser, with memory storage and routing. */
-export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }), exports = new FakeExportApi({ on: false }), provide = {} }: MountOptions = {}) {
+export async function mountWebApp({ path = '/', service = new FakeAccountService(), api = new FakeProjectApi(), guest, local, assistant = new FakeAssistantApi({ on: false }), view, media = new FakeMediaApi({ on: false }), exports = new FakeExportApi({ on: false }), provide = {}, offline }: MountOptions = {}) {
   if (view)
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   else
     localStorage.removeItem(VIEW_STORAGE_KEY)
   const store = guest ?? await GuestStore.open(new MemoryGuestStorage())
-  const { account, workspace } = await startSession({ service, guest: local && !guest ? undefined : store, local, api })
+  const { account, workspace } = await startSession({ service, guest: local && !guest ? undefined : store, local, api, offline })
   const router: Router = createAppRouter(createMemoryHistory(), () => account.account.value)
   await router.push(path)
   const wrapper: VueWrapper = mount(App, {
