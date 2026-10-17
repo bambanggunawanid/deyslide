@@ -634,7 +634,7 @@ Without all four, the APK is unsigned and stays a workflow artifact, since it ca
 
 ### iOS
 
-Xcode does not run on Linux, so the iOS job makes the Xcode project on macOS with `tauri ios init` whenever `apps/native/src-tauri/gen/apple` is not in the repository, applies the app's link scheme and settings (`apps/native/scripts/ios-settings.py`), and uploads the project as the workflow artifact `ios-project`, ready to commit. A signed build for TestFlight needs an Apple developer account in these secrets:
+The Xcode project is committed in `apps/native/src-tauri/gen/apple`. The iOS job builds it on macOS after applying the app's link scheme and settings (`apps/native/scripts/ios-settings.py`) and icons, and uploads the project it used as the workflow artifact `ios-project`. When the folder is deleted, the job makes it again with `tauri ios init`, ready to commit. A signed build for TestFlight needs an Apple developer account in these secrets:
 
 | Secret | Holds |
 | --- | --- |

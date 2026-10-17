@@ -72,7 +72,7 @@ To try updates by hand, make a key with `pnpm tauri signer generate -w ~/.tauri/
 
 ## iOS
 
-Building for iOS needs a Mac with Xcode, so this repository has no Xcode project yet: the release workflow's iOS job runs `pnpm tauri ios init --ci` on macOS when `src-tauri/gen/apple` is missing, runs `scripts/ios-settings.py` on its `Info.plist`, copies `src-tauri/icons/ios/` into the asset catalog, and uploads the folder as the artifact `ios-project`. Unpack it into `src-tauri/gen/apple` and commit it to keep it; later runs then use it as it is (the settings script runs on it again, and changes nothing it already has).
+Building for iOS needs a Mac with Xcode. The Xcode project in `src-tauri/gen/apple` was made by the release workflow's iOS job, which runs `pnpm tauri ios init --ci` on macOS when that folder is missing, runs `scripts/ios-settings.py` on its `Info.plist`, copies `src-tauri/icons/ios/` into the asset catalog, and uploads the folder as the artifact `ios-project`. To make it again (after a Tauri upgrade, say), delete the folder, run the workflow, and commit the unpacked artifact. On a committed project the settings script changes nothing it already has.
 
 On a Mac, with Xcode, XcodeGen and the Rust targets `aarch64-apple-ios` and `aarch64-apple-ios-sim`:
 
