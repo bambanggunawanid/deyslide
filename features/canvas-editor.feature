@@ -217,6 +217,27 @@ Feature: Canvas editor
     Then the strip shows "1 Middle", "2 End" and "3 Intro", with slide 3 current
     And the page still shows the slide "Intro", now "Slide 3 of 3"
 
+  Scenario: The strip keeps the current slide in sight, whatever changes it
+    Given Ana has a deck of 20 slides open in the Design view, with room for 5 slides in the strip
+    When Ana goes to slide 8 with the next slide button
+    Then the strip scrolled smoothly, only once slide 6 was out of sight, until slide 8 is the last slide in sight
+    When Ana adds a slide after slide 8
+    Then the strip scrolls smoothly until the new slide 9 is the last slide in sight
+    When someone else adds a slide at the start of the deck
+    Then the strip scrolls along, so the new slide, now slide 10, stays the last slide in sight
+    When Ana goes back to slide 2 with the previous slide button
+    Then the strip scrolls smoothly until slide 2 is the first slide in sight
+
+  Scenario: Without motion the strip jumps to the current slide
+    Given Ana asked her system for less motion, and has a deck of 20 slides open in the Design view, with room for 5 slides in the strip
+    When Ana goes to slide 6 with the next slide button
+    Then the strip jumps, without smooth scrolling, until slide 6 is the last slide in sight
+
+  Scenario: On a phone the strip scrolls across to the current slide
+    Given Ana has a deck of 20 slides open in the Design view on a phone, with room for 2 slides in the strip
+    When Ana goes to slide 4 with the next slide button
+    Then the strip scrolls smoothly across until slide 4 is the last slide in sight
+
   Scenario: A long press on a slide reorders it on touch, and a swipe does not
     Given Ana has the deck "Three" open in the Design view on a phone
     When Ana swipes across slide 1 with a finger
@@ -280,6 +301,7 @@ Feature: Canvas editor
     Given Ana has the deck "Shapes" open in the Design view on a touch screen
     When Ana adds a text box from the toolbar
     Then the text box shows only its four corner handles, outside it
+    And its rotate handle sits clear of the corner handles above it
     When Ana double taps the middle of the text box
     Then an editor opens over the text box
 
@@ -471,7 +493,7 @@ Feature: Canvas editor
 
   Scenario: Slide settings
     Given Ana has the deck "Shapes" open in the Design view
-    Then the layout menu offers "Automatic (cover)", then the preview's own layouts
+    Then the layout menu offers "Auto (cover)", then the preview's own layouts
     When Ana chooses the "center" layout and the "slide-up" transition
     Then the slide's frontmatter has the "center" layout and the "slide-up" transition, and keeps its theme
     And the preview renders the slide with the "center" layout

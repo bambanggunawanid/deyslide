@@ -15,16 +15,17 @@ import {
   CANVAS,
   clampView,
   fitView,
-  handleSides,
-  HANDLES,
+  handleOffset,
   hitTest,
   keepOnSlide,
   panBy,
   pinchView,
   resizeBox,
+  rotateHandleGap,
   rotateHandlePlace,
   rotationFor,
   round2,
+  shownHandles,
   snapMove,
   snapResize,
   toCanvas,
@@ -70,10 +71,7 @@ const DRAG_START = { mouse: 4, touch: 8 }
 const DUPLICATE_OFFSET = { x: 20, y: 20 }
 /** The longest the preview waits after a gesture for a render with its changes. */
 const HOLD_LIMIT_MS = 1000
-/** How far off its box the rotate handle sits, in pixels. */
-const ROTATE_HANDLE_GAP = 24
 /** The handles at the corners, which a small box keeps. */
-const CORNERS: Handle[] = ['nw', 'ne', 'se', 'sw']
 const ZOOMS = [0.5, 1, 2]
 
 // The slide's elements, read again whenever the deck changes ---------------------
@@ -256,19 +254,17 @@ const readCoarse = () => {
 }
 const handleSize = computed(() => coarse.value ? 24 : 10)
 
-/**
- * A box too small on screen for handles on its edges keeps only its corner
- * handles, set outside it, so its middle stays free to grab and tap.
- */
-const compact = computed(() => {
+/** The handles the selected box shows: only its corners when it is small on screen. */
+const handlesShown = computed(() => {
   const box = handled.value?.box
-  return Boolean(box) && Math.min(box!.w, box!.h) * scale.value < 3 * handleSize.value
+  return box ? shownHandles(box.w * scale.value, box.h * scale.value, handleSize.value) : []
 })
-const shownHandles = computed(() => compact.value ? CORNERS : HANDLES)
+/** How far off the box the rotate handle sits, clear of the resize handles. */
+const rotateGap = computed(() => rotateHandleGap(handleSize.value))
 
 /** The rotate handle goes below the box, or inside it, where the stage's edge would cut it off above. */
 const rotatePlace = computed(() => handled.value
-  ? rotateHandlePlace(handled.value.box, view.value, stageSize.value, { gap: ROTATE_HANDLE_GAP, size: handleSize.value })
+  ? rotateHandlePlace(handled.value.box, view.value, stageSize.value, { gap: rotateGap.value, size: handleSize.value })
   : 'above')
 
 // Pixels on the stage, for what the overlay draws.
@@ -287,19 +283,13 @@ function boxStyle(box: Box) {
   }
 }
 
+/** A resize handle, just outside the edge or corner it pulls, so it covers nothing the box shows. */
 function handleStyle(box: Box, handle: Handle) {
-  const sides = handleSides(handle)
   const size = handleSize.value
-  const width = box.w * scale.value
-  const height = box.h * scale.value
-  const place = compact.value
-    // Outside the corner, touching it.
-    ? { left: sides.x === -1 ? -size : width, top: sides.y === -1 ? -size : height }
-    // Centered on the edge or corner.
-    : { left: width * (sides.x + 1) / 2 - size / 2, top: height * (sides.y + 1) / 2 - size / 2 }
+  const place = handleOffset(handle, box.w * scale.value, box.h * scale.value, size)
   return {
-    left: `${place.left}px`,
-    top: `${place.top}px`,
+    left: `${place.x}px`,
+    top: `${place.y}px`,
     width: `${size}px`,
     height: `${size}px`,
     cursor: `${handle}-resize`,
@@ -311,11 +301,11 @@ function rotateHandleMiddle(box: Box) {
   const height = box.h * scale.value
   switch (rotatePlace.value) {
     case 'above':
-      return -ROTATE_HANDLE_GAP
+      return -rotateGap.value
     case 'below':
-      return height + ROTATE_HANDLE_GAP
+      return height + rotateGap.value
     case 'inside':
-      return Math.min(ROTATE_HANDLE_GAP, height / 2)
+      return Math.min(rotateGap.value, height / 2)
   }
 }
 
@@ -326,13 +316,19 @@ function rotateHandleStyle(box: Box) {
 
 /** The line from the box's edge to the rotate handle. */
 function rotateLineStyle(box: Box) {
-  return { top: rotatePlace.value === 'above' ? `${-ROTATE_HANDLE_GAP}px` : px(box.h), height: `${ROTATE_HANDLE_GAP}px` }
+  return { top: rotatePlace.value === 'above' ? `${-rotateGap.value}px` : px(box.h), height: `${rotateGap.value}px` }
 }
 
+/** How thick a snap guide is drawn, in pixels at any zoom. */
+const GUIDE_WIDTH = 2
+
+/** A snap guide, centered on the line it marks. */
 function guideStyle(guide: Guide) {
+  const at = `${guide.at * scale.value - GUIDE_WIDTH / 2}px`
+  const thick = `${GUIDE_WIDTH}px`
   return guide.axis === 'x'
-    ? { left: px(guide.at), top: px(guide.from), width: '1px', height: px(guide.to - guide.from) }
-    : { left: px(guide.from), top: px(guide.at), width: px(guide.to - guide.from), height: '1px' }
+    ? { left: at, top: px(guide.from), width: thick, height: px(guide.to - guide.from) }
+    : { left: px(guide.from), top: at, width: px(guide.to - guide.from), height: thick }
 }
 
 // Writing to the deck ----------------------------------------------------------------
@@ -1075,7 +1071,7 @@ onBeforeUnmount(() => {
           >
             <template v-if="handled?.id === item.id">
               <span
-                v-for="handle in shownHandles"
+                v-for="handle in handlesShown"
                 :key="handle"
                 class="pointer-events-auto absolute rounded-sm border border-slate-900 bg-dey-accent"
                 :style="handleStyle(item.box, handle)"
@@ -1095,7 +1091,7 @@ onBeforeUnmount(() => {
           <div
             v-for="guide in guides"
             :key="`${guide.axis}:${guide.at}`"
-            class="absolute bg-fuchsia-400"
+            class="absolute bg-fuchsia-400 shadow-[0_0_0_1px_rgba(2,6,23,0.5)]"
             :style="guideStyle(guide)"
             :data-axis="guide.axis"
             :data-at="guide.at"

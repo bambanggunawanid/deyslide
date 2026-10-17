@@ -521,6 +521,39 @@ export function pinchView(start: View, from: [Point, Point], to: [Point, Point],
 
 // Handles -----------------------------------------------------------------------
 
+/** The four corner handles, all a box small on screen shows. */
+export const CORNERS: Handle[] = ['nw', 'ne', 'se', 'sw']
+
+/**
+ * The resize handles a box shows, each `size` pixels square: all eight,
+ * or only the corners when its shorter side on screen is under three
+ * handles long, where the side handles would crowd the corners.
+ */
+export function shownHandles(width: number, height: number, size: number): Handle[] {
+  return Math.min(width, height) < 3 * size ? CORNERS : HANDLES
+}
+
+/**
+ * Where a resize handle `size` pixels square goes on a box `width` by
+ * `height` pixels on screen, from the box's top left: just outside the edge
+ * or corner it pulls, centered along that edge, so it never covers what the
+ * box shows (the first letters of a text box, say).
+ */
+export function handleOffset(handle: Handle, width: number, height: number, size: number): Point {
+  const sides = handleSides(handle)
+  const place = (side: -1 | 0 | 1, length: number) => side === -1 ? -size : side === 1 ? length : (length - size) / 2
+  return { x: place(sides.x, width), y: place(sides.y, height) }
+}
+
+/**
+ * How far the rotate handle's center sits off its box, in pixels, for
+ * handles `size` pixels square: 24, or more for large touch handles, so it
+ * stays clear of the resize handles outside the same edge.
+ */
+export function rotateHandleGap(size: number) {
+  return Math.max(24, size * 1.5 + 4)
+}
+
 /** Where the rotate handle goes: off the box's top edge, off its bottom edge, or just inside its top. */
 export type RotateHandlePlace = 'above' | 'below' | 'inside'
 

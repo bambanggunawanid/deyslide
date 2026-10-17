@@ -1,17 +1,20 @@
-import type { Bounds, Box, Guide, Point, View } from '../apps/web/src/canvas/geometry'
+import type { Bounds, Box, Guide, Handle, Point, View } from '../apps/web/src/canvas/geometry'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect } from 'vitest'
 import {
   clampView,
   corners,
   fitView,
+  handleOffset,
   hitTest,
   keepOnSlide,
   normalizeAngle,
   pinchView,
   resizeBox,
+  rotateHandleGap,
   rotateHandlePlace,
   rotationFor,
+  shownHandles,
   snapMove,
   snapResize,
   toCanvas,
@@ -366,6 +369,44 @@ describeFeature(feature, ({ Scenario }) => {
     })
     And('for a box at the top turned upside down it stays off the box\'s own top edge, which now faces down', () => {
       expect(rotateHandlePlace({ x: 100, y: 10, w: 200, h: 100, rotate: 180 }, view, STAGE, handle)).toBe('above')
+    })
+  })
+
+  Scenario('Resize handles sit outside the box, so they cover nothing it shows', ({ Given, Then, And }) => {
+    const box = { width: 200, height: 100, size: 10 }
+    const at = (handle: Handle) => handleOffset(handle, box.width, box.height, box.size)
+    Given('a box 200 by 100 pixels on screen with handles 10 pixels square', () => {})
+    Then('it shows all eight handles', () => {
+      expect(shownHandles(box.width, box.height, box.size)).toEqual(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'])
+    })
+    And('the top left handle touches its corner from outside, at -10, -10', () => {
+      expect(at('nw')).toEqual({ x: -10, y: -10 })
+    })
+    And('the left handle sits outside the left edge, halfway down, at -10, 45', () => {
+      expect(at('w')).toEqual({ x: -10, y: 45 })
+    })
+    And('the bottom right handle touches its corner from outside, at 200, 100', () => {
+      expect(at('se')).toEqual({ x: 200, y: 100 })
+    })
+  })
+
+  Scenario('A box small on screen keeps only its corner handles, and the rotate handle stays clear of them', ({ Given, Then, And }) => {
+    const box = { width: 180, height: 20, size: 24 }
+    Given('a box 180 by 20 pixels on screen with touch handles 24 pixels square', () => {})
+    Then('it shows only its four corner handles', () => {
+      expect(shownHandles(box.width, box.height, box.size)).toEqual(['nw', 'ne', 'se', 'sw'])
+    })
+    And('the top left handle touches its corner from outside, at -24, -24', () => {
+      expect(handleOffset('nw', box.width, box.height, box.size)).toEqual({ x: -24, y: -24 })
+    })
+    And('the rotate handle\'s center sits 40 pixels off the box, past the 24 pixels the corner handles take', () => {
+      const gap = rotateHandleGap(box.size)
+      expect(gap).toBe(40)
+      // The rotate handle's near edge is further off the box than the corner handles' far edge.
+      expect(gap - box.size / 2).toBeGreaterThan(box.size)
+    })
+    And('with mouse handles 10 pixels square the rotate handle\'s center sits 24 pixels off the box', () => {
+      expect(rotateHandleGap(10)).toBe(24)
     })
   })
 

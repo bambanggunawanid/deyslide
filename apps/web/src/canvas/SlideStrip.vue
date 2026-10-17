@@ -7,7 +7,7 @@ import { peopleHere } from '../deck/presence'
 import { LOCAL_ORIGIN } from '../deck/session'
 import { useMediaQuery } from './media-query'
 import StripThumbnail from './StripThumbnail.vue'
-import { dropIndex, slideTitle, thumbnailsToShow } from './strip'
+import { dropIndex, scrollToShow, slideTitle, thumbnailsToShow } from './strip'
 
 /**
  * The deck's slides in order: number, title and who else is on each, with
@@ -118,6 +118,30 @@ watch(() => props.slides.map(slide => slide.id).join('\n'), () => {
   if ([...onScreen.value].some(id => !ids.has(id)))
     onScreen.value = new Set([...onScreen.value].filter(id => ids.has(id)))
 }, { flush: 'post' })
+
+// Keeping the current slide in sight -------------------------------------------------
+
+/**
+ * Scrolls the strip, and only the strip, so the current slide is in sight:
+ * after it changes by any route (the strip, the slide buttons, the keyboard,
+ * the assistant) and after slides are added, moved or removed around it.
+ */
+function showCurrent(smooth: boolean) {
+  const box = list.value
+  const index = props.slides.findIndex(slide => slide.id === props.currentId)
+  const item = itemElements[index]
+  if (!box || index < 0 || !item?.isConnected)
+    return
+  const scroll = { left: box.scrollLeft, top: box.scrollTop }
+  const target = scrollToShow(box.getBoundingClientRect(), item.getBoundingClientRect(), scroll)
+  if (target.left === scroll.left && target.top === scroll.top)
+    return
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  box.scrollTo({ ...target, behavior: smooth && !still ? 'smooth' : 'auto' })
+}
+
+watch(() => [props.currentId, props.slides.map(slide => slide.id).join('\n')], () => showCurrent(true), { flush: 'post' })
+onMounted(() => showCurrent(false))
 
 // Adding, copying and deleting ------------------------------------------------------
 

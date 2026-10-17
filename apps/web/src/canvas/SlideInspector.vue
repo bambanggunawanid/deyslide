@@ -189,7 +189,7 @@ function leaveNotes() {
         Layout
         <select class="dey-input py-1 text-sm" :value="layout" :disabled="readonly" data-testid="field-layout" @change="choose('layout', ($event.target as HTMLSelectElement).value)">
           <option value="">
-            {{ first ? 'Automatic (cover)' : 'Automatic (default)' }}
+            {{ first ? 'Auto (cover)' : 'Auto (default)' }}
           </option>
           <option v-for="name in layoutChoices" :key="name" :value="name">
             {{ name }}

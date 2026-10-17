@@ -115,6 +115,20 @@ Feature: Canvas geometry
     And for a box as tall as the slide it sits inside it, near its top
     And for a box at the top turned upside down it stays off the box's own top edge, which now faces down
 
+  Scenario: Resize handles sit outside the box, so they cover nothing it shows
+    Given a box 200 by 100 pixels on screen with handles 10 pixels square
+    Then it shows all eight handles
+    And the top left handle touches its corner from outside, at -10, -10
+    And the left handle sits outside the left edge, halfway down, at -10, 45
+    And the bottom right handle touches its corner from outside, at 200, 100
+
+  Scenario: A box small on screen keeps only its corner handles, and the rotate handle stays clear of them
+    Given a box 180 by 20 pixels on screen with touch handles 24 pixels square
+    Then it shows only its four corner handles
+    And the top left handle touches its corner from outside, at -24, -24
+    And the rotate handle's center sits 40 pixels off the box, past the 24 pixels the corner handles take
+    And with mouse handles 10 pixels square the rotate handle's center sits 24 pixels off the box
+
   Scenario: The whole slide fits the stage, centered
     Given a stage of 1000 by 1000 pixels
     Then the fitted slide is 1000 pixels wide and centered from top to bottom
