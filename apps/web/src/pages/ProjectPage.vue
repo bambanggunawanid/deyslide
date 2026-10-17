@@ -10,7 +10,7 @@ import ShareDialog from '../components/ShareDialog.vue'
 import { useProjects, useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import { TEMPLATES } from '../guest/templates'
-import { isAndroidApp } from '../platform/platform'
+import { isMobileApp } from '../platform/platform'
 import { canEdit, deckRole, projectRole } from '../projects/roles'
 import { LOCAL_ID_PREFIX } from '../projects/workspace'
 
@@ -20,6 +20,8 @@ const { store, projects, shared } = useProjects(() => props.projectId)
 const workspace = useWorkspace()
 const router = useRouter()
 const project = computed(() => [...projects.value, ...shared.value].find(item => item.id === props.projectId))
+/** The account's lists come from this device while the server is out of reach. */
+const offline = computed(() => Boolean(store.value.offline?.value))
 
 const addingDeck = ref(false)
 const template = ref<DeckTemplate>('blank')
@@ -43,7 +45,7 @@ const ROLE_NAMES = { owner: 'owner', editor: 'an editor', viewer: 'a viewer' }
 // A device project is a folder: deleting moves it to the system's trash, or deletes it where the system has none.
 const removal = computed(() => {
   if (props.projectId.startsWith(LOCAL_ID_PREFIX))
-    return isAndroidApp() ? 'will be deleted from this device. This cannot be undone.' : 'will go to the trash, or be deleted for good where the system has none.'
+    return isMobileApp() ? 'will be deleted from this device. This cannot be undone.' : 'will go to the trash, or be deleted for good where the system has none.'
   return store.value === workspace.stores.value.cloud
     ? 'will be deleted from your account. This cannot be undone.'
     : 'will be removed from this browser. This cannot be undone.'
@@ -91,6 +93,11 @@ async function deleteProject() {
       {{ project.shared.role ? `You are ${ROLE_NAMES[project.shared.role]}.` : 'Only some of its decks are shared with you.' }}
     </p>
 
+    <p v-if="offline" class="m-0 mt-3 flex flex-wrap items-center gap-2 text-sm text-dey-muted" role="status" data-testid="project-offline">
+      <span class="rounded-full border border-dey-line px-2 py-0.5 text-xs">Offline</span>
+      <span>Decks kept on this device open and change now. The others need a connection.</span>
+    </p>
+
     <div v-if="project.decks.length === 0" class="dey-panel mt-6 text-center" data-testid="empty-decks">
       <p class="m-0 text-lg">
         No decks in this project
@@ -105,6 +112,9 @@ async function deleteProject() {
         <RouterLink :to="{ name: 'deck', params: { projectId: project.id, deckId: deck.id } }" class="hover:text-dey-accent" :data-deck="deck.name">
           <span class="block text-lg font-medium">{{ deck.name }}</span>
           <span class="block text-sm text-dey-muted">{{ plural(deck.slideCount, 'slide') }} · changed {{ timeAgo(deck.updatedAt) }}</span>
+          <span v-if="offline" class="block text-xs" :class="store.keptOnDevice?.(deck.id) ? 'text-dey-accent' : 'text-dey-muted'" :data-deck-offline="deck.name">
+            {{ store.keptOnDevice?.(deck.id) ? 'On this device' : 'Needs a connection' }}
+          </span>
         </RouterLink>
         <span v-if="project.shared" class="ml-auto text-xs text-dey-muted" :data-deck-role="deck.name">
           {{ deckRole(project, deck) === 'editor' ? 'Can edit' : 'View only' }}

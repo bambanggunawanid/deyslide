@@ -103,5 +103,10 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     And('it says the app cannot delete projects or decks', () => {
       expect(text('[data-testid="consent-limits"]')).toBe('It cannot delete projects or decks, and it reaches only what you can open in Deyslide.')
     })
+    And('the list shows a bullet before each item', () => {
+      // The style reset takes markers off every list: this puts them back.
+      const list = find('[data-testid="consent-permissions"]')!
+      expect([list.tagName, list.classList.contains('list-disc')]).toEqual(['UL', true])
+    })
   })
 })

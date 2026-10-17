@@ -9,6 +9,11 @@ import { plural } from '../format'
 /** Ids of projects and decks saved on this device start with this. */
 export const LOCAL_ID_PREFIX = 'local-'
 
+/** Lets go of an account's store that is no longer in use. */
+async function closeStore(store: ProjectStore | undefined) {
+  await (store as Partial<CloudStore> | undefined)?.close?.()
+}
+
 /** The stores a workspace can hold. Guests have no cloud; the apps have no guest store. */
 export interface WorkspaceStores {
   /** Decks saved as files on this device (the apps). */
@@ -22,7 +27,7 @@ export interface WorkspaceStores {
 export interface WorkspaceOptions {
   guest?: GuestStore
   local?: ProjectStore
-  openCloud: () => Promise<CloudStore>
+  openCloud: (account: Account) => Promise<CloudStore>
 }
 
 /**
@@ -40,7 +45,7 @@ export class Workspace {
   readonly notice = shallowRef('')
   private readonly guest?: GuestStore
   private readonly local?: ProjectStore
-  private readonly openCloud: () => Promise<CloudStore>
+  private readonly openCloud: (account: Account) => Promise<CloudStore>
 
   constructor({ guest, local, openCloud }: WorkspaceOptions) {
     const first = guest ?? local
@@ -64,15 +69,15 @@ export class Workspace {
   async useAccount(account: Account | undefined) {
     this.notice.value = ''
     if (!account) {
-      this.signedOut()
+      await this.signedOut()
       return
     }
     let cloud: CloudStore
     try {
-      cloud = await this.openCloud()
+      cloud = await this.openCloud(account)
     }
     catch {
-      this.signedOut()
+      await this.signedOut()
       // New projects go where they go signed out: the browser on the website, the device in the apps.
       this.notice.value = this.guest
         ? 'Your account\'s projects could not be loaded. Reload the page to try again. Until then, new projects stay in this browser.'
@@ -80,21 +85,27 @@ export class Workspace {
       return
     }
     await this.moveBrowserProjects(cloud)
+    const previous = this.stores.value.cloud
     this.stores.value = { ...this.withoutAccount(), cloud }
     this.primary.value = cloud
+    await closeStore(previous)
   }
 
   private withoutAccount(): WorkspaceStores {
     return { ...(this.local ? { local: this.local } : {}), ...(this.guest ? { guest: this.guest } : {}) }
   }
 
-  private signedOut() {
+  private async signedOut() {
+    const previous = this.stores.value.cloud
     this.stores.value = this.withoutAccount()
     this.primary.value = (this.guest ?? this.local)!
+    // The account's decks stop syncing in this page, and their copies close.
+    await closeStore(previous)
   }
 
   private async moveBrowserProjects(cloud: CloudStore) {
-    if (!this.guest || this.guest.listProjects().length === 0)
+    // Offline, the account's projects come from this device: moving waits for the next sign in.
+    if (!this.guest || this.guest.listProjects().length === 0 || cloud.offline.value)
       return
     try {
       const projects = await this.guest.exportProjects()

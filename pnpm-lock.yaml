@@ -283,6 +283,9 @@ importers:
       '@tauri-apps/plugin-os':
         specifier: ^2.4.0
         version: 2.4.0
+      '@tauri-apps/plugin-updater':
+        specifier: 2.13.1
+        version: 2.13.1
       '@unocss/preset-wind3':
         specifier: ^66.10.5
         version: 66.10.5
@@ -1450,6 +1453,9 @@ packages:
 
   '@tauri-apps/plugin-os@2.4.0':
     resolution: {integrity: sha512-XFQjntNNI3Vlqdy4WUGwiXX8DByzKVvoemAcUVkBm9NJPGmoDtII5i+vfuAzWaJfOE5cUJJLUDqXBnd4reSAIA==}
+
+  '@tauri-apps/plugin-updater@2.13.1':
+    resolution: {integrity: sha512-+STDzJ0sdQLImjc63zkv6Nncimqeo6jyCWoTQtbSwgGLNj1qbP9I6LC4p5R5ocBk3gNKAZs6i/AJz0jxysytiw==}
 
   '@tresjs/cientos@5.9.1':
     resolution: {integrity: sha512-nKmF0Kk/d/NBgySoPqsBVNkYGPUTwiJST5/mGjRtmWLL0P4+vquzdsB6nRrwlj4XC7oTRBinM1FEdmfN+GPMwQ==}
@@ -6069,6 +6075,10 @@ snapshots:
       '@tauri-apps/api': 2.12.4
 
   '@tauri-apps/plugin-os@2.4.0':
+    dependencies:
+      '@tauri-apps/api': 2.12.4
+
+  '@tauri-apps/plugin-updater@2.13.1':
     dependencies:
       '@tauri-apps/api': 2.12.4
 

@@ -411,6 +411,25 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  Scenario('Text typed after the --- on line 1 is not saved, and the editor says why', ({ Given, When, Then, And }) => {
+    Given('the blank deck "Graphs" is open in the editor', () => openDeck('Graphs', 'blank'))
+    When('I type "x" right after the "---" on line 1', async () => {
+      expect(editor().value.startsWith('---\n')).toBe(true)
+      await type(`---x${editor().value.slice(3)}`)
+    })
+    Then('the error under the editor says "Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."', async () => {
+      await vi.waitFor(() => expect(problem()?.textContent?.trim()).toBe('Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line.'))
+      expect(problem()!.getAttribute('role')).toBe('alert')
+      expect(editor().value.split('\n')[0]).toBe('---x')
+    })
+    And('the editor says "Not saved: fix the Markdown error."', () => {
+      expect(status()).toBe('Not saved: fix the Markdown error.')
+    })
+    And('the stored deck still has "---" alone on line 1', async () => {
+      expect((await guest.deckMarkdown(deckId)).split('\n')[0]).toBe('---')
+    })
+  })
+
   Scenario('Phones switch between writing and the preview', ({ Given, When, Then }) => {
     Given('the blank deck "Graphs" is open in the editor', () => openDeck('Graphs', 'blank'))
     When('I choose the "Preview" tab', () => web.click('[data-testid="tab-preview"]'))

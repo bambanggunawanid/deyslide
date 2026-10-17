@@ -7,11 +7,13 @@ import { AppAccountService, followAppAccount } from '../apps/web/src/account/app
 import { BetterAuthAccountService } from '../apps/web/src/account/better-auth'
 import { createAccountService } from '../apps/web/src/account/service'
 import { HttpAssistantApi } from '../apps/web/src/assistant/api'
-import { apiBase, apiFetch, collabToken, collabUrl, isApp, openExternal, routerHistory, saveFile, startPlatform } from '../apps/web/src/platform/platform'
+import { apiBase, apiFetch, collabToken, collabUrl, isAndroidApp, isApp, isAudienceWindow, isDesktopApp, isIOSApp, isMobileApp, openExternal, presentChannel, routerHistory, saveFile, startPlatform } from '../apps/web/src/platform/platform'
 import { LATEST_RELEASE_API, RELEASES_PAGE } from '../apps/web/src/platform/releases'
 import { HttpProjectApi } from '../apps/web/src/projects/api'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { LocalStore } from '../apps/web/src/projects/local-store'
+import { OfflineCache } from '../apps/web/src/projects/offline-cache'
+import { MemoryOfflineStorage } from '../apps/web/src/projects/offline-storage'
 import { deckIdOf, FakeDeviceLibrary, projectIdOf } from './support/device-library'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, pageText, text } from './support/web'
@@ -152,8 +154,8 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
           return answer
         }
         case 'auth_sign_in':
-          // Android returns as soon as the browser opens; a computer once the browser is done.
-          if (app.platform === 'android')
+          // A phone returns as soon as the browser opens; a computer once the browser is done.
+          if (app.platform === 'android' || app.platform === 'ios')
             return undefined
           if (!app.signsInAs)
             return new Promise(() => {})
@@ -220,9 +222,9 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   }
 
   /** Opens a page the way main.ts would, with the app's account service in the app. */
-  async function open(path: string, { wait, api }: { wait?: number, api?: FakeProjectApi } = {}) {
+  async function open(path: string, { wait, api, offline }: { wait?: number, api?: FakeProjectApi, offline?: OfflineCache } = {}) {
     // Deck pages open in the Markdown view, where these scenarios type; the app's decks on the device come from `local`.
-    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, local, view: 'markdown' })
+    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, local, view: 'markdown', offline })
     if (isApp())
       stopFollowing = await followAppAccount(web.account, web.router)
   }
@@ -393,6 +395,44 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
   })
 
+  /** What each kind of device answers, by the words the scenarios use. */
+  const DEVICES: Record<string, { desktop: boolean, android: boolean, ios: boolean }> = {
+    'a computer': { desktop: true, android: false, ios: false },
+    'Android': { desktop: false, android: true, ios: false },
+    'an iPhone or iPad': { desktop: false, android: false, ios: true },
+  }
+
+  function isTheAppOn(device: string) {
+    const expected = DEVICES[device]!
+    expect(isApp()).toBe(true)
+    expect({ desktop: isDesktopApp(), android: isAndroidApp(), ios: isIOSApp() }).toEqual(expected)
+    expect(isMobileApp()).toBe(expected.android || expected.ios)
+  }
+
+  ScenarioOutline('The app knows the kind of device it runs on', ({ Given, Then }, variables) => {
+    Given('the app says it runs on "<platform>"', () => inApp(variables.platform as AppPlatform))
+    Then('it is the app on <device>', () => isTheAppOn(variables.device))
+  })
+
+  /** User agents of the browser engines the app runs in, and their touch points. */
+  const ENGINES: Record<string, { agent: string, touchPoints: number }> = {
+    'an iPhone': { agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148', touchPoints: 5 },
+    // iPadOS asks for the pages a Mac gets.
+    'an iPad': { agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)', touchPoints: 5 },
+    'a Mac': { agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)', touchPoints: 0 },
+    'an Android phone': { agent: 'Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36', touchPoints: 5 },
+  }
+
+  ScenarioOutline('An app that cannot say its system goes by the browser engine', ({ Given, Then }, variables) => {
+    Given('the app cannot say which system it runs on, in a browser engine for <engine>', async () => {
+      const engine = ENGINES[variables.engine]!
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(engine.agent)
+      vi.spyOn(navigator, 'maxTouchPoints', 'get').mockReturnValue(engine.touchPoints)
+      await inApp(undefined)
+    })
+    Then('it is the app on <device>', () => isTheAppOn(variables.device))
+  })
+
   const CALLS: Record<string, () => Promise<unknown>> = {
     'lists the projects': () => new HttpProjectApi().list(),
     'lists who can open the project "p1"': () => new HttpProjectApi().members({ type: 'project', id: 'p1' }),
@@ -506,6 +546,65 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
     And('the page hears that the file was saved', () => {
       expect(saved).toBe(true)
+    })
+  })
+
+  Scenario('The app on an iPhone or iPad writes to the place the person picked', ({ Given, And, When, Then }) => {
+    const picked = 'file:///private/var/mobile/Containers/Shared/AppGroup/Files/Sorting.pdf'
+    Given('the app on iOS', () => inApp('ios'))
+    And(`the person picks "${picked}" in the save dialog`, () => {
+      fake.save.mockResolvedValue(picked)
+    })
+    When('a page saves "Sorting.pdf" of type "application/pdf"', async () => {
+      saved = await saveFile('Sorting.pdf', PDF_BYTES, 'application/pdf')
+    })
+    Then('the save dialog suggested "Sorting.pdf" with no filters', () => {
+      expect(fake.save).toHaveBeenCalledWith({ defaultPath: 'Sorting.pdf', filters: [] })
+    })
+    And(`the fs plugin writes those bytes to "${picked}"`, () => {
+      expect(fake.writeFile).toHaveBeenCalledWith(picked, PDF_BYTES)
+    })
+    And('the app gets no "save_file" command', () => {
+      expect(fake.invoke.mock.calls.map(([command]) => command)).not.toContain('save_file')
+    })
+    And('the page hears that the file was saved', () => {
+      expect(saved).toBe(true)
+    })
+  })
+
+  Scenario('The app on an iPhone or iPad presents in its one window', ({ Given, When, Then, And }) => {
+    let channel: ReturnType<typeof presentChannel>
+    Given('the app on iOS', () => inApp('ios'))
+    When('a deck\'s presenter view starts', () => {
+      channel = presentChannel('local-d-2')
+    })
+    Then('it has no audience window to open', async () => {
+      expect(channel.canOpenAudience).toBe(false)
+      expect(await channel.openAudience({ projectId: 'local-p-1', deckId: 'local-d-2', url: '/p/local-p-1/d/local-d-2/present' })).toBe(false)
+      expect(fake.invoke.mock.calls.map(([command]) => command)).not.toContain('present_open')
+    })
+    And('no window counts as the deck\'s audience window', async () => {
+      window.name = 'deyslide-present:local-d-2'
+      try {
+        expect(await isAudienceWindow('local-d-2')).toBe(false)
+      }
+      finally {
+        window.name = ''
+      }
+    })
+  })
+
+  ScenarioOutline('Only the app on a computer connects Claude Code', ({ Given, When, Then, And }, variables) => {
+    Given('the app says it runs on "<platform>"', () => inApp(variables.platform as AppPlatform))
+    When('they open "/"', () => open('/'))
+    Then('the page shows "Your projects"', async () => {
+      await vi.waitFor(() => expect(text('h1')).toBe('Your projects'))
+    })
+    And('the "Connect Claude Code" panel is <shown>', async () => {
+      if (variables.shown === 'shown')
+        await vi.waitFor(() => expect(text('[data-testid="claude-code-panel"] h2')).toBe('Connect Claude Code'))
+      else
+        expect(find('[data-testid="claude-code-panel"]')).toBeNull()
     })
   })
 
@@ -672,6 +771,33 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
   })
 
+  Scenario('Signing in on an iPhone finishes when they come back', ({ Given, And, When, Then }) => {
+    Given('the app on iOS, signed out', () => inApp('ios'))
+    And('they open "/sign-in"', () => open('/sign-in'))
+    When('they choose "Sign in with your browser"', async () => {
+      app.signsInAs = ANA
+      await web!.click('[data-testid="sign-in-browser"]')
+    })
+    Then('the page asks them to finish in the browser', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="sign-in-waiting"]')).toBe('Finish in your browser. Deyslide signs you in when you come back.'))
+      expect(web!.router.currentRoute.value.name).toBe('sign-in')
+      // The command returned as the browser opened; nobody is signed in yet.
+      expect(fake.invoke.mock.calls.map(([command]) => command)).toContain('auth_sign_in')
+      expect(find('[data-testid="account-menu"]')).toBeNull()
+    })
+    When('they come back to the app signed in as "Ana"', async () => {
+      await signedIn(ANA)
+      emit('account-changed')
+      await web!.settle()
+    })
+    Then('they are on the home page', async () => {
+      await vi.waitFor(() => expect(web!.router.currentRoute.value.name).toBe('home'))
+    })
+    And('the header shows the account menu for "Ana"', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="account-menu"]')).toBe('Ana'))
+    })
+  })
+
   Scenario('On a computer they can start the sign in again', ({ Given, And, When, Then }) => {
     Given('the app on a computer, signed out', () => inApp('linux'))
     And('they open "/sign-in"', () => open('/sign-in'))
@@ -738,6 +864,39 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
     And('the header has a "Sign in" link', async () => {
       await vi.waitFor(() => expect(text('[data-testid="sign-in-link"]')).toBe('Sign in'))
+    })
+  })
+
+  Scenario('Signing out in the app deletes the account\'s decks kept on the device', ({ Given, When, Then, And }) => {
+    // The webview's IndexedDB, as memory that outlasts the page.
+    const storage = new MemoryOfflineStorage({ durable: true })
+    const offline = new OfflineCache(storage)
+    Given('the app on a computer, signed in as "Ana", with the deck "Intro" kept on the device', async () => {
+      const api = new FakeProjectApi()
+      await inApp('linux')
+      await signedIn(ANA)
+      const cloud = await CloudStore.open(api)
+      const project = await cloud.createProject('Talks')
+      const deck = await cloud.createDeck(project.id, 'Intro', 'blank')
+      await open(`/p/${project.id}/d/${deck.id}`, { api, offline })
+      await vi.waitFor(async () => expect(await offline.decks(ANA.id)).toEqual([deck.id]))
+      expect(await offline.lists(ANA.id)).toBeDefined()
+      expect(await offline.lastAccount()).toEqual(ANA)
+    })
+    When('they sign out from the account menu', async () => {
+      const trigger = await web!.waitFor('[data-testid="account-menu"]')
+      trigger.focus()
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await web!.settle()
+      await web!.click('[data-testid="sign-out"]')
+    })
+    Then('the header has a "Sign in" link', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="sign-in-link"]')).toBe('Sign in'))
+      expect(fake.invoke.mock.calls.map(([command]) => command)).toContain('auth_sign_out')
+    })
+    And('nothing of Ana\'s account is left on the device', async () => {
+      await vi.waitFor(() => expect(storage.keepsAnythingFor(ANA.id)).toBe(false))
+      expect(await offline.lastAccount()).toBeUndefined()
     })
   })
 
@@ -951,6 +1110,13 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
       const steps = (await web!.waitFor('[data-testid="install-macos"]')).textContent ?? ''
       expect(steps).toContain('Privacy & Security')
       expect(steps).toContain('Open Anyway')
+    })
+    And('the steps for a Mac show their numbers, and the notes for the other systems show bullets', () => {
+      // The style reset takes markers off every list: these put them back.
+      const steps = find('[data-testid="install-macos-steps"]')!
+      expect([steps.tagName, steps.classList.contains('list-decimal'), steps.querySelectorAll('li').length]).toEqual(['OL', true, 3])
+      const notes = find('[data-testid="install-others-notes"]')!
+      expect([notes.tagName, notes.classList.contains('list-disc'), notes.querySelectorAll('li').length]).toEqual(['UL', true, 3])
     })
     And('it shows the command the app gives for Claude Code on this computer', () => {
       expect(text('[data-testid="local-command"]')).toBe('claude mcp add --scope user deyslide-local -- "<path to Deyslide>" mcp')

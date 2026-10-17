@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DeckSession } from '../deck/session'
-import { elementText, findSlide, makeMovable, setFrontmatter } from '@deyslide/deck-model'
+import { elementText, findSlide, makeMovable, setFrontmatter, slideFrontmatter } from '@deyslide/deck-model'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import * as Y from 'yjs'
 import { LOCAL_ORIGIN } from '../deck/session'
@@ -46,8 +46,8 @@ function slideMap() {
 }
 
 function readFrontmatter(): Record<string, unknown> {
-  const value = slideMap()?.get('frontmatter')
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const map = slideMap()
+  return map ? slideFrontmatter(map) : {}
 }
 
 watch(() => [props.session, props.slideId] as const, ([session], _, onCleanup) => {
@@ -189,7 +189,7 @@ function leaveNotes() {
         Layout
         <select class="dey-input py-1 text-sm" :value="layout" :disabled="readonly" data-testid="field-layout" @change="choose('layout', ($event.target as HTMLSelectElement).value)">
           <option value="">
-            {{ first ? 'Automatic (cover)' : 'Automatic (default)' }}
+            {{ first ? 'Auto (cover)' : 'Auto (default)' }}
           </option>
           <option v-for="name in layoutChoices" :key="name" :value="name">
             {{ name }}

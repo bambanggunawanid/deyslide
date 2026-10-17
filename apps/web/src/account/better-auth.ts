@@ -33,6 +33,8 @@ function toAccount(user: { id: string, name: string, email: string }): Account {
 /** Talks to Better Auth on the Deyslide API under /api/auth. */
 export class BetterAuthAccountService implements AccountService {
   private readonly client = createAuthClient({ plugins: [magicLinkClient()] })
+  /** True when the last look at the account got no answer: offline, or the server is down. */
+  unsure = false
 
   async options(): Promise<SignInOptions> {
     try {
@@ -46,10 +48,13 @@ export class BetterAuthAccountService implements AccountService {
 
   async current() {
     try {
-      const { data } = await this.client.getSession()
+      const { data, error } = await this.client.getSession()
+      // No answer, or a server that is down, says nothing about being signed in.
+      this.unsure = Boolean(error && (!error.status || error.status >= 500))
       return data?.user ? toAccount(data.user) : undefined
     }
     catch {
+      this.unsure = true
       return undefined
     }
   }

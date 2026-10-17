@@ -157,9 +157,11 @@ function markdown() {
           <RouterLink v-else :to="{ name: 'present', params: { projectId, deckId }, query: slideQuery }" class="dey-btn text-sm" data-testid="audience-view">
             Audience view
           </RouterLink>
-          <ExportMenu :deck-id="deckId" :deck-name="summary.name" :slides="slides" :markdown="markdown" :disabled="!ready" />
+          <ExportMenu :deck-id="deckId" :deck-name="summary.name" :slides="slides" :markdown="markdown" :disabled="!ready" status-to="#presenter-export-status" />
         </div>
       </header>
+      <!-- How an export goes, on a line of its own, so the buttons above never move while it runs. -->
+      <div id="presenter-export-status" class="mt-2 flex justify-end text-right empty:hidden" aria-live="polite" data-testid="export-status-line" />
       <p v-if="audienceMessage" class="m-0 mt-2 text-sm text-amber-300" role="status" data-testid="audience-message">
         {{ audienceMessage }}
       </p>

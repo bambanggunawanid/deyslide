@@ -1,5 +1,7 @@
 import type { GuestStore } from '../apps/web/src/guest/store'
 import type { WebApp } from './support/web'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { previewRequests, resetEditorDoubles } from './support/editor-doubles'
@@ -157,6 +159,22 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     })
     Then('the page says the project is not in this browser', () => {
       expect(text('[data-testid="missing-project"]')).toContain('not in this browser')
+    })
+  })
+
+  Scenario('The pages name the Deyslide icon', ({ Then, And }) => {
+    const shell = () => new DOMParser().parseFromString(readFileSync(resolve(import.meta.dirname, '../apps/web/index.html'), 'utf8'), 'text/html')
+    const icon = () => shell().head.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    Then('the page\'s head names an SVG icon with the Deyslide mark', () => {
+      expect(icon()?.getAttribute('type')).toBe('image/svg+xml')
+      // Vite takes the file from the web app's folder and gives it a hashed name in the build.
+      const svg = readFileSync(resolve(import.meta.dirname, `../apps/web${icon()!.getAttribute('href')}`), 'utf8')
+      expect(svg).toContain('<svg')
+      expect(svg).toContain('fill="#38bdf8"')
+    })
+    And('browsers that find it there do not ask for "/favicon.ico"', () => {
+      // A browser asks for /favicon.ico only when the page names no icon.
+      expect(shell().head.querySelectorAll('link[rel~="icon"]')).toHaveLength(1)
     })
   })
 })

@@ -6,6 +6,8 @@ import { SLIDE_ID_KEY } from './markdown.ts'
 import { ElementSchema, SlideSchema } from './schema.ts'
 import { applyTextDiff } from './text-diff.ts'
 import {
+  cloneElement,
+  cloneSlide,
   elementToY,
   elementValues,
   isRecord,
@@ -16,6 +18,9 @@ import {
   readSlideEntry,
   sameJson,
   slideToY,
+  storedFrontmatter,
+  writeFrontmatter,
+  writeProps,
   zodMessage,
 } from './y-shape.ts'
 
@@ -125,7 +130,7 @@ export function moveSlide(doc: Y.Doc, slideId: string, toIndex: number, origin?:
   checkIndex(toIndex, slides.length - 1, 'slide')
   if (toIndex === index)
     return
-  const copy = map.clone()
+  const copy = cloneSlide(map)
   doc.transact(() => {
     slides.delete(index, 1)
     slides.insert(toIndex, [copy])
@@ -147,14 +152,24 @@ export function duplicateSlide(doc: Y.Doc, slideId: string, origin?: unknown): s
   return copy.id
 }
 
-/** Replaces a slide's frontmatter. It is one JSON value, so the last writer wins. */
+/**
+ * Makes a slide's frontmatter `frontmatter`: keys left out are deleted.
+ * Only the keys whose value or place changed are written, so someone
+ * changing another key at the same time keeps their change.
+ */
 export function setFrontmatter(doc: Y.Doc, slideId: string, frontmatter: Record<string, unknown>, origin?: unknown) {
   const { map } = locateSlide(doc, slideId)
   const next = valid(SlideSchema.shape.frontmatter, frontmatter, 'frontmatter')
   checkFrontmatter(next)
-  if (isRecord(map.get('frontmatter')) && sameJson(map.get('frontmatter'), next))
+  const stored = map.get('frontmatter')
+  if (stored instanceof Y.Map ? sameStoredFrontmatter(stored, next) : isRecord(stored) && sameJson(stored, next))
     return
-  doc.transact(() => map.set('frontmatter', next), origin)
+  doc.transact(() => writeFrontmatter(map, next), origin)
+}
+
+/** Whether a frontmatter map already holds `next`, with nothing stored the wrong way. */
+function sameStoredFrontmatter(map: Y.Map<unknown>, next: Record<string, unknown>) {
+  return map.size === Object.keys(next).length && sameJson(storedFrontmatter(map), next)
 }
 
 export function setNotes(doc: Y.Doc, slideId: string, notes: string, origin?: unknown) {
@@ -195,7 +210,7 @@ export function moveElementInStack(doc: Y.Doc, slideId: string, elementId: strin
   checkIndex(toIndex, elements.length - 1, 'element')
   if (toIndex === index)
     return
-  const copy = map.clone()
+  const copy = cloneElement(map)
   doc.transact(() => {
     elements.delete(index, 1)
     elements.insert(toIndex, [copy])
@@ -248,8 +263,10 @@ const FIELDS: Record<DeckElement['type'], string[]> = {
 /**
  * Changes an element in place: position fields one by one (clamped, so
  * people moving different axes both win), Markdown as a text diff (so
- * concurrent typing merges), and `props`, `src`, `alt` or `steps` as whole
- * values, only when they differ. The type and the id cannot change.
+ * concurrent typing merges), `props` key by key (so people changing
+ * different settings both win; keys left out are deleted), and `src`, `alt`
+ * or `steps` as whole values. Only what differs is written. The type and
+ * the id cannot change.
  */
 export function updateElement(doc: Y.Doc, slideId: string, elementId: string, patch: ElementPatch, origin?: unknown) {
   const { map } = locateElement(doc, slideId, elementId)
@@ -292,7 +309,9 @@ export function updateElement(doc: Y.Doc, slideId: string, elementId: string, pa
       else
         map.set('markdown', new Y.Text(next.markdown))
     }
-    for (const key of ['src', 'alt', 'props', 'steps'] as const) {
+    if (patch.props !== undefined && 'props' in next)
+      writeProps(map, next.props)
+    for (const key of ['src', 'alt', 'steps'] as const) {
       if (patch[key] !== undefined && !sameJson(map.get(key), (next as Record<string, unknown>)[key]))
         map.set(key, (next as Record<string, unknown>)[key])
     }

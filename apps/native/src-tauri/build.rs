@@ -22,6 +22,7 @@ const COMMANDS: &[&str] = &[
     "present_open",
     "save_file",
     "app_info",
+    "app_restart",
     "debug_preview_log",
 ];
 

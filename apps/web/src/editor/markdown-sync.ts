@@ -61,6 +61,13 @@ export const TYPING_WAITING_HINT = 'Finish this change to see others\' changes.'
 export const HOLD_MESSAGE = 'This change would join slides you did not edit. Close the block or comment you opened to keep it.'
 /** Shown when the deck turned read only for good while typing waited to merge. */
 export const NOT_KEPT_MESSAGE = 'Your last change was not saved, because this deck is read only now.'
+/** Shown when typing leaves the deck as it was, because Slidev reads the new Markdown just like the old. */
+export const NO_CHANGE_MESSAGE = 'Deyslide cannot keep this edit: Slidev reads the Markdown just as before, so the deck stays as it was. Undo it or write it another way.'
+
+/** Shown when a slide break line (1 based) holds more than `---`. Slidev ignores the rest, so the deck cannot keep it. */
+export function slideBreakMessage(line: number) {
+  return `Line ${line} is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line.`
+}
 
 interface SlideText {
   id: string
@@ -148,6 +155,29 @@ function recordTyping(typed: TypedRange[], { from, to, insert }: TextChange) {
     range.to += shift
   }
 }
+
+/**
+ * The first slide break line (1 based) that holds more than `---`, such as
+ * `---x`. Slidev reads it as a plain `---` and drops the rest, so the deck
+ * never has that text.
+ */
+function longSlideBreak(text: string): number | undefined {
+  const slides = splitOrNone(text)
+  const lines = text.split(/\r?\n/)
+  const breaks: number[] = []
+  for (const [index, slide] of slides.entries()) {
+    // The line that ended the slide before, and the line this one starts on when it is a `---`.
+    if (index > 0)
+      breaks.push(slides[index - 1].end)
+    if (lines[slide.start]?.startsWith('---'))
+      breaks.push(slide.start)
+  }
+  const line = breaks.sort((a, b) => a - b).find(at => lines[at] !== undefined && lines[at].trimEnd() !== '---')
+  return line === undefined ? undefined : line + 1
+}
+
+/** The text without its spaces and line breaks. */
+const withoutSpaces = (text: string) => text.replace(/\s+/g, '')
 
 /** Where each slide break (the `---` line after a slide) starts in a text. */
 function slideBreaks(text: string) {
@@ -417,10 +447,19 @@ export function createMarkdownBinding(session: DeckSession): MarkdownBinding {
         return show({ kind: error.kind, message: error.message })
       throw error
     }
+    const longBreak = longSlideBreak(current)
+    if (longBreak !== undefined)
+      return show({ kind: 'invalid', message: slideBreakMessage(longBreak) })
     if (joinsUntouchedSlides(synced, current, typed))
       return show({ kind: 'typing', message: HOLD_MESSAGE })
-    const { textBase, liveState } = mergeMarkdown(doc, base, current, origin, { writer })
     const meant = deckSlideTexts(parsed.deck, { ids: false })
+    // Typing that the deck reads as no change at all would show text the deck
+    // does not have. Spaces and blank lines are the person's own way of writing and
+    // stay, as anywhere else; anything more waits, and says why.
+    const unchanged = known.length === meant.length && known.every((slide, index) => slide.markdown === meant[index])
+    if (unchanged && withoutSpaces(current) !== withoutSpaces(synced))
+      return show({ kind: 'invalid', message: NO_CHANGE_MESSAGE })
+    const { textBase, liveState } = mergeMarkdown(doc, base, current, origin, { writer })
     const live = slideMarkdowns(doc)
     if (live.length === meant.length && live.every((slide, index) => slide.markdown === meant[index])) {
       settle(live, liveState)

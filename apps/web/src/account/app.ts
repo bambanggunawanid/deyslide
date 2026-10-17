@@ -3,7 +3,7 @@ import type { AccountState } from '../composables/useAccount'
 import type { AppAccount } from '../platform/native'
 import type { Account, AccountService, SignInOptions } from './types'
 import { authAccount, authSignIn, authSignOut, onAccountChanged } from '../platform/native'
-import { isAndroidApp } from '../platform/platform'
+import { isMobileApp } from '../platform/platform'
 import { AccountError, NO_SIGN_IN_OPTIONS } from './types'
 
 /** The app has no sign in pages: the website does that part, in the browser. */
@@ -88,11 +88,11 @@ export class AppAccountService implements AccountService {
 
   /**
    * Resolves once the sign in ends. On a computer the command returns
-   * then. On Android it returns as soon as the browser opens; the browser
+   * then. On a phone it returns as soon as the browser opens; the browser
    * later hands the sign in back to the app, which says the account changed.
    */
   async signInWithBrowser() {
-    const returned = isAndroidApp() ? await nextAccountChange() : undefined
+    const returned = isMobileApp() ? await nextAccountChange() : undefined
     try {
       await authSignIn()
       await returned?.changed

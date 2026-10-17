@@ -4,7 +4,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccount } from '../composables/useAccount'
 
-const { service, account, setAccount } = useAccount()
+const { account, signOut: leave } = useAccount()
 const router = useRouter()
 const error = ref('')
 
@@ -13,8 +13,7 @@ async function signOut() {
   try {
     // Leaving first lets an open deck save its typing while it still can.
     await router.push('/')
-    await service.signOut()
-    await setAccount(undefined)
+    await leave()
   }
   catch {
     error.value = 'Signing out did not work. Try again.'

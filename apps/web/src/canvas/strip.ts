@@ -81,3 +81,29 @@ export function thumbnailsToShow(ids: string[], onScreen: ReadonlySet<string>, c
     .slice(0, Math.max(0, max))
     .map(({ id }) => id))
 }
+
+/** One axis of `scrollToShow`: the scroll offset that brings the item in, moving as little as it can. */
+function nearest(viewStart: number, viewSize: number, itemStart: number, itemSize: number, scroll: number) {
+  const before = itemStart - viewStart
+  const after = itemStart + itemSize - (viewStart + viewSize)
+  // Cut off at the start, or too big to fit: line its start up with the view's.
+  if (before < 0 || itemSize > viewSize)
+    return scroll + before
+  if (after > 0)
+    return scroll + after
+  return scroll
+}
+
+/**
+ * Where the strip scrolls to show one of its items, the way the browser's
+ * "nearest" does: not at all when the item is already in sight, else just
+ * far enough for its nearer edge to come in. `view` and `item` are on screen,
+ * `scroll` is how far the strip is scrolled now. Works down the side and
+ * across a phone alike.
+ */
+export function scrollToShow(view: ItemRect, item: ItemRect, scroll: { left: number, top: number }): { left: number, top: number } {
+  return {
+    left: nearest(view.left, view.width, item.left, item.width, scroll.left),
+    top: nearest(view.top, view.height, item.top, item.height, scroll.top),
+  }
+}

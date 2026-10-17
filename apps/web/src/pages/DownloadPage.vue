@@ -95,7 +95,7 @@ const hostedCommand = `claude mcp add --scope user --transport http deyslide ${a
       <p class="m-0 text-sm">
         If macOS says it could not verify that Deyslide is free of malware:
       </p>
-      <ol class="m-0 flex flex-col gap-1 pl-5 text-sm">
+      <ol class="m-0 list-decimal space-y-1 pl-5 text-sm" data-testid="install-macos-steps">
         <li>Drag Deyslide from the disk image into Applications and start it from there. When the warning shows, choose Done.</li>
         <li>Go to System Settings, then Privacy &amp; Security.</li>
         <li>Under Security, click Open Anyway next to the line about Deyslide, and confirm with your password.</li>
@@ -109,7 +109,7 @@ const hostedCommand = `claude mcp add --scope user --transport http deyslide ${a
       <h2 class="m-0 text-xl font-semibold">
         Windows, Linux and Android
       </h2>
-      <ul class="m-0 flex flex-col gap-1 pl-5 text-sm">
+      <ul class="m-0 list-disc space-y-1 pl-5 text-sm" data-testid="install-others-notes">
         <li>Windows: if SmartScreen warns about an unknown publisher, choose More info, then Run anyway.</li>
         <li>Linux: make the AppImage executable (<code>chmod +x</code>) and run it, or install the .deb package.</li>
         <li>Android: open the APK on the phone. When asked, allow your browser to install apps.</li>

@@ -7,7 +7,8 @@ import type { ExportedProject } from '../../apps/web/src/projects/types'
 import { ref } from 'vue'
 import { applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
-import { NO_ACCESS, VIEW_ONLY_NOW } from '../../apps/web/src/projects/collab'
+import type { DeckFailure } from '../../apps/web/src/projects/collab'
+import { NO_ACCESS, SIGNED_OUT, VIEW_ONLY_NOW } from '../../apps/web/src/projects/collab'
 import { StoreError } from '../../apps/web/src/projects/names'
 import { deckRole } from '../../apps/web/src/projects/roles'
 import { applyDeck, readDeckDoc } from '../../packages/deck-model/src'
@@ -26,6 +27,7 @@ class FakeConnection {
   readonly readOnly = ref(true)
   readonly error = ref('')
   readonly unsaved = ref(false)
+  readonly failure = ref<DeckFailure>()
   /** Changes the room has not confirmed yet, while the server is slow to confirm. */
   readonly unconfirmed: Uint8Array[] = []
   /** The page changed its deck while the connection was down. */
@@ -38,6 +40,8 @@ class FakeConnection {
   /** The role a scenario gave this page's person, over what the projects say. */
   role?: Role
   closed = false
+  /** The token the page last connected with, which says whose page it is. */
+  lastToken?: string
 
   constructor(
     readonly api: FakeProjectApi,
@@ -56,7 +60,7 @@ class FakeConnection {
     }
     this.readOnly.value = !this.synced.value || this.viewer || this.rejoining
     if (!this.live)
-      this.status.value = this.api.online || this.rejoining ? 'connecting' : 'offline'
+      this.status.value = this.api.reaches(this.lastToken) || this.rejoining ? 'connecting' : 'offline'
     else
       this.status.value = this.unconfirmed.length > 0 && !this.viewer ? 'saving' : 'saved'
   }
@@ -210,8 +214,35 @@ export class FakeProjectApi implements ProjectApi {
       readOnly: connection.readOnly,
       error: connection.error,
       unsaved: connection.unsaved,
+      failure: connection.failure,
       flush: async () => {},
       destroy: () => this.disconnect(connection, true),
+    }
+  }
+
+  /** Pages whose connection is down while everyone else stays online, by the token they connect with. */
+  private readonly down = new Set<string>()
+
+  /** Whether a page that connects with this token reaches the server. */
+  reaches(token?: string) {
+    return this.online && !(token !== undefined && this.down.has(token))
+  }
+
+  /** The connection drops only for the pages that connect with this token, such as one person's. */
+  goOfflineFor(token: string) {
+    this.down.add(token)
+    for (const connection of this.connections) {
+      if (connection.lastToken === token)
+        this.disconnect(connection, false)
+    }
+  }
+
+  /** The connection comes back for the pages that connect with this token, and they join their decks again. */
+  goOnlineFor(token: string) {
+    this.down.delete(token)
+    for (const connection of this.connections) {
+      if (connection.lastToken === token)
+        void this.connect(connection)
     }
   }
 
@@ -234,10 +265,46 @@ export class FakeProjectApi implements ProjectApi {
     this.refusal = message
     for (const connection of this.connections) {
       this.disconnect(connection, false)
-      connection.failed = true
-      connection.error.value = message
-      connection.update()
+      this.stop(connection, message, 'refused')
     }
+  }
+
+  /** Sign ins the server no longer takes, by the token pages connect with. */
+  private readonly signedOut = new Set<string>()
+  /** Tokens whose next access check fails on the server (its database, say), once each. */
+  private readonly checkFails = new Map<string, number>()
+
+  /**
+   * The sign in behind this token ended on the server (it expired, or ended
+   * elsewhere). Like the server, open connections close and joining again
+   * is refused as signed out.
+   */
+  endSignIn(token: string) {
+    this.signedOut.add(token)
+    for (const connection of this.connections) {
+      if (connection.lastToken === token && connection.live) {
+        this.disconnect(connection, false)
+        this.stop(connection, SIGNED_OUT, 'signed-out')
+      }
+    }
+  }
+
+  /** The server takes this token again, after the person signed in again. */
+  signInAgain(token: string) {
+    this.signedOut.delete(token)
+  }
+
+  /** The next `times` access checks for this token fail on the server, which asks the page to try again later. */
+  failAccessChecks(token: string, times = 1) {
+    this.checkFails.set(token, times)
+  }
+
+  /** The connection stops for good. */
+  private stop(connection: FakeConnection, message: string, kind: DeckFailure) {
+    connection.failed = true
+    connection.failure.value = kind
+    connection.error.value = message
+    connection.update()
   }
 
   /**
@@ -306,9 +373,23 @@ export class FakeProjectApi implements ProjectApi {
   private async connect(connection: FakeConnection) {
     if (connection.closed || connection.live || connection.failed)
       return
-    this.tokens.push(await connection.token())
-    if (connection.closed || connection.live || connection.failed || !this.online) {
+    const token = await connection.token()
+    this.tokens.push(token)
+    connection.lastToken = token
+    if (connection.closed || connection.live || connection.failed || !this.reaches(token)) {
       connection.update()
+      return
+    }
+    const fails = this.checkFails.get(token) ?? 0
+    if (fails > 0) {
+      // Not a refusal: the page joins again a moment later.
+      this.checkFails.set(token, fails - 1)
+      connection.update()
+      setTimeout(() => void this.connect(connection), 10)
+      return
+    }
+    if (this.signedOut.has(token)) {
+      this.stop(connection, SIGNED_OUT, 'signed-out')
       return
     }
     const access = this.role(connection.deckId)
@@ -316,9 +397,7 @@ export class FakeProjectApi implements ProjectApi {
     const role = access && (connection.role ?? access)
     const room = role && !this.refusal ? this.room(connection.deckId) : undefined
     if (!role || !room) {
-      connection.failed = true
-      connection.error.value = this.refusal || NO_ACCESS
-      connection.update()
+      this.stop(connection, this.refusal || NO_ACCESS, 'refused')
       return
     }
     connection.viewer = role === 'viewer'
@@ -379,9 +458,7 @@ export class FakeProjectApi implements ProjectApi {
   /** A viewer's page sent a change: the server turns it down and the page stops. */
   private refuse(connection: FakeConnection) {
     this.disconnect(connection, false)
-    connection.failed = true
-    connection.error.value = VIEW_ONLY_NOW
-    connection.update()
+    this.stop(connection, VIEW_ONLY_NOW, 'turned-down')
   }
 
   /** Sends a page's change to the room, unless it is offline, a viewer, or the room is slow to confirm. */

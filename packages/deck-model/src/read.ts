@@ -2,20 +2,25 @@ import type { Deck, Slide } from './schema.ts'
 import * as Y from 'yjs'
 import { newId } from './ids.ts'
 import { elementToMarkdown, slideToMarkdown } from './markdown.ts'
-import { DECK_VERSION, DeckSchema, ElementSchema } from './schema.ts'
+import { DECK_VERSION, DeckSchema, ElementSchema, isFrontmatterValue } from './schema.ts'
 import {
   DECK_KEY,
   DeckNotLoadedError,
   elementValues,
+  frontmatterEntry,
+  frontmatterToY,
   hasDeck,
+  isFrontmatterEntry,
   isRecord,
   POSITION_KEYS,
   positionToY,
+  propsToY,
   readElement,
   readFrontmatter,
   readSlideEntry,
   slidesOf,
   slideToY,
+  storedFrontmatter,
   zodMessage,
 } from './y-shape.ts'
 
@@ -58,6 +63,9 @@ export function checkDeckDoc(doc: Y.Doc): DeckCheck {
     const elements = value.get('elements')
     if (!(notes instanceof Y.Text) || !(elements instanceof Y.Array))
       return { ok: false, message: `${where} has no notes or no elements` }
+    const frontmatter = value.get('frontmatter')
+    if (frontmatter instanceof Y.Map && [...frontmatter.values()].some(entry => !isFrontmatterEntry(entry)))
+      return { ok: false, message: `${where} has frontmatter that is not stored the right way` }
     const id = value.get('id')
     if (typeof id === 'string' && slideIds.has(id))
       return { ok: false, message: `${where} has the same id as another slide` }
@@ -76,7 +84,7 @@ export function checkDeckDoc(doc: Y.Doc): DeckCheck {
       elementIds.add(values.id as string)
       items.push(values)
     }
-    const slide: Record<string, unknown> = { id, frontmatter: value.get('frontmatter'), elements: items }
+    const slide: Record<string, unknown> = { id, frontmatter: storedFrontmatter(frontmatter), elements: items }
     if (notes.length > 0)
       slide.notes = notes.toString()
     deck.slides.push(slide)
@@ -101,11 +109,11 @@ function clampedPosition(values: Record<string, unknown>) {
 /**
  * Fixes what a valid deck cannot hold: one empty slide when there are none,
  * or when the slides list itself is broken; frontmatter values YAML cannot
- * write are dropped; elements that fail the schema get their position
- * clamped, or are deleted when that is not enough; a later sibling with the
- * same id is deleted when its Markdown is the same as an earlier one's (two
- * people moved it at once), and gets a fresh id otherwise. Returns whether it
- * changed anything. Only one place should repair a shared document (the
+ * write, and frontmatter entries not stored the right way, are dropped;
+ * elements that fail the schema get their position clamped, or are deleted
+ * when that is not enough; a later sibling with the same id is deleted when
+ * its Markdown is the same as an earlier one's (two people moved it at
+ * once), and gets a fresh id otherwise. Returns whether it changed anything. Only one place should repair a shared document (the
  * server, for cloud decks), or two repairs at once would both add a slide.
  * Throws `DeckNotLoadedError` when the document holds no deck yet.
  */
@@ -170,12 +178,8 @@ export function repairDeckDoc(doc: Y.Doc, origin?: unknown): boolean {
         slide.set('id', newId('s'))
         change()
       }
-      // A valid frontmatter reads back as the very same object.
-      const frontmatter = slide.get('frontmatter')
-      if (readFrontmatter(frontmatter) !== frontmatter) {
-        slide.set('frontmatter', readFrontmatter(frontmatter))
+      if (repairFrontmatter(slide))
         change()
-      }
       const notes = slide.get('notes')
       if (!(notes instanceof Y.Text)) {
         slide.set('notes', new Y.Text(typeof notes === 'string' ? notes : ''))
@@ -208,6 +212,77 @@ export function repairDeckDoc(doc: Y.Doc, origin?: unknown): boolean {
     }
   }, origin)
   return changed
+}
+
+/**
+ * Drops frontmatter entries that are not stored the right way or hold a
+ * value YAML cannot write. A broken older plain value becomes a frontmatter
+ * map. Returns whether it changed anything.
+ */
+function repairFrontmatter(slide: Y.Map<unknown>): boolean {
+  const frontmatter = slide.get('frontmatter')
+  if (frontmatter instanceof Y.Map) {
+    const broken = [...frontmatter.entries()].flatMap(([key, value]) => {
+      const entry = frontmatterEntry(value)
+      return entry && isFrontmatterValue(entry.value, 1) ? [] : [key]
+    })
+    for (const key of broken)
+      frontmatter.delete(key)
+    return broken.length > 0
+  }
+  // A valid plain frontmatter reads back as the very same object.
+  if (readFrontmatter(frontmatter) === frontmatter)
+    return false
+  slide.set('frontmatter', frontmatterToY(readFrontmatter(frontmatter)))
+  return true
+}
+
+/** A plain object, not a shared type. */
+function plainRecord(value: unknown) {
+  return isRecord(value) && !(value instanceof Y.AbstractType)
+}
+
+/**
+ * Stores each slide's frontmatter and each block's settings key by key,
+ * for a deck stored before they were split: an older plain value becomes a
+ * map with the same keys and values, in one transaction. Nothing else
+ * changes, so the deck reads and writes the same Markdown. Returns whether
+ * it changed anything.
+ *
+ * Writers convert an older value on its first change anyway, but two people
+ * making that first change to one block at once would each replace the
+ * whole value, and one change would be lost. The server runs this when a
+ * cloud deck's room loads, before anyone edits it. Like a repair, only one
+ * place should run it on a shared document.
+ */
+export function upgradeDeckDoc(doc: Y.Doc, origin?: unknown): boolean {
+  const slides = slidesOf(doc)
+  if (!slides)
+    return false
+  const frontmatters: Y.Map<unknown>[] = []
+  const props: Y.Map<unknown>[] = []
+  for (const slide of slides) {
+    if (!(slide instanceof Y.Map))
+      continue
+    if (plainRecord(slide.get('frontmatter')))
+      frontmatters.push(slide)
+    const elements = slide.get('elements')
+    if (!(elements instanceof Y.Array))
+      continue
+    for (const element of elements) {
+      if (element instanceof Y.Map && plainRecord(element.get('props')))
+        props.push(element)
+    }
+  }
+  if (frontmatters.length === 0 && props.length === 0)
+    return false
+  doc.transact(() => {
+    for (const slide of frontmatters)
+      slide.set('frontmatter', frontmatterToY(slide.get('frontmatter') as Record<string, unknown>))
+    for (const element of props)
+      element.set('props', propsToY(element.get('props') as Record<string, unknown>))
+  }, origin)
+  return true
 }
 
 /**

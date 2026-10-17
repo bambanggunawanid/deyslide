@@ -62,11 +62,12 @@ function cancelLink() {
 
 <template>
   <div class="flex flex-col gap-2" data-testid="element-toolbar">
-    <div ref="toolbar" class="flex flex-wrap gap-1" role="toolbar" aria-label="Add to the slide">
+    <!-- One row that scrolls sideways on phones, so the slide starts near the top. -->
+    <div ref="toolbar" class="flex flex-wrap gap-1 lt-md:flex-nowrap lt-md:overflow-x-auto" role="toolbar" aria-label="Add to the slide">
       <button
         v-for="item in ELEMENT_KINDS"
         :key="item.kind"
-        class="dey-btn text-sm"
+        class="dey-btn shrink-0 whitespace-nowrap text-sm"
         :aria-expanded="item.kind === 'image' ? askingLink : undefined"
         :data-testid="`add-${item.kind}`"
         @click="add(item.kind)"

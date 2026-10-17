@@ -9,6 +9,8 @@ export interface AccountState {
   account: ShallowRef<Account | undefined>
   /** Updates the account and waits until the projects follow it. */
   setAccount: (account: Account | undefined) => Promise<void>
+  /** Signs out, then deletes the account's decks and project lists kept on this device. */
+  signOut: () => Promise<void>
 }
 
 export const ACCOUNT_KEY: InjectionKey<AccountState> = Symbol('account')
