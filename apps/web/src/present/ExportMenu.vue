@@ -25,6 +25,11 @@ const props = defineProps<{
   /** The deck's Markdown, sent for decks that live on this device. */
   markdown: () => string
   disabled?: boolean
+  /**
+   * Where the page shows how the export goes (a selector), so the text
+   * never pushes the buttons beside the menu. Without it, next to the menu.
+   */
+  statusTo?: string
 }>()
 
 const api = useExportApi()
@@ -168,8 +173,13 @@ const label = computed(() => busy.value ? 'Exporting...' : 'Export')
 <template>
   <div class="flex items-center gap-2">
     <DropdownMenuRoot @update:open="onOpen">
-      <DropdownMenuTrigger class="dey-btn text-sm" :disabled="disabled || busy" data-testid="export-menu">
-        {{ label }}
+      <!-- As wide as its longer label, so the buttons beside it stay put while an export runs. -->
+      <DropdownMenuTrigger
+        class="dey-btn grid justify-items-center text-sm after:invisible after:col-start-1 after:row-start-1 after:h-0 after:content-['Exporting...']"
+        :disabled="disabled || busy"
+        data-testid="export-menu"
+      >
+        <span class="col-start-1 row-start-1">{{ label }}</span>
       </DropdownMenuTrigger>
       <DropdownMenuPortal>
         <DropdownMenuContent align="end" :side-offset="6" class="dey-panel z-30 flex min-w-60 flex-col gap-1 p-2" data-testid="export-options">
@@ -195,15 +205,17 @@ const label = computed(() => busy.value ? 'Exporting...' : 'Export')
         </DropdownMenuContent>
       </DropdownMenuPortal>
     </DropdownMenuRoot>
-    <span
-      v-if="message"
-      class="max-w-72 text-sm"
-      :class="failed ? 'text-rose-300' : 'text-dey-muted'"
-      :role="failed ? 'alert' : 'status'"
-      data-testid="export-status"
-    >
-      {{ message }}
-    </span>
+    <Teleport :to="statusTo || 'body'" :disabled="!statusTo" defer>
+      <span
+        v-if="message"
+        class="max-w-72 text-sm"
+        :class="failed ? 'text-rose-300' : 'text-dey-muted'"
+        :role="failed ? 'alert' : 'status'"
+        data-testid="export-status"
+      >
+        {{ message }}
+      </span>
+    </Teleport>
     <!-- Draws each slide for a PDF made here: inside the window, so it paints, but unseen. -->
     <SlidePreviewFrame
       v-if="drawing"

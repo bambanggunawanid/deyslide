@@ -96,6 +96,17 @@ Feature: Exporting a deck from the editor
     Then the page alerts "Slide 2 could not be drawn: x is not defined"
     And nothing is saved
 
+  Scenario: How an export goes shows on a line of its own, so the buttons stay put
+    Given Ana is signed in with the deck "Graphs" open, on a server that makes exports
+    When Ana exports a PDF, and the server is a quarter done
+    Then the page says "Making the PDF... 25%" on a line of its own under the buttons, which screen readers follow
+    And the row of buttons holds no status
+
+  Scenario: The presenter view shows how an export goes under its buttons too
+    Given Ana is signed in with the deck "Graphs" open in the presenter view, on a server that makes exports
+    When Ana exports a PDF, and the server is a quarter done
+    Then the presenter view says "Making the PDF... 25%" on a line of its own under its header, which screen readers follow
+
   Scenario: The presenter view has the Export menu too
     Given the demo deck "Sorting" is open in the presenter view, signed out
     When I export "PDF (this device)" from the presenter view

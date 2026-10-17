@@ -444,6 +444,47 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  /** Starts a PDF on the server that stays a quarter done until the scenario ends. */
+  async function quarterDone() {
+    exports.pollMs = 20
+    exports.progress = [{ status: 'running', progress: 0.25 }]
+    await choose('export-pdf')
+    await vi.waitFor(() => expect(text('[data-testid="export-status"]')).toBe('Making the PDF... 25%'))
+  }
+
+  /** The line under the buttons holds the status, and screen readers follow it. */
+  function statusOnItsOwnLine(scope = '') {
+    const line = find(`${scope} [data-testid="export-status-line"]`.trim())!
+    expect(line.getAttribute('aria-live')).toBe('polite')
+    expect(line.querySelector('[data-testid="export-status"]')?.getAttribute('role')).toBe('status')
+    // Not in the row of buttons, which it would push aside as it grows.
+    expect(find('[data-testid="export-menu"]')!.parentElement!.contains(line)).toBe(false)
+  }
+
+  Scenario('How an export goes shows on a line of its own, so the buttons stay put', ({ Given, When, Then, And }) => {
+    Given('Ana is signed in with the deck "Graphs" open, on a server that makes exports', () => signedInDeck(true))
+    When('Ana exports a PDF, and the server is a quarter done', quarterDone)
+    Then('the page says "Making the PDF... 25%" on a line of its own under the buttons, which screen readers follow', () => {
+      statusOnItsOwnLine()
+    })
+    And('the row of buttons holds no status', () => {
+      expect(find('[data-testid="header-row"] [data-testid="export-status"]')).toBeNull()
+    })
+  })
+
+  Scenario('The presenter view shows how an export goes under its buttons too', ({ Given, When, Then }) => {
+    Given('Ana is signed in with the deck "Graphs" open in the presenter view, on a server that makes exports', async () => {
+      await signedInDeck(true)
+      await web!.router.push({ name: 'presenter', params: { projectId, deckId } })
+      await vi.waitFor(() => expect(find('[data-testid="presenter-page"] [data-testid="export-menu"]')!.hasAttribute('disabled')).toBe(false))
+    })
+    When('Ana exports a PDF, and the server is a quarter done', quarterDone)
+    Then('the presenter view says "Making the PDF... 25%" on a line of its own under its header, which screen readers follow', () => {
+      statusOnItsOwnLine('[data-testid="presenter-page"]')
+      expect(find('[data-testid="presenter-page"] header [data-testid="export-status"]')).toBeNull()
+    })
+  })
+
   Scenario('The presenter view has the Export menu too', ({ Given, When, Then }) => {
     Given('the demo deck "Sorting" is open in the presenter view, signed out', () => guestDeck((project, deck) => `/p/${project}/d/${deck}/presenter`))
     When('I export "PDF (this device)" from the presenter view', async () => {
