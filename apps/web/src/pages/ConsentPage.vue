@@ -14,7 +14,7 @@ import { useAccount } from '../composables/useAccount'
 const { service, account } = useAccount()
 const route = useRoute()
 
-const ANDROID_APP_REDIRECT = 'id.bambanggunawan.deyslide:/oauth/callback'
+const PHONE_APP_REDIRECT = 'id.bambanggunawan.deyslide:/oauth/callback'
 
 const MCP_PERMISSIONS = [
   'See your projects and decks, and those shared with you',
@@ -36,8 +36,8 @@ function isApiResource(resource: unknown) {
 const clientId = computed(() => typeof route.query.client_id === 'string' ? route.query.client_id : '')
 const valid = computed(() => Boolean(clientId.value) && typeof route.query.sig === 'string')
 const host = computed(() => redirectHost(route.query))
-/** The Android app gets the answer through its own scheme, which has no host to show. */
-const toAndroidApp = computed(() => route.query.redirect_uri === ANDROID_APP_REDIRECT)
+/** The Android and iOS apps get the answer through their own scheme, which has no host to show. */
+const toPhoneApp = computed(() => route.query.redirect_uri === PHONE_APP_REDIRECT)
 /**
  * The Deyslide apps ask for the API, which reaches the whole account. MCP
  * clients such as Claude Code want the MCP endpoint. When an app linked to the
@@ -91,7 +91,7 @@ async function answer(accept: boolean) {
         </ul>
         <span v-if="!wholeAccount" class="text-dey-muted" data-testid="consent-limits">It cannot delete projects or decks, and it reaches only what you can open in Deyslide.</span>
       </div>
-      <p v-if="toAndroidApp" class="m-0 text-xs text-dey-muted" data-testid="consent-host">
+      <p v-if="toPhoneApp" class="m-0 text-xs text-dey-muted" data-testid="consent-host">
         The app named itself. Allow it only if you just started signing in: the answer goes to the Deyslide app on this device.
       </p>
       <p v-else-if="host" class="m-0 text-xs text-dey-muted" data-testid="consent-host">

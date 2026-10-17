@@ -32,6 +32,7 @@
     "allow-present-open",
     "allow-save-file",
     "allow-app-info",
+    "allow-app-restart",
     "allow-debug-preview-log"
   ]
 }

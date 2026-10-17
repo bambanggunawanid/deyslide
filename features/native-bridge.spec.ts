@@ -99,6 +99,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   'mcpSetup()': () => native.mcpSetup(),
   'presentOpen("local-p-1", "local-d-2")': () => native.presentOpen('local-p-1', 'local-d-2'),
   'appInfo()': () => native.appInfo(),
+  'appRestart()': () => native.appRestart(),
 }
 
 const LISTENERS: Record<string, (handler: (...heard: unknown[]) => void) => Promise<() => void>> = {

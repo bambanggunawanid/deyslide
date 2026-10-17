@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "updates",
+  "description": "Checking for, downloading and installing updates, on computers only: phones get theirs elsewhere. The app adds the updater plugin only to release builds that carry its key.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
+  "permissions": ["updater:default"]
+}

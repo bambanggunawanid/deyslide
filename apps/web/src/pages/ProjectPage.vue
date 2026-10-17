@@ -10,7 +10,7 @@ import ShareDialog from '../components/ShareDialog.vue'
 import { useProjects, useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import { TEMPLATES } from '../guest/templates'
-import { isAndroidApp } from '../platform/platform'
+import { isMobileApp } from '../platform/platform'
 import { canEdit, deckRole, projectRole } from '../projects/roles'
 import { LOCAL_ID_PREFIX } from '../projects/workspace'
 
@@ -45,7 +45,7 @@ const ROLE_NAMES = { owner: 'owner', editor: 'an editor', viewer: 'a viewer' }
 // A device project is a folder: deleting moves it to the system's trash, or deletes it where the system has none.
 const removal = computed(() => {
   if (props.projectId.startsWith(LOCAL_ID_PREFIX))
-    return isAndroidApp() ? 'will be deleted from this device. This cannot be undone.' : 'will go to the trash, or be deleted for good where the system has none.'
+    return isMobileApp() ? 'will be deleted from this device. This cannot be undone.' : 'will go to the trash, or be deleted for good where the system has none.'
   return store.value === workspace.stores.value.cloud
     ? 'will be deleted from your account. This cannot be undone.'
     : 'will be removed from this browser. This cannot be undone.'

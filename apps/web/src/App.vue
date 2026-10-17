@@ -2,6 +2,7 @@
 import { useRoute } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
 import GuestBanner from './components/GuestBanner.vue'
+import UpdateNotice from './platform/UpdateNotice.vue'
 
 const route = useRoute()
 </script>
@@ -12,6 +13,7 @@ const route = useRoute()
   <div v-else class="min-h-screen bg-dey-bg text-dey-text">
     <AppHeader />
     <GuestBanner />
+    <UpdateNotice />
     <main :class="route.meta.wide ? 'px-4 py-4' : 'mx-auto max-w-5xl px-4 py-8'">
       <RouterView />
     </main>

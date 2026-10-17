@@ -1,6 +1,6 @@
 [package]
 name = "deyslide-app"
-description = "The Deyslide app for Windows, macOS, Linux and Android, and `deyslide mcp` for Claude Code."
+description = "The Deyslide app for Windows, macOS, Linux, Android and iOS, and `deyslide mcp` for Claude Code."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,11 +8,11 @@ repository.workspace = true
 publish = false
 default-run = "deyslide"
 
-# Android loads the app as a library; computers run the `deyslide` binary.
-# (No staticlib: that is for iOS, which Deyslide does not build.)
+# Android loads the app as a shared library and iOS links it as a static
+# one; computers run the `deyslide` binary.
 [lib]
 name = "deyslide_app"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
 name = "deyslide"
@@ -42,13 +42,15 @@ tauri-plugin-os = "2.4.0"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 url = "2"
 
-# One window per computer, and the OS trash for deleted projects and decks.
+# One window per computer, the OS trash for deleted projects and decks, and
+# updates from new releases (a phone installs those itself).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-updater = "2.13.1"
 trash = "5"
 
-# Android finishes signing in through a link back into the app.
-[target.'cfg(target_os = "android")'.dependencies]
+# Phones finish signing in through a link back into the app.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-deep-link = "2.6.2"
 
 [target.'cfg(unix)'.dependencies]

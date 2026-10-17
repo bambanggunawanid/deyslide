@@ -13,6 +13,7 @@ import { MemoryGuestStorage } from './guest/memory-storage'
 import { GuestStore } from './guest/store'
 import { MAIN_WINDOW, windowLabel } from './platform/native'
 import { apiFetch, collabToken, collabUrl, isApp, isDesktopApp, routerHistory, startPlatform } from './platform/platform'
+import { startUpdates, UPDATES_KEY } from './platform/updates'
 import { EXPORT_KEY, HttpExportApi } from './present/exports'
 import { HttpProjectApi } from './projects/api'
 import { OfflineCache } from './projects/offline-cache'
@@ -59,16 +60,30 @@ if (isApp())
 else
   followRememberedAccount(account, router)
 
-createApp(App)
+/** The main window of the app on a computer. Audience windows only show slides. */
+const mainWindow = isDesktopApp() && await windowLabel().then(label => label === MAIN_WINDOW, () => false)
+
+// New versions: checked in the app's one window on a phone, or its main
+// window on a computer. Installing one saves every open deck first.
+async function offerUpdates() {
+  if (!local || (isDesktopApp() && !mainWindow))
+    return undefined
+  const { storesToSave } = await import('./platform/closing')
+  return startUpdates(() => storesToSave(workspace))
+}
+const updates = await offerUpdates().catch((error) => {
+  console.error('Deyslide cannot check for updates:', error)
+  return undefined
+})
+
+const vue = createApp(App)
   .provide(WORKSPACE_KEY, workspace)
   .provide(ACCOUNT_KEY, account)
   .provide(ASSISTANT_KEY, new HttpAssistantApi())
   .provide(EXPORT_KEY, new HttpExportApi())
-  .use(router)
-  .mount('#app')
-
-/** The main window of the app on a computer. Audience windows only show slides. */
-const mainWindow = isDesktopApp() && await windowLabel().then(label => label === MAIN_WINDOW, () => false)
+if (updates)
+  vue.provide(UPDATES_KEY, updates)
+vue.use(router).mount('#app')
 
 // Device decks are written a moment after each change, and account decks
 // wait for the server to confirm theirs: leaving the app or closing the

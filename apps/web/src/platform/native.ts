@@ -85,13 +85,18 @@ export type McpSetup
   = | { command: string }
     | { problem: string }
 
-export type AppPlatform = 'windows' | 'macos' | 'linux' | 'android'
+export type AppPlatform = 'windows' | 'macos' | 'linux' | 'android' | 'ios'
 
 export interface AppInfo {
   version: string
   platform: AppPlatform
   /** The Deyslide server the app signs in to. */
   serverUrl: string
+  /**
+   * Whether the app installs updates itself: a release build on a
+   * computer, which carries the key that signs them. Older builds leave it out.
+   */
+  updates?: boolean
 }
 
 /** `deck-changed`: a deck's file changed on disk. */
@@ -202,7 +207,7 @@ export function renderRespond(id: string, slides: RenderedSlide[]) {
 
 /**
  * Signs in through the browser. On a computer it resolves once signed in;
- * on Android once the browser is open. `account-changed` follows either way.
+ * on a phone once the browser is open. `account-changed` follows either way.
  */
 export function authSignIn() {
   return call<void>('auth_sign_in')
@@ -238,6 +243,11 @@ export function saveFile(path: string, bytes: Uint8Array) {
 
 export function appInfo() {
   return call<AppInfo>('app_info')
+}
+
+/** Starts the app again, as after installing an update. Save every open deck first: nothing asks. */
+export function appRestart() {
+  return call<void>('app_restart')
 }
 
 /** The app's main window. Audience windows are `present-<deckId>`. */

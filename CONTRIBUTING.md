@@ -122,7 +122,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The tag must be a semantic version, such as `v1.2.3` or `v1.2.3-beta.1`. The Release workflow then creates a draft GitHub Release, builds the apps for Windows, macOS, Linux and Android with that version, attaches them, and publishes the release once all four builds passed. If one fails, the release stays a draft: run the failed job again, or publish it by hand. A tag with a pre-release part, such as `v1.2.3-beta.1`, is published as a pre-release, so the download page keeps offering the last stable version. The README's "Releases" section lists the files and the signing secrets.
+The tag must be a semantic version, such as `v1.2.3` or `v1.2.3-beta.1`. The Release workflow then creates a draft GitHub Release, builds the apps for Windows, macOS, Linux, Android and iOS with that version, attaches them with `latest.json` for updates, and publishes the release once every required build passed (iOS counts only when the Apple account is in the secrets). If one fails, the release stays a draft: run the failed job again, or publish it by hand. A tag with a pre-release part, such as `v1.2.3-beta.1`, is published as a pre-release, so the download page keeps offering the last stable version. The README's "Releases" section lists the files and the signing secrets.
 
 GitHub writes the notes from the pull requests merged since the previous tag, grouped by label as set in `.github/release.yml`:
 
@@ -157,7 +157,7 @@ The repository is a pnpm workspace. Run every command from the root.
 | `apps/web/` | The web app: projects home page, the deck page with the Design canvas (`src/canvas/`) and the Markdown view (`src/editor/`), the live deck session (`src/deck/`), the sandboxed slide preview (`src/preview/`), presenting and export (`src/present/`), the assistant chat (`src/assistant/`), the layer that tells the website from the apps (`src/platform/`), sign in pages, guest storage in the browser |
 | `apps/server/` | The API: Hono, Better Auth and Postgres through Kysely, live rooms (`src/collab/`), export jobs (`src/exports/`), the Claude deck assistant (`src/assistant/`), the MCP server for Claude Code (`src/mcp/`) and media uploads (`src/media/`), bundled into one file for production |
 | `apps/renderer/` | Draws slides to PNG and records videos with the web app's preview in headless Chromium, for the MCP server and exports |
-| `apps/native/` | The Deyslide app for Windows, macOS, Linux and Android (Tauri 2), and `deyslide mcp`, the MCP server for decks on a computer |
+| `apps/native/` | The Deyslide app for Windows, macOS, Linux, Android and iOS (Tauri 2), and `deyslide mcp`, the MCP server for decks on a computer |
 | `apps/deck/` | The demo deck (`slides.md`), its theme, and the video export script |
 | `crates/deyslide-core/` | The Rust core the app and `deyslide-mcp` share: the library folder, Slidev slide splitting, the MCP tools and the render bridge |
 | `packages/components/` | Slidev addon: public components in `components/`, logic and TresJS child components in `src/`, the shared UnoCSS preset |

@@ -32,13 +32,58 @@ Feature: Releasing the apps
     When the release workflow runs by hand as run 42
     Then the apps are built as version "0.0.42"
 
+  Scenario Outline: iOS builds the version without its pre-release
+    When the release workflow reads the version for the tag "<tag>"
+    Then iOS builds version "<core>"
+
+    Examples:
+      | tag            | core  |
+      | v1.2.3         | 1.2.3 |
+      | v1.2.3-beta.1  | 1.2.3 |
+      | v1.2.3+git.abc | 1.2.3 |
+
+  Scenario: The updater key turns updates on in a computer build
+    When the release workflow reads the version for the tag "v1.2.3" with the updater key "dW50cnVzdGVkIGNvbW1lbnQ=" and the signing key set
+    Then the apps are built as version "1.2.3" with updates from "https://github.com/bambanggunawanid/deyslide/releases/latest/download/latest.json" checked against "dW50cnVzdGVkIGNvbW1lbnQ="
+    And the build makes signed update files
+
+  Scenario Outline: Without both halves of the updater key a build has no updates
+    When the release workflow reads the version for the tag "v1.2.3" with <keys>
+    Then the apps are built as version "1.2.3" with no updates
+    And the workflow warns "<warning>"
+
+    Examples:
+      | keys                                            | warning                                                                                                                  |
+      | no updater key at all                           | nothing                                                                                                                  |
+      | the updater key "dW50cnVzdGVkIGNvbW1lbnQ=" only | TAURI_UPDATER_PUBKEY is set but the secret TAURI_SIGNING_PRIVATE_KEY is not, so this build has no updates.               |
+      | the signing key only                            | The secret TAURI_SIGNING_PRIVATE_KEY is set but the variable TAURI_UPDATER_PUBKEY is not, so this build has no updates. |
+
+  Scenario: An updater key that is no key stops the release before any build
+    When the release workflow reads the version for the tag "v1.2.3" with the updater key "not a key" and the signing key set
+    Then it stops and says "TAURI_UPDATER_PUBKEY is not an updater public key."
+
   Scenario: The release waits as a draft until every installer is attached
     Given the Release workflow
     Then the release is created as a draft
     And only the jobs that write to the release may write to the repository
     And the app jobs keep no credentials in their checkout
     And the publish job attaches what the Windows, macOS, Linux and Android jobs built
-    And it publishes the release only when all four builds passed
+    And it publishes the release only when those four builds passed, and the iOS build too when the Apple account is set
+
+  Scenario: The iOS build goes to TestFlight, never into the release
+    Given the Release workflow
+    Then the iOS job signs its build only when the whole Apple account is in the secrets
+    And the publish job requires the iOS build by that same rule
+    And the iOS files are named unlike the ones the publish job attaches
+    And the iOS job uploads the Xcode project it used as "ios-project"
+    And it uploads to TestFlight for a pushed tag only
+
+  Scenario: Computer builds sign their update files and the release lists them
+    Given the Release workflow
+    Then the Windows, macOS and Linux version steps get the updater key from the variable "TAURI_UPDATER_PUBKEY"
+    And their builds get the signing key from the secrets only when updates are on
+    And they collect each update file's signature
+    And the publish job writes latest.json before it attaches the files
 
   Scenario: Signing secrets reach the builds as they are
     Given the Release workflow
@@ -55,6 +100,41 @@ Feature: Releasing the apps
       | v1.2.3-beta.1    | yes        |
       | v1.2.3-4         | yes        |
       | v1.2.3+build-7   | no         |
+
+  Scenario: latest.json lists a signed file for each computer
+    Given the files the computer builds made for "v0.3.0", each with its signature
+    When the publish job writes latest.json with the notes "Faster canvas"
+    Then latest.json says version "0.3.0" with the notes "Faster canvas" and the publish date
+    And it lists these files
+      | platform           | file                                |
+      | windows-x86_64     | Deyslide_0.3.0_x64-setup.exe        |
+      | windows-x86_64-msi | Deyslide_0.3.0_x64_en-US.msi        |
+      | darwin-aarch64     | Deyslide_0.3.0_universal.app.tar.gz |
+      | darwin-x86_64      | Deyslide_0.3.0_universal.app.tar.gz |
+      | linux-x86_64       | Deyslide_0.3.0_amd64.AppImage       |
+      | linux-x86_64-deb   | Deyslide_0.3.0_amd64.deb            |
+    And each one carries the text of its file's signature and the file's link in the release
+
+  Scenario: A file without a signature is left out of latest.json
+    Given the files the computer builds made for "v0.3.0", each with its signature
+    But the .deb has no signature
+    When the publish job writes latest.json with the notes "Faster canvas"
+    Then latest.json has no "linux-x86_64-deb"
+    And it still lists "linux-x86_64"
+
+  Scenario: A release without signed files has no latest.json
+    Given the files the computer builds made for "v0.3.0", without signatures
+    When the publish job writes latest.json with the notes "Faster canvas"
+    Then no latest.json is written
+    And the job says "No update file is signed, so this release has no latest.json."
+
+  Scenario: The Xcode project gets the app's link scheme and settings
+    Given an Info.plist from Tauri's iOS template with a link scheme of another app
+    When the iOS job applies the app's settings twice
+    Then the Info.plist lists the link schemes "com.example.other" and "id.bambanggunawan.deyslide", each once
+    And the app is named "Deyslide" under its icon
+    And it says it uses no encryption of its own
+    And an iPad shows it in every orientation
 
   Scenario: Scripts keep Unix line endings on Windows runners
     Given a checkout that turns line endings into Windows ones, as Git for Windows does by default

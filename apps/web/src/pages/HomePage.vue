@@ -10,6 +10,7 @@ import { useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import ClaudeCodePanel from '../platform/ClaudeCodePanel.vue'
 import { isDesktopApp } from '../platform/platform'
+import UpdatesPanel from '../platform/UpdatesPanel.vue'
 
 /**
  * The website lists one set of projects: the browser's for guests, the
@@ -176,6 +177,7 @@ async function createProject(name: string) {
     </section>
 
     <ClaudeCodePanel v-if="desktop" />
+    <UpdatesPanel />
 
     <NameDialog
       v-model:open="creating"

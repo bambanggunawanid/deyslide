@@ -41,6 +41,29 @@ Feature: The web app inside the Deyslide app
     Then API paths start with "https://deyslide.bambanggunawan.id"
     And live editing connects to "wss://deyslide.bambanggunawan.id/api/collab"
 
+  Scenario Outline: The app knows the kind of device it runs on
+    Given the app says it runs on "<platform>"
+    Then it is the app on <device>
+
+    Examples:
+      | platform | device            |
+      | linux    | a computer        |
+      | windows  | a computer        |
+      | macos    | a computer        |
+      | android  | Android           |
+      | ios      | an iPhone or iPad |
+
+  Scenario Outline: An app that cannot say its system goes by the browser engine
+    Given the app cannot say which system it runs on, in a browser engine for <engine>
+    Then it is the app on <device>
+
+    Examples:
+      | engine                   | device            |
+      | an iPhone                | an iPhone or iPad |
+      | an iPad                  | an iPhone or iPad |
+      | a Mac                    | a computer        |
+      | an Android phone         | Android           |
+
   Scenario Outline: Project, sharing and assistant calls go through the app's server
     Given the app on a computer, using the server "https://deyslide.bambanggunawan.id"
     And the app is signed in with the access token "token-1"
@@ -92,6 +115,33 @@ Feature: The web app inside the Deyslide app
     And the fs plugin writes those bytes to "content://com.android.externalstorage.documents/document/primary%3ADownload%2FSorting.pdf"
     And the app gets no "save_file" command
     And the page hears that the file was saved
+
+  Scenario: The app on an iPhone or iPad writes to the place the person picked
+    Given the app on iOS
+    And the person picks "file:///private/var/mobile/Containers/Shared/AppGroup/Files/Sorting.pdf" in the save dialog
+    When a page saves "Sorting.pdf" of type "application/pdf"
+    Then the save dialog suggested "Sorting.pdf" with no filters
+    And the fs plugin writes those bytes to "file:///private/var/mobile/Containers/Shared/AppGroup/Files/Sorting.pdf"
+    And the app gets no "save_file" command
+    And the page hears that the file was saved
+
+  Scenario: The app on an iPhone or iPad presents in its one window
+    Given the app on iOS
+    When a deck's presenter view starts
+    Then it has no audience window to open
+    And no window counts as the deck's audience window
+
+  Scenario Outline: Only the app on a computer connects Claude Code
+    Given the app says it runs on "<platform>"
+    When they open "/"
+    Then the page shows "Your projects"
+    And the "Connect Claude Code" panel is <shown>
+
+    Examples:
+      | platform | shown     |
+      | linux    | shown     |
+      | android  | not there |
+      | ios      | not there |
 
   Scenario: Cancelling the save dialog saves nothing
     Given the app on a computer, using the server "https://deyslide.bambanggunawan.id"
@@ -159,6 +209,15 @@ Feature: The web app inside the Deyslide app
 
   Scenario: Signing in on Android finishes when they come back
     Given the app on Android, signed out
+    And they open "/sign-in"
+    When they choose "Sign in with your browser"
+    Then the page asks them to finish in the browser
+    When they come back to the app signed in as "Ana"
+    Then they are on the home page
+    And the header shows the account menu for "Ana"
+
+  Scenario: Signing in on an iPhone finishes when they come back
+    Given the app on iOS, signed out
     And they open "/sign-in"
     When they choose "Sign in with your browser"
     Then the page asks them to finish in the browser

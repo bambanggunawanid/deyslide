@@ -36,6 +36,7 @@ Feature: Calls into the Deyslide app
       | mcpSetup()                                            | mcp_setup              | no arguments                                                                  |
       | presentOpen("local-p-1", "local-d-2")                 | present_open           | {"projectId":"local-p-1","deckId":"local-d-2"}                                |
       | appInfo()                                             | app_info               | no arguments                                                                  |
+      | appRestart()                                          | app_restart            | no arguments                                                                  |
 
   Scenario: Saving a file sends its bytes as they are
     When a page saves the bytes 37, 80, 68, 70 to "/home/ana/Talks/Sorting slides.pdf"

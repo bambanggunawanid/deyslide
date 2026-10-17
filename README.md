@@ -9,7 +9,7 @@ Built on [Slidev](https://sli.dev) (Vue 3, Vite, UnoCSS, Shiki Magic Move), [Tre
 
 The hosted app at https://deyslide.bambanggunawan.id opens on a projects home page. A project holds decks, like a file in Figma. Decks are edited on a visual canvas or as Markdown, by several people at once, then presented full screen or exported to PDF and video. The demo deck plays at [/demo/](https://deyslide.bambanggunawan.id/demo/).
 
-The same app runs on Windows, macOS, Linux and Android (see "The apps"), where decks can also live as Markdown files on the device and Claude Code edits them through an MCP server on that computer.
+The same app runs on Windows, macOS, Linux, Android and iOS (see "The apps"), where decks can also live as Markdown files on the device and Claude Code edits them through an MCP server on that computer.
 
 ## Quick start
 
@@ -341,7 +341,7 @@ To try it locally, run `pnpm build`, then `pnpm dev:server` with `RENDERER_URL=h
 
 ## The apps
 
-`apps/native` is the Deyslide app for Windows, macOS, Linux and Android, built with [Tauri 2](https://tauri.app) around the web app. It adds what a browser cannot do: decks kept as Markdown files on the device, and an MCP server so Claude Code on the same computer edits them. Signed in, it opens the decks in the account too, live, like the website.
+`apps/native` is the Deyslide app for Windows, macOS, Linux, Android and iOS, built with [Tauri 2](https://tauri.app) around the web app. It adds what a browser cannot do: decks kept as Markdown files on the device, and an MCP server so Claude Code on the same computer edits them. Signed in, it opens the decks in the account too, live, like the website.
 
 ### Downloads
 
@@ -361,9 +361,21 @@ The builds are not signed by Apple or Microsoft yet, so each system asks once:
 - **Linux**: make the AppImage executable (`chmod +x`) and run it, or install the `.deb`.
 - **Android**: open the APK on the phone and, when asked, allow the browser to install apps.
 
+iPhones and iPads get the app through TestFlight once the project's Apple developer account is set up (see "Releases"). There is no file to download for them.
+
+### Updates
+
+The apps look for a new version when they start and once a day after. When there is one, a note under the header says "Deyslide 0.3.0 is available":
+
+- **Windows, macOS and Linux**: **Install** downloads it, checks its signature against the key built into the app, saves every open deck, installs it and restarts. A file whose signature does not match is never installed, and the note says it could not be verified. Builds made without the updater key (any build outside the release workflow, or a release before the key was set) offer **Open the download page** instead.
+- **Android**: an app cannot replace itself there, so **Download the APK** opens the new APK from the latest release in the browser.
+- **iPhone and iPad**: TestFlight and the App Store bring new versions; the app does not look.
+
+The **Updates** panel on the home page shows the running version, has a **Check for updates** button, and a switch that turns the automatic check off on that device.
+
 ### Decks on the device
 
-The home page shows **On this device** and, signed in, **Your account**. On the device, a project is a folder in the library folder and a deck is a `.md` file in it, holding plain Slidev Markdown that any editor can open. The library folder is `Documents/Deyslide` on a computer (the home page shows it, with a **Change** button) and a folder inside the app on Android.
+The home page shows **On this device** and, signed in, **Your account**. On the device, a project is a folder in the library folder and a deck is a `.md` file in it, holding plain Slidev Markdown that any editor can open. The library folder is `Documents/Deyslide` on a computer (the home page shows it, with a **Change** button) and a folder inside the app on Android and iOS, which other apps cannot reach.
 
 - A change in the app is written to its file a moment later, and only when the deck differs from the file. Each write checks that the file still holds what the app last read or wrote, so a file Claude Code or another editor changed meanwhile is merged in, never overwritten.
 - Changes made to a file on disk appear in the open deck at once and merge with any typing.
@@ -375,7 +387,7 @@ Decks on a device are not shared and have no live room. Export from them makes a
 
 ### Signing in
 
-**Sign in with your browser** opens the system browser to sign in to Deyslide. After the consent page, which asks for full access to the account, the browser hands the app back an authorization code: through a callback on `127.0.0.1` on a computer, or through the app's own link (`id.bambanggunawan.deyslide:/oauth/callback`) on Android. The app keeps its tokens in `auth.json` in its data folder and refreshes them on its own. It signs in to the public server unless `serverUrl` in its `settings.json` names another, which takes effect after a restart.
+**Sign in with your browser** opens the system browser to sign in to Deyslide. After the consent page, which asks for full access to the account, the browser hands the app back an authorization code: through a callback on `127.0.0.1` on a computer, or through the app's own link (`id.bambanggunawan.deyslide:/oauth/callback`) on Android and iOS. The app keeps its tokens in `auth.json` in its data folder and refreshes them on its own. It signs in to the public server unless `serverUrl` in its `settings.json` names another, which takes effect after a restart.
 
 ### Claude Code on this computer
 
@@ -394,6 +406,15 @@ On macOS, move Deyslide to Applications first: a copy started from the disk imag
 The app and `deyslide mcp` share a data folder, `id.bambanggunawan.deyslide` inside the system's data folder (`DEYSLIDE_DATA_DIR` moves it): `settings.json` (the library folder and the server), `auth.json`, the library lock, and `render-bridge.json`, through which the server finds the open app. The bridge listens on `127.0.0.1` only and answers only requests that carry its random token.
 
 For the decks in an account, add the hosted server instead (see "Claude Code"). Both can be added side by side.
+
+### iPhone and iPad
+
+The iOS app works like the Android one: decks on the device and in the account, live co-editing, touch editing on the canvas, presenting and exports. Within Apple's rules:
+
+- There is no Claude Code on iOS, so no on-device MCP server and no **Connect Claude Code** panel. Account decks that Claude Code edits through the hosted server show the changes live.
+- Presenting uses the one window: the slides fill the screen and swipes move through them, with no separate audience window.
+- Exports and downloads go through the system's place to save files (Files, iCloud Drive and the like).
+- Builds come from CI on macOS only (Xcode does not run on Linux), and reach phones and tablets through TestFlight.
 
 How the apps are built, run and released: [`apps/native/README.md`](apps/native/README.md) and "Releases" below.
 
@@ -570,7 +591,7 @@ A manual deploy can be started from the Actions tab with **Run workflow** on the
 
 ## Releases
 
-Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see [CONTRIBUTING.md](CONTRIBUTING.md) for how to release). It creates a draft GitHub Release with notes generated from the merged pull requests, builds the apps with the tag's version, attaches them, and publishes the release only when all four builds passed. Otherwise it stays a draft for a person to finish. **Run workflow** on the Release workflow builds the same files as workflow artifacts, version `0.0.<run number>`, and publishes nothing.
+Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see [CONTRIBUTING.md](CONTRIBUTING.md) for how to release). It creates a draft GitHub Release with notes generated from the merged pull requests, builds the apps with the tag's version, attaches them with `latest.json` for updates, and publishes the release only when every required build passed: Windows, macOS, Linux and Android, and iOS too when the Apple account below is set. Otherwise it stays a draft for a person to finish. **Run workflow** on the Release workflow builds the same files as workflow artifacts, version `0.0.<run number>`, and publishes nothing.
 
 | Job | Runs on | Release assets |
 | --- | --- | --- |
@@ -578,6 +599,25 @@ Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see
 | macOS | `macos-latest` | A universal `.dmg` for Apple silicon and Intel |
 | Linux | `ubuntu-22.04` | `.AppImage` and `.deb` |
 | Android | `ubuntu-latest` | A universal `.apk` for `aarch64` and `armv7`, attached only when it is release signed |
+| iOS | `macos-latest` | None: a signed `.ipa` goes to TestFlight, or a simulator build stays a workflow artifact |
+
+With updates on (see below), each computer job also attaches its update files' signatures (`.sig`), and the macOS job the app as `_universal.app.tar.gz`, which is what a Mac downloads to update.
+
+### Update signing
+
+Updates are signed with a key of the project's own, made once with:
+
+```sh
+pnpm --filter @deyslide/native tauri signer generate -w ~/.tauri/deyslide.key
+```
+
+| Where | Name | Holds |
+| --- | --- | --- |
+| Secret | `TAURI_SIGNING_PRIVATE_KEY` | The text of the private key file |
+| Secret | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Its password, if it has one |
+| Variable | `TAURI_UPDATER_PUBKEY` | The text of the `.pub` file, which every build checks updates against |
+
+With both the private key and the public key, the computer builds get the public key and the address of `latest.json` (`https://github.com/bambanggunawanid/deyslide/releases/latest/download/latest.json`), sign their update files, and the publish job writes `latest.json` (version, release notes, date, and a signed file for `windows-x86_64`, `darwin-aarch64`, `darwin-x86_64` and `linux-x86_64`, plus the `.msi` and `.deb` for apps installed from those). With either one missing, the builds have no updates and link to the download page; the workflow warns which half is missing. Keep the private key safe: apps only install updates signed with it, so losing it means people must reinstall by hand once.
 
 The macOS app is signed ad hoc unless the repository has the Apple secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID`. The Windows installers are not signed.
 
@@ -591,6 +631,24 @@ The Android APK is signed with the project's own key, from four repository secre
 | `ANDROID_KEY_PASSWORD` | The key's password |
 
 Without all four, the APK is unsigned and stays a workflow artifact, since it cannot be installed. Keep the keystore safe: every update must carry the same signature, and reinstalling the app to change keys deletes the decks kept inside it.
+
+### iOS
+
+Xcode does not run on Linux, so the iOS job makes the Xcode project on macOS with `tauri ios init` whenever `apps/native/src-tauri/gen/apple` is not in the repository, applies the app's link scheme and settings (`apps/native/scripts/ios-settings.py`), and uploads the project as the workflow artifact `ios-project`, ready to commit. A signed build for TestFlight needs an Apple developer account in these secrets:
+
+| Secret | Holds |
+| --- | --- |
+| `APPLE_CERTIFICATE` | An Apple Distribution certificate with its private key, as a `.p12` in base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` file's password |
+| `APPLE_PROVISIONING_PROFILE` | An App Store provisioning profile for `id.bambanggunawan.deyslide`, in base64 |
+| `APPLE_TEAM_ID` | The developer team's id |
+| `APPLE_API_ISSUER` | The issuer id of an App Store Connect API key |
+| `APPLE_API_KEY_ID` | That key's id |
+| `APPLE_API_KEY` | The text of that key's `.p8` file (or the text in base64) |
+
+The macOS job reads `APPLE_CERTIFICATE` too, with its Developer ID certificate. To sign both, export the two certificates into one `.p12`: each build picks its own.
+
+With all of them except the password (which may be empty), a pushed tag builds a signed `.ipa` (version `1.2.3` for any tag `v1.2.3...`, build number from the run) and uploads it to TestFlight, and the release waits for that build. Without them, the job builds the app for the iOS simulator as the workflow artifact `ios-app`, and the release does not wait for it: a failure there never holds back the other apps.
 
 ## Contributing
 
