@@ -1111,6 +1111,13 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
       expect(steps).toContain('Privacy & Security')
       expect(steps).toContain('Open Anyway')
     })
+    And('the steps for a Mac show their numbers, and the notes for the other systems show bullets', () => {
+      // The style reset takes markers off every list: these put them back.
+      const steps = find('[data-testid="install-macos-steps"]')!
+      expect([steps.tagName, steps.classList.contains('list-decimal'), steps.querySelectorAll('li').length]).toEqual(['OL', true, 3])
+      const notes = find('[data-testid="install-others-notes"]')!
+      expect([notes.tagName, notes.classList.contains('list-disc'), notes.querySelectorAll('li').length]).toEqual(['UL', true, 3])
+    })
     And('it shows the command the app gives for Claude Code on this computer', () => {
       expect(text('[data-testid="local-command"]')).toBe('claude mcp add --scope user deyslide-local -- "<path to Deyslide>" mcp')
       expect(text('[data-testid="claude-code-setup"]')).toContain('Connect Claude Code')

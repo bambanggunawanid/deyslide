@@ -84,7 +84,7 @@ async function answer(accept: boolean) {
       </p>
       <div class="flex flex-col gap-1 text-sm">
         <span class="text-dey-muted">It will be able to:</span>
-        <ul class="m-0 pl-5" data-testid="consent-permissions">
+        <ul class="m-0 list-disc pl-5" data-testid="consent-permissions">
           <li v-for="permission in permissions" :key="permission">
             {{ permission }}
           </li>

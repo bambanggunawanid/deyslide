@@ -343,5 +343,6 @@ Feature: The web app inside the Deyslide app
     Given the website at "https://deyslide.bambanggunawan.id"
     When they open "/download"
     Then the page explains "Open Anyway" in "Privacy & Security"
+    And the steps for a Mac show their numbers, and the notes for the other systems show bullets
     And it shows the command the app gives for Claude Code on this computer
     And it shows the command "claude mcp add --scope user --transport http deyslide https://deyslide.bambanggunawan.id/mcp"
