@@ -7,12 +7,14 @@ import {
   DECK_KEY,
   DeckNotLoadedError,
   elementValues,
+  frontmatterEntry,
   frontmatterToY,
   hasDeck,
   isFrontmatterEntry,
   isRecord,
   POSITION_KEYS,
   positionToY,
+  propsToY,
   readElement,
   readFrontmatter,
   readSlideEntry,
@@ -220,8 +222,10 @@ export function repairDeckDoc(doc: Y.Doc, origin?: unknown): boolean {
 function repairFrontmatter(slide: Y.Map<unknown>): boolean {
   const frontmatter = slide.get('frontmatter')
   if (frontmatter instanceof Y.Map) {
-    const broken = [...frontmatter.entries()].flatMap(([key, entry]) =>
-      isFrontmatterEntry(entry) && isFrontmatterValue(entry.value, 1) ? [] : [key])
+    const broken = [...frontmatter.entries()].flatMap(([key, value]) => {
+      const entry = frontmatterEntry(value)
+      return entry && isFrontmatterValue(entry.value, 1) ? [] : [key]
+    })
     for (const key of broken)
       frontmatter.delete(key)
     return broken.length > 0
@@ -230,6 +234,54 @@ function repairFrontmatter(slide: Y.Map<unknown>): boolean {
   if (readFrontmatter(frontmatter) === frontmatter)
     return false
   slide.set('frontmatter', frontmatterToY(readFrontmatter(frontmatter)))
+  return true
+}
+
+/** A plain object, not a shared type. */
+function plainRecord(value: unknown) {
+  return isRecord(value) && !(value instanceof Y.AbstractType)
+}
+
+/**
+ * Stores each slide's frontmatter and each block's settings key by key,
+ * for a deck stored before they were split: an older plain value becomes a
+ * map with the same keys and values, in one transaction. Nothing else
+ * changes, so the deck reads and writes the same Markdown. Returns whether
+ * it changed anything.
+ *
+ * Writers convert an older value on its first change anyway, but two people
+ * making that first change to one block at once would each replace the
+ * whole value, and one change would be lost. The server runs this when a
+ * cloud deck's room loads, before anyone edits it. Like a repair, only one
+ * place should run it on a shared document.
+ */
+export function upgradeDeckDoc(doc: Y.Doc, origin?: unknown): boolean {
+  const slides = slidesOf(doc)
+  if (!slides)
+    return false
+  const frontmatters: Y.Map<unknown>[] = []
+  const props: Y.Map<unknown>[] = []
+  for (const slide of slides) {
+    if (!(slide instanceof Y.Map))
+      continue
+    if (plainRecord(slide.get('frontmatter')))
+      frontmatters.push(slide)
+    const elements = slide.get('elements')
+    if (!(elements instanceof Y.Array))
+      continue
+    for (const element of elements) {
+      if (element instanceof Y.Map && plainRecord(element.get('props')))
+        props.push(element)
+    }
+  }
+  if (frontmatters.length === 0 && props.length === 0)
+    return false
+  doc.transact(() => {
+    for (const slide of frontmatters)
+      slide.set('frontmatter', frontmatterToY(slide.get('frontmatter') as Record<string, unknown>))
+    for (const element of props)
+      element.set('props', propsToY(element.get('props') as Record<string, unknown>))
+  }, origin)
   return true
 }
 

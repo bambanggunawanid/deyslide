@@ -11,7 +11,7 @@ import * as Y from 'yjs'
 import { roomName } from '../apps/server/src/collab/rooms'
 import { statusLabel } from '../apps/web/src/deck/session'
 import { HttpProjectApi } from '../apps/web/src/projects/api'
-import { applyMarkdown, deckToYDoc, fromMarkdown, insertSlide, joinSlides, newId, slideMarkdowns } from '../packages/deck-model/src'
+import { applyMarkdown, deckToYDoc, fromMarkdown, insertSlide, joinSlides, newId, SHAPE_REFUSED, slideMarkdowns } from '../packages/deck-model/src'
 import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, TEST_ORIGIN, warmUpDatabase } from './support/server'
 
 const feature = await loadFeature('./deck-connection.feature')
@@ -196,6 +196,25 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('Budi\'s connection says "You no longer have access to this deck." and is read only', async () => {
       await vi.waitFor(() => expect(label(page)).toBe('Not saved: You no longer have access to this deck.'), SOON)
       expect(page.connection.readOnly.value).toBe(true)
+    })
+  })
+
+  Scenario('A page older than the deck\'s shape on the server is told to update', ({ Given, When, Then }) => {
+    Given('the server holds decks in a newer shape than Ana\'s page reads', () => {
+      // A later server turns this page's shape away the way this one turns away an older one.
+      server.collab.configuration.extensions.unshift({
+        async onAuthenticate() {
+          throw Object.assign(new Error(''), { reason: SHAPE_REFUSED })
+        },
+      })
+    })
+    When('Ana\'s page connects to the deck', () => {
+      page = connect(anaBrowser)
+    })
+    Then('the connection says "Deyslide was updated. Reload the page, or update the app, to keep editing this deck." and is read only', async () => {
+      await vi.waitFor(() => expect(label(page)).toBe('Not saved: Deyslide was updated. Reload the page, or update the app, to keep editing this deck.'), SOON)
+      expect(page.connection.readOnly.value).toBe(true)
+      expect(page.connection.synced.value).toBe(false)
     })
   })
 

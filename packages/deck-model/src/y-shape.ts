@@ -92,34 +92,59 @@ export function positionToY(pos: Position) {
 // with one entry per top level key, so two people changing different keys
 // at once both keep their change. Decks stored before this hold one plain
 // object instead: readers accept both shapes, and the first change writes
-// the map.
+// the map (the server converts a cloud deck when its room loads, see
+// `upgradeDeckDoc`).
 //
 // Props entries are the plain values. Their order does not matter, because
 // the schema puts them in its own order when an element is read.
 //
 // Frontmatter keys are written to YAML in their order, but peers can see the
-// keys of a Y.Map in different orders. So each frontmatter entry is
-// `{ value, order }`, and keys are read sorted by `order`, then by key (two
-// people adding a key at once can pick the same number).
+// keys of a Y.Map in different orders. So each frontmatter entry is a Y.Map
+// of its own with two fields, `value` and `order`, and keys are read sorted
+// by `order`, then by key (two people adding a key at once can pick the same
+// number). The two fields merge apart: a write that only moves keys changes
+// their `order`, so someone changing one of their values at that moment
+// keeps the change.
 
-/** One stored frontmatter key. */
+/** One stored frontmatter key, as plain values. */
 export interface FrontmatterEntry {
   value: unknown
   order: number
 }
 
-export function isFrontmatterEntry(entry: unknown): entry is FrontmatterEntry {
-  return isRecord(entry) && typeof entry.order === 'number' && Number.isFinite(entry.order)
+/** A stored frontmatter entry as plain values, or undefined when it is not stored the right way. */
+export function frontmatterEntry(entry: unknown): FrontmatterEntry | undefined {
+  if (!(entry instanceof Y.Map) || !entry.has('value'))
+    return undefined
+  const order = entry.get('order')
+  return typeof order === 'number' && Number.isFinite(order) ? { value: entry.get('value'), order } : undefined
+}
+
+export function isFrontmatterEntry(entry: unknown): boolean {
+  return frontmatterEntry(entry) !== undefined
+}
+
+function frontmatterEntryToY(value: unknown, order: number) {
+  const entry = new Y.Map<unknown>()
+  entry.set('value', value)
+  entry.set('order', order)
+  return entry
+}
+
+/** Whether one key's place comes before another's: by order, then by key. */
+function precedes([order, key]: [number, string], [nextOrder, nextKey]: [number, string]) {
+  return order < nextOrder || (order === nextOrder && key < nextKey)
 }
 
 /** The well formed entries of a frontmatter map, in their order. */
 function frontmatterEntries(map: Y.Map<unknown>): [string, FrontmatterEntry][] {
   const entries: [string, FrontmatterEntry][] = []
-  for (const [key, entry] of map.entries()) {
-    if (isFrontmatterEntry(entry))
+  for (const [key, value] of map.entries()) {
+    const entry = frontmatterEntry(value)
+    if (entry)
       entries.push([key, entry])
   }
-  return entries.sort(([a, first], [b, second]) => first.order - second.order || (a < b ? -1 : a > b ? 1 : 0))
+  return entries.sort(([a, first], [b, second]) => precedes([first.order, a], [second.order, b]) ? -1 : precedes([second.order, b], [first.order, a]) ? 1 : 0)
 }
 
 /**
@@ -136,37 +161,41 @@ export function storedFrontmatter(value: unknown): unknown {
 export function frontmatterToY(frontmatter: Record<string, unknown>) {
   const map = new Y.Map<unknown>()
   for (const [order, [key, value]] of Object.entries(frontmatter).entries())
-    map.set(key, { value, order } satisfies FrontmatterEntry)
+    map.set(key, frontmatterEntryToY(value, order))
   return map
 }
 
 /**
  * The order number of each key of `keys`. Keys the map holds keep theirs
- * while they stay in the same order, and new keys fit between their
- * neighbors. When keys changed places, or no number fits, every key is
- * numbered again from 0.
+ * while they are read in that same order (two keys with one number count as
+ * in order when their names are), and new keys fit between their neighbors.
+ * When keys changed places, or no number fits, every key is numbered again
+ * from 0.
  */
 function frontmatterOrders(map: Y.Map<unknown>, keys: string[]): number[] {
   const stored = new Map(frontmatterEntries(map).map(([key, entry]) => [key, entry.order]))
   const orders: (number | undefined)[] = keys.map(key => stored.get(key))
   const renumbered = keys.map((_, index) => index)
-  let last = Number.NEGATIVE_INFINITY
-  for (const order of orders) {
+  let last: [number, string] | undefined
+  for (const [index, order] of orders.entries()) {
     if (order === undefined)
       continue
-    if (!(order > last))
+    const place: [number, string] = [order, keys[index]]
+    if (last && !precedes(last, place))
       return renumbered
-    last = order
+    last = place
   }
   for (let index = 0; index < keys.length; index++) {
     if (orders[index] !== undefined)
       continue
-    const before = index > 0 ? orders[index - 1] : undefined
-    const after = orders.slice(index + 1).find(order => order !== undefined)
+    const before: [number, string] | undefined = index > 0 ? [orders[index - 1]!, keys[index - 1]] : undefined
+    const next = orders.findIndex((order, at) => at > index && order !== undefined)
+    const after: [number, string] | undefined = next < 0 ? undefined : [orders[next]!, keys[next]]
     const order = before === undefined
-      ? (after === undefined ? 0 : after - 1)
-      : (after === undefined ? before + 1 : (before + after) / 2)
-    if ((before !== undefined && !(order > before)) || (after !== undefined && !(order < after)))
+      ? (after === undefined ? 0 : after[0] - 1)
+      : (after === undefined ? before[0] + 1 : (before[0] + after[0]) / 2)
+    const place: [number, string] = [order, keys[index]]
+    if ((before && !precedes(before, place)) || (after && !precedes(place, after)))
       return renumbered
     orders[index] = order
   }
@@ -175,9 +204,9 @@ function frontmatterOrders(map: Y.Map<unknown>, keys: string[]): number[] {
 
 /**
  * Makes a slide map hold `frontmatter`. A frontmatter map changes only the
- * keys whose value or place differs and deletes the keys that are gone; an
- * older plain value becomes a frontmatter map. Runs inside the caller's
- * transaction.
+ * fields that differ (a key's value, or its order when it moved) and deletes
+ * the keys that are gone; an older plain value becomes a frontmatter map.
+ * Runs inside the caller's transaction.
  */
 export function writeFrontmatter(slide: Y.Map<unknown>, frontmatter: Record<string, unknown>) {
   const map = slide.get('frontmatter')
@@ -194,9 +223,16 @@ export function writeFrontmatter(slide: Y.Map<unknown>, frontmatter: Record<stri
   const orders = frontmatterOrders(map, keys)
   for (const [index, key] of keys.entries()) {
     const entry = map.get(key)
+    const stored = frontmatterEntry(entry)
     const value = frontmatter[key]
-    if (!isFrontmatterEntry(entry) || entry.order !== orders[index] || !sameJson(entry.value, value))
-      map.set(key, { value, order: orders[index] } satisfies FrontmatterEntry)
+    if (!stored) {
+      map.set(key, frontmatterEntryToY(value, orders[index]))
+      continue
+    }
+    if (stored.order !== orders[index])
+      (entry as Y.Map<unknown>).set('order', orders[index])
+    if (!sameJson(stored.value, value))
+      (entry as Y.Map<unknown>).set('value', value)
   }
 }
 

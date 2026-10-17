@@ -17,10 +17,12 @@ import {
   slideMarkdowns,
   toMarkdown,
   updateElement,
+  upgradeDeckDoc,
   yDocToDeck,
 } from '../packages/deck-model/src'
 import demoMarkdown from '../apps/deck/slides.md?raw'
 import { sampleDeck } from './support/decks'
+import { legacyDoc } from './support/legacy-deck'
 
 const feature = await loadFeature('./deck-settings.feature')
 
@@ -33,42 +35,18 @@ function shapesDeck(): Deck {
 }
 
 /**
- * A live document the way decks were stored before settings were split:
- * frontmatter and props as one plain value each.
+ * The deck in two documents with set client ids. When both write the same
+ * field at once, Yjs keeps the write of the higher id, here Ana's: a value
+ * she wrote back unchanged would undo Budi's change every time.
  */
-function legacyDoc(deck: Deck): Y.Doc {
-  const doc = new Y.Doc()
-  doc.transact(() => {
-    const root = doc.getMap<unknown>('deck')
-    root.set('version', deck.version)
-    const slides = new Y.Array<Y.Map<unknown>>()
-    slides.push(deck.slides.map((slide) => {
-      const map = new Y.Map<unknown>()
-      map.set('id', slide.id)
-      map.set('frontmatter', slide.frontmatter)
-      map.set('notes', new Y.Text(slide.notes ?? ''))
-      const elements = new Y.Array<Y.Map<unknown>>()
-      elements.push(slide.elements.map((element) => {
-        const item = new Y.Map<unknown>()
-        for (const [key, value] of Object.entries(element)) {
-          if (key === 'pos') {
-            const pos = new Y.Map<unknown>()
-            for (const [field, number] of Object.entries(value as object))
-              pos.set(field, number)
-            item.set(key, pos)
-          }
-          else {
-            item.set(key, key === 'markdown' ? new Y.Text(value as string) : value)
-          }
-        }
-        return item
-      }))
-      map.set('elements', elements)
-      return map
-    }))
-    root.set('slides', slides)
-  })
-  return doc
+function openedInOrder(): [Y.Doc, Y.Doc] {
+  const first = new Y.Doc()
+  first.clientID = 2
+  deckToYDoc(shapesDeck(), first)
+  const second = new Y.Doc()
+  second.clientID = 1
+  Y.applyUpdate(second, Y.encodeStateAsUpdate(first))
+  return [first, second]
 }
 
 function sync(a: Y.Doc, b: Y.Doc) {
@@ -211,6 +189,69 @@ describeFeature(feature, ({ Background, Scenario }) => {
     })
   })
 
+  Scenario('Two people who added keys at once still keep their later changes to different keys', ({ When, And, Then }) => {
+    When('Ana adds the key "class" and Budi adds the key "clicks" to slide "details" at the same time', () => {
+      [ana, budi] = openedInOrder()
+      setKeys(ana, 'details', { class: 'text-left' })
+      setKeys(budi, 'details', { clicks: 2 })
+    })
+    And('their documents sync', () => sync(ana, budi))
+    And('Ana changes the layout of slide "details" while Budi changes its clicks to 5', () => {
+      setKeys(ana, 'details', { layout: 'center' })
+      setKeys(budi, 'details', { clicks: 5 })
+    })
+    And('their documents sync once more', () => sync(ana, budi))
+    Then('slide "details" has Ana\'s layout and Budi\'s clicks for both of them', () => {
+      for (const doc of [ana, budi]) {
+        expect(slideOf(doc, 'details').frontmatter).toEqual({ layout: 'center', class: 'text-left', clicks: 5 })
+        expect(markdownKeys(doc, 'details')).toEqual(['layout', 'class', 'clicks'])
+      }
+    })
+  })
+
+  Scenario('Moving frontmatter keys at the same time as a change to one of them keeps both', ({ When, And, Then }) => {
+    let base: Uint8Array
+    let markdown: string
+    When('Ana changes the layout of slide "intro" in the canvas', () => {
+      [ana, budi] = openedInOrder()
+      base = Y.encodeStateAsUpdate(ana)
+      markdown = deckMarkdown(ana)
+      setKeys(ana, 'intro', { layout: 'center' })
+    })
+    And('Claude writes Markdown, read before Ana\'s change, that lists the layout first and adds a transition', () => {
+      const before = '---\ntheme: default\ntitle: Intro to Graphs\nlayout: cover\n---\n'
+      expect(markdown.startsWith(before)).toBe(true)
+      mergeMarkdown(budi, base, `---\nlayout: cover\ntheme: default\ntitle: Intro to Graphs\ntransition: fade\n---\n${markdown.slice(before.length)}`, 'claude')
+    })
+    And('their documents sync', () => sync(ana, budi))
+    Then('slide "intro" has Ana\'s layout and Claude\'s transition, with the layout first, for both of them', () => {
+      for (const doc of [ana, budi]) {
+        expect(slideOf(doc, 'intro').frontmatter).toEqual({ layout: 'center', theme: 'default', title: 'Intro to Graphs', transition: 'fade' })
+        expect(markdownKeys(doc, 'intro')).toEqual(['layout', 'theme', 'title', 'transition'])
+      }
+      expect(deckMarkdown(budi)).toBe(deckMarkdown(ana))
+    })
+  })
+
+  Scenario('Moving frontmatter keys writes only their places', ({ When, Then }) => {
+    const changes: string[] = []
+    When('the frontmatter of "intro" is written with layout first', () => {
+      const map = findSlide(ana, 'intro')!.get('frontmatter') as Y.Map<unknown>
+      map.observeDeep((events) => {
+        for (const event of events) {
+          const where = event.target === map ? 'keys' : 'fields'
+          for (const [key, change] of event.changes.keys)
+            changes.push(`${where} ${key} ${change.action}`)
+        }
+      })
+      setFrontmatter(ana, 'intro', { layout: 'cover', theme: 'default', title: 'Intro to Graphs' })
+      expect(markdownKeys(ana, 'intro')).toEqual(['layout', 'theme', 'title'])
+    })
+    Then('the change wrote only the order of the keys, and no value', () => {
+      expect(changes.sort()).toEqual(['fields order update', 'fields order update', 'fields order update'])
+    })
+  })
+
   Scenario('An older deck keeps working', ({ Given, Then, When, And }) => {
     let before: Deck
     Given('a deck stored before settings were split', () => {
@@ -275,6 +316,38 @@ describeFeature(feature, ({ Background, Scenario }) => {
     })
   })
 
+  Scenario('An older deck converted all at once merges from the first change', ({ Given, When, Then, And }) => {
+    Given('a deck stored before settings were split', () => {
+      ana = legacyDoc(shapesDeck())
+    })
+    When('the server converts it', () => {
+      expect(upgradeDeckDoc(ana)).toBe(true)
+      budi = copyOf(ana)
+    })
+    Then('every frontmatter and every block\'s settings are stored key by key, and the deck reads and writes as before', () => {
+      for (const slide of ['intro', 'details'])
+        expect(findSlide(ana, slide)!.get('frontmatter')).toBeInstanceOf(Y.Map)
+      for (const [slide, element] of [['intro', 'db-scene'], ['details', 'box'], ['details', 'sandbox']])
+        expect(findElement(ana, slide, element)!.get('props')).toBeInstanceOf(Y.Map)
+      expect(readDeckDoc(ana)).toEqual(shapesDeck())
+      expect(checkDeckDoc(ana)).toEqual({ ok: true, deck: shapesDeck() })
+      expect(deckMarkdown(ana)).toBe(toMarkdown(shapesDeck(), { ids: false }))
+    })
+    And('converting it again changes nothing', () => {
+      expect(upgradeDeckDoc(ana)).toBe(false)
+      expect(upgradeDeckDoc(deckToYDoc(shapesDeck()))).toBe(false)
+    })
+    When('Ana changes the shape\'s fill while Budi changes its stroke', () => {
+      setProps(ana, 'details', 'box', { fill: '#22d3ee' })
+      setProps(budi, 'details', 'box', { stroke: '#0f172a' })
+    })
+    And('their documents sync', () => sync(ana, budi))
+    Then('the rectangle has Ana\'s fill and Budi\'s stroke for both of them', () => {
+      for (const doc of [ana, budi])
+        expect(props(doc, 'details', 'box')).toEqual({ shape: 'rect', fill: '#22d3ee', stroke: '#0f172a' })
+    })
+  })
+
   Scenario('The demo deck writes the same Markdown in both shapes', ({ Given, Then, And }) => {
     let decks: Deck[]
     Given('the demo deck and the sample deck', () => {
@@ -293,10 +366,13 @@ describeFeature(feature, ({ Background, Scenario }) => {
   })
 
   Scenario('Frontmatter entries stored the wrong way are found and repaired', ({ When, And, Then }) => {
-    When('Budi stores the key "class" of slide "details" without its order and the key "count" as a BigInt', () => {
+    When('Budi stores the key "class" of slide "details" as a plain value and the key "count" as a BigInt', () => {
       const frontmatter = findSlide(budi, 'details')!.get('frontmatter') as Y.Map<unknown>
-      frontmatter.set('class', 'text-left')
-      frontmatter.set('count', { value: 3n, order: 5 })
+      frontmatter.set('class', { value: 'text-left', order: 4 })
+      const count = new Y.Map<unknown>()
+      count.set('value', 3n)
+      count.set('order', 5)
+      frontmatter.set('count', count)
     })
     And('their documents sync', () => sync(ana, budi))
     Then('reading Ana\'s document shows slide "details" with layout "default" only', () => {

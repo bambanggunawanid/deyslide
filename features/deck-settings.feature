@@ -40,6 +40,23 @@ Feature: Settings that merge key by key
     And their documents sync
     Then slide "details" has the keys layout, class and clicks for both of them, in the same order
 
+  Scenario: Two people who added keys at once still keep their later changes to different keys
+    When Ana adds the key "class" and Budi adds the key "clicks" to slide "details" at the same time
+    And their documents sync
+    And Ana changes the layout of slide "details" while Budi changes its clicks to 5
+    And their documents sync once more
+    Then slide "details" has Ana's layout and Budi's clicks for both of them
+
+  Scenario: Moving frontmatter keys at the same time as a change to one of them keeps both
+    When Ana changes the layout of slide "intro" in the canvas
+    And Claude writes Markdown, read before Ana's change, that lists the layout first and adds a transition
+    And their documents sync
+    Then slide "intro" has Ana's layout and Claude's transition, with the layout first, for both of them
+
+  Scenario: Moving frontmatter keys writes only their places
+    When the frontmatter of "intro" is written with layout first
+    Then the change wrote only the order of the keys, and no value
+
   Scenario: An older deck keeps working
     Given a deck stored before settings were split
     Then it reads as before and writes the same Markdown
@@ -59,13 +76,22 @@ Feature: Settings that merge key by key
     And their documents sync once more
     Then the rectangle has Ana's fill and Budi's stroke for both of them
 
+  Scenario: An older deck converted all at once merges from the first change
+    Given a deck stored before settings were split
+    When the server converts it
+    Then every frontmatter and every block's settings are stored key by key, and the deck reads and writes as before
+    And converting it again changes nothing
+    When Ana changes the shape's fill while Budi changes its stroke
+    And their documents sync
+    Then the rectangle has Ana's fill and Budi's stroke for both of them
+
   Scenario: The demo deck writes the same Markdown in both shapes
     Given the demo deck and the sample deck
     Then a live document of each writes the same Markdown as the deck itself
     And so does a document of each stored before settings were split
 
   Scenario: Frontmatter entries stored the wrong way are found and repaired
-    When Budi stores the key "class" of slide "details" without its order and the key "count" as a BigInt
+    When Budi stores the key "class" of slide "details" as a plain value and the key "count" as a BigInt
     And their documents sync
     Then reading Ana's document shows slide "details" with layout "default" only
     And the check fails because the frontmatter of slide 2 is not stored the right way

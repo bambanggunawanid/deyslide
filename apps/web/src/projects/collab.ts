@@ -3,6 +3,7 @@ import type { Ref } from 'vue'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import type { SessionStatus } from '../deck/session'
+import { SHAPE_REFUSED, withLiveShape } from '@deyslide/deck-model/shape'
 import { ref } from 'vue'
 
 /** A deck's live connection to the server, as the deck session sees it. */
@@ -27,6 +28,8 @@ export interface DeckConnection {
 /** Why a connection stopped for good, as the page says it. */
 export const NO_ACCESS = 'You no longer have access to this deck.'
 export const TOO_BIG = 'This deck is too big to save. Remove some content.'
+/** The server holds the deck in a shape this code does not read and write: the page or the app is out of date. */
+export const UPDATE_REQUIRED = 'Deyslide was updated. Reload the page, or update the app, to keep editing this deck.'
 /** The server turned down a change because the person may only view the deck now. */
 export const VIEW_ONLY_NOW = 'You can only view this deck now. Reload the page to see it as it is.'
 
@@ -114,7 +117,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
       viewer = scope === 'readonly'
       update()
     })
-    room.on('authenticationFailed', () => fail(NO_ACCESS))
+    room.on('authenticationFailed', ({ reason }: { reason?: string }) => fail(reason === SHAPE_REFUSED ? UPDATE_REQUIRED : NO_ACCESS))
     room.on('synced', ({ state }: { state: boolean }) => {
       if (!state || failed)
         return
@@ -175,7 +178,8 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
       if (destroyed)
         return
       provider = new HocuspocusProvider({
-        url,
+        // The server turns away code that reads the deck in another shape.
+        url: withLiveShape(url),
         name: `deck:${deckId}`,
         document: doc,
         awareness,

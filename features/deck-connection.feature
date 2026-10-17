@@ -35,6 +35,11 @@ Feature: Live connection of an account deck
     When Ana removes Budi from the project
     Then Budi's connection says "You no longer have access to this deck." and is read only
 
+  Scenario: A page older than the deck's shape on the server is told to update
+    Given the server holds decks in a newer shape than Ana's page reads
+    When Ana's page connects to the deck
+    Then the connection says "Deyslide was updated. Reload the page, or update the app, to keep editing this deck." and is read only
+
   Scenario: Someone whose role changes joins again with the new role
     Given Ana shared the project with Budi as an editor
     And Budi's page is connected to the deck

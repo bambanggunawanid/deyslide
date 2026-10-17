@@ -10,9 +10,10 @@ import { DECK_KEY, elementValues, isFrontmatterEntry, readFrontmatter, slidesOf,
  *     version: number
  *     slides: Y.Array<Y.Map>
  *       id, notes: Y.Text
- *       frontmatter: Y.Map                  one entry per key, { value, order },
- *                                           so two people changing different
- *                                           keys both win
+ *       frontmatter: Y.Map                  one entry per key, so two people
+ *                                           changing different keys both win
+ *         <key>: Y.Map (value, order)       two fields, so moving a key
+ *                                           never writes its value
  *       elements: Y.Array<Y.Map>
  *         id, type
  *         pos: Y.Map (x, y, w, h, rotate)   one key per field, so two people
@@ -24,8 +25,10 @@ import { DECK_KEY, elementValues, isFrontmatterEntry, readFrontmatter, slidesOf,
  *         every other field as plain JSON
  *
  * Decks stored before frontmatter and props were split hold each of them as
- * one plain JSON value. Readers accept both, and the first change to one of
- * them writes the map (see `y-shape.ts`).
+ * one plain JSON value. Readers accept both. The server converts a cloud
+ * deck when its room loads (`upgradeDeckDoc`); anywhere else, the first
+ * change to one of them writes the map (see `y-shape.ts`). The shape number
+ * is `LIVE_SHAPE`.
  */
 export { DECK_KEY, DeckNotLoadedError } from './y-shape.ts'
 

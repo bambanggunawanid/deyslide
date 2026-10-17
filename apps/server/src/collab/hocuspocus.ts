@@ -3,7 +3,7 @@ import type { Auth } from '../auth.ts'
 import type { Role } from '../db.ts'
 import type { ProjectStore } from '../projects.ts'
 import { Buffer } from 'node:buffer'
-import { applyDeck, checkDeckDoc, DECK_KEY, readDeckDoc, repairDeckDoc } from '@deyslide/deck-model'
+import { applyDeck, checkDeckDoc, DECK_KEY, LIVE_SHAPE, readDeckDoc, repairDeckDoc, SHAPE_PARAM, SHAPE_REFUSED, upgradeDeckDoc } from '@deyslide/deck-model'
 import { Hocuspocus, shouldSkipStoreHooks } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { verifyAccessToken } from '../access-token.ts'
@@ -39,6 +39,15 @@ export interface CollabContext {
  */
 class NoAccess extends Error {
   readonly reason = 'permission-denied'
+}
+
+/**
+ * Refuses a client whose code reads and writes another shape of the live
+ * document (see `LIVE_SHAPE`): an older tab or app would read some of the
+ * deck as empty and write that back for everyone.
+ */
+class ShapeRefused extends Error {
+  readonly reason = SHAPE_REFUSED
 }
 
 /** A room was opened for a deck that no longer exists. */
@@ -307,7 +316,9 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
     maxDebounce: 10_000,
     quiet: true,
 
-    async onAuthenticate({ token, requestHeaders, documentName, connectionConfig }) {
+    async onAuthenticate({ token, requestHeaders, requestParameters, documentName, connectionConfig }) {
+      if (requestParameters.get(SHAPE_PARAM) !== String(LIVE_SHAPE))
+        throw new ShapeRefused()
       const person = await personOf(token, requestHeaders)
       const deckId = deckIdOf(documentName)
       const access = person && deckId ? await projects.deckAccess(person.id, deckId) : undefined
@@ -350,6 +361,9 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
         if (!shouldSkipStoreHooks(origin))
           unsaved.add(document)
       })
+      // A deck stored before settings were split gets them key by key now,
+      // before anyone edits it, and the change is saved like any other.
+      upgradeDeckDoc(document, { source: 'local' })
     },
 
     async onChange({ documentName, instance }) {

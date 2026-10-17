@@ -17,8 +17,9 @@ import { roomName } from '../apps/server/src/collab/rooms'
 import { storeAllRooms } from '../apps/server/src/collab/shutdown'
 import { BASE_LIMITS, RecentBases } from '../apps/server/src/mcp/decks'
 import { LIVE_EDITING } from '../apps/server/src/routes'
-import { applyMarkdown, deckToYDoc, deleteSlide, fromMarkdown, insertSlide, joinSlides, newId, readDeckDoc, slideMarkdowns, yDocToDeck } from '../packages/deck-model/src'
+import { applyMarkdown, deckToYDoc, deleteSlide, findElement, findSlide, fromMarkdown, insertSlide, joinSlides, newId, readDeckDoc, slideMarkdowns, updateElement, withLiveShape, yDocToDeck } from '../packages/deck-model/src'
 import { blankDeckState } from './support/deck-content'
+import { legacyDoc } from './support/legacy-deck'
 import { approveConsent, connectMcp, FakeClaudeCodeAuth, followInBrowser } from './support/mcp-client'
 import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, signedInBrowser, TEST_ORIGIN, warmUpDatabase } from './support/server'
 
@@ -65,6 +66,11 @@ interface PageOptions {
   clientID?: number
   /** False for a client that never answers the server's pings. */
   autoPong?: boolean
+  /**
+   * The live editing address the page uses. By default it carries the
+   * shape of the deck this code reads, as the web app sends it.
+   */
+  url?: string
 }
 
 /** The slides of a deck document, as Markdown. */
@@ -142,7 +148,7 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
   })
 
   /** Opens the deck live in a new page. */
-  function openLive(id: string, signIn: SignIn, { clientID, autoPong = true }: PageOptions = {}): LivePage {
+  function openLive(id: string, signIn: SignIn, { clientID, autoPong = true, url = withLiveShape(listening.collabUrl) }: PageOptions = {}): LivePage {
     const headers: Record<string, string> = 'browser' in signIn ? { cookie: signIn.browser.cookieHeader(), origin: signIn.origin ?? TEST_ORIGIN } : {}
     /** A WebSocket that sends what a browser would on the upgrade request. */
     class PageSocket extends WebSocket {
@@ -153,7 +159,7 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     const doc = new Y.Doc()
     if (clientID !== undefined)
       doc.clientID = clientID
-    const socket = new HocuspocusProviderWebsocket({ url: listening.collabUrl, WebSocketPolyfill: PageSocket })
+    const socket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: PageSocket })
     const page = { socket, doc, closes: [], refusals: [], scopes: [], closed: false } as unknown as LivePage
     page.provider = new HocuspocusProvider({
       websocketProvider: socket,
@@ -533,6 +539,65 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('Dewi is refused', () => refused(dewi))
     And('Ana opening the deck from a page on another site is refused the same way', () => refused(openLive(deckId, { browser: anaBrowser, origin: 'https://elsewhere.example' })))
     And('Ana opening a deck that does not exist is refused the same way', () => refused(openLive('no-such-deck', { browser: anaBrowser })))
+  })
+
+  Scenario('A page with code from before settings were split is turned away', ({ When, Then }) => {
+    let page: LivePage
+    let older: LivePage
+    When('Ana opens the deck live from a page that does not say which shape of the deck it reads', () => {
+      page = openLive(deckId, { browser: anaBrowser }, { url: listening.collabUrl })
+    })
+    Then('Ana\'s page is refused because it is out of date, and gets no deck', async () => {
+      await vi.waitFor(() => expect(page.refusals).toEqual(['update-required']), SOON)
+      expect(page.provider.isSynced).toBe(false)
+      expect(page.doc.getMap('deck').size).toBe(0)
+    })
+    When('Ana opens the deck live from a page that says an older shape', () => {
+      older = openLive(deckId, { browser: anaBrowser }, { url: `${listening.collabUrl}?shape=1` })
+    })
+    Then('that page is refused the same way', async () => {
+      await vi.waitFor(() => expect(older.refusals).toEqual(['update-required']), SOON)
+      expect(older.provider.isSynced).toBe(false)
+    })
+  })
+
+  Scenario('A deck stored before settings were split is converted when its room loads', ({ Given, And, When, Then }) => {
+    let slideId: string
+    /** The rectangle's settings in a document. */
+    const box = (doc: Y.Doc) => findElement(doc, slideId, 'box')!.get('props')
+    Given('Ana shared the project with Budi as an editor', () => shareWithBudi('editor'))
+    And('the deck is stored the way decks were before settings were split, with a rectangle on slide 2', async () => {
+      const deck = readDeckDoc(deckToYDoc(fromMarkdown(SORTING)))
+      slideId = deck.slides[1].id
+      deck.slides[1].elements.push({ id: 'box', type: 'shape', pos: { x: 100, y: 100, w: 200, h: 120, rotate: 0 }, props: { shape: 'rect', fill: '#ffffff' } })
+      await server.projects.storeState(deckId, Y.encodeStateAsUpdate(legacyDoc(deck)), deck.slides.length)
+    })
+    And('Ana and Budi have the deck open live', anaAndBudiOpen)
+    Then('both see the rectangle\'s settings and the slides\' frontmatter stored key by key', () => {
+      for (const page of [ana, budi]) {
+        expect(box(page.doc)).toBeInstanceOf(Y.Map)
+        expect((box(page.doc) as Y.Map<unknown>).toJSON()).toEqual({ shape: 'rect', fill: '#ffffff' })
+        for (const slide of readDeckDoc(page.doc).slides)
+          expect(findSlide(page.doc, slide.id)!.get('frontmatter')).toBeInstanceOf(Y.Map)
+        expect(readDeckDoc(page.doc).slides[0].frontmatter).toEqual({ title: 'Sorting' })
+      }
+    })
+    When('Ana changes the rectangle\'s fill while Budi changes its stroke', () => {
+      // Both change it before either hears of the other's change.
+      updateElement(ana.doc, slideId, 'box', { props: { shape: 'rect', fill: '#22d3ee' } })
+      updateElement(budi.doc, slideId, 'box', { props: { shape: 'rect', fill: '#ffffff', stroke: '#0f172a' } })
+    })
+    Then('Ana and Budi both soon see Ana\'s fill and Budi\'s stroke', async () => {
+      for (const page of [ana, budi])
+        await vi.waitFor(() => expect((box(page.doc) as Y.Map<unknown>).toJSON()).toEqual({ shape: 'rect', fill: '#22d3ee', stroke: '#0f172a' }), SOON)
+    })
+    When('Ana and Budi close the deck', () => closeDeck(ana, budi))
+    Then('the saved deck has the rectangle\'s settings stored key by key, with Ana\'s fill and Budi\'s stroke', async () => {
+      const saved = new Y.Doc()
+      Y.applyUpdate(saved, (await server.projects.storedState(deckId))!)
+      expect(box(saved)).toBeInstanceOf(Y.Map)
+      expect((box(saved) as Y.Map<unknown>).toJSON()).toEqual({ shape: 'rect', fill: '#22d3ee', stroke: '#0f172a' })
+    })
   })
 
   Scenario('The apps join with a token for the API', ({ Given, When, Then, But }) => {
