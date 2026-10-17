@@ -40,3 +40,7 @@ Feature: Web app pages
   Scenario: A link to a project from another browser
     When they open "/p/unknown-project"
     Then the page says the project is not in this browser
+
+  Scenario: The pages name the Deyslide icon
+    Then the page's head names an SVG icon with the Deyslide mark
+    And browsers that find it there do not ask for "/favicon.ico"
