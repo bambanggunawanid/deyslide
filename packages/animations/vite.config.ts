@@ -7,6 +7,9 @@ import { defineConfig } from 'vite'
 const motionCanvas = ((motionCanvasPlugin as unknown as { default?: typeof motionCanvasPlugin }).default ?? motionCanvasPlugin)
 
 const root = fileURLToPath(new URL('.', import.meta.url))
+// The plugin reads project paths as POSIX paths and globs, so Windows
+// backslashes would leave the build with no entry.
+const projectRoot = root.replaceAll('\\', '/')
 
 /**
  * `@motion-canvas/vite-plugin` 3.x was written for Vite 4. Its project plugin
@@ -50,7 +53,7 @@ function adaptForVite8(plugins: Plugin[]): Plugin[] {
 export default defineConfig({
   root,
   plugins: adaptForVite8(motionCanvas({
-    project: [`${root}src/bubble-sort.ts`],
+    project: [`${projectRoot}src/bubble-sort.ts`],
   })),
   build: {
     outDir: fileURLToPath(new URL('../../apps/deck/public/animations', import.meta.url)),
