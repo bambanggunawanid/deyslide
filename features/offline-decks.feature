@@ -59,6 +59,15 @@ Feature: Account decks offline
     When the browser says the connection is back and the server answers
     Then the page is signed out and lists no account projects
     And the device still keeps Ana's decks for the next sign in
+    When Ana opens Deyslide while offline again
+    Then the page shows no account and lists no account projects
+
+  Scenario: A deck never opened on this device says it needs a connection
+    Given Ana used Deyslide online and opened the deck "Graphs" of the project "Talks"
+    And the project "Talks" also has the deck "Charts", never opened on this device
+    When Ana opens Deyslide while offline
+    And Ana opens the deck "Charts" from the project page
+    Then the deck page says "This deck has no copy on this device yet, so it opens once you are back online."
 
   Scenario: The deck page opens a kept deck offline
     Given Ana used Deyslide online and opened the deck "Graphs" of the project "Talks"
@@ -76,6 +85,62 @@ Feature: Account decks offline
     Then the session says "Not saved: You no longer have access to this deck. Its copy on this device was deleted." and is read only
     And this device keeps no copy of "Graphs"
     And the project no longer lists "Graphs"
+
+  Scenario: Access removed while the deck is open deletes its copy
+    Given Budi shared the deck "Graphs" with Ana as an editor, and Ana opened it once while online
+    And Ana has "Graphs" open online
+    When Budi removes Ana from the deck
+    Then the session says "Not saved: You no longer have access to this deck. Its copy on this device was deleted." and is read only
+    And this device keeps no copy of "Graphs"
+
+  Scenario: A sign in that ended keeps the copy and the changes made offline
+    Given Ana opened the deck "Graphs" once while online
+    And Ana changed slide 2 to "## Offline idea" while offline
+    And Ana's sign in ended on the server meanwhile
+    When Ana is online again
+    Then the session says "Not saved: Your sign in ended. Sign in again to save your changes. They stay on this device until then." and is read only
+    And this device still keeps "Graphs" with the change waiting for the server
+    When Ana signs in again and opens Deyslide
+    Then the account's deck has "## Offline idea" on slide 2
+
+  Scenario: A server that cannot check access just then keeps the copy and syncs later
+    Given Ana opened the deck "Graphs" once while online
+    And Ana changed slide 2 to "## Offline idea" while offline
+    And the server cannot check Ana's access the next two times she joins
+    When Ana is online again
+    Then the account's deck has "## Offline idea" on slide 2
+    And the header says "Saved"
+    And this device still keeps "Graphs"
+
+  Scenario: Changes the server turns down are kept until Ana sees why
+    Given Budi shared the deck "Graphs" with Ana as an editor, and Ana opened it once while online
+    And Ana changed slide 2 to "## On the plane" while offline, then closed Deyslide
+    And Budi made Ana a viewer of "Graphs" meanwhile
+    When Ana opens Deyslide again while online, without opening the deck
+    Then the account's deck still has "## Nodes" on slide 2
+    And this device still keeps "Graphs", no longer waiting to send it
+    When Ana opens "Graphs" from this device
+    Then the session says "Not saved: You can only view this deck now. Reload the page to see it as it is. Its copy on this device was deleted. Download the Markdown to keep your changes."
+    And the open deck still has "## On the plane" on slide 2
+    And this device keeps no copy of "Graphs"
+
+  Scenario: A viewer's kept deck opens offline read only
+    Given Budi shared the deck "Graphs" with Ana as a viewer, and Ana opened it once while online
+    And Ana is offline
+    When Ana opens "Graphs" from this device
+    Then the session holds the deck, is read only and says "Offline. Changes sync when you are back online."
+
+  Scenario Outline: Closing Deyslide warns about changes not sent yet, unless the copy outlasts the page
+    Given this device keeps deck copies in <storage>
+    And Ana opened the deck "Graphs" while online, changed slide 2 while offline and left the deck
+    When Deyslide closes
+    Then it warns about <warned>
+
+    Examples:
+      | storage                           | warned   |
+      | IndexedDB                         | no deck  |
+      | memory only                       | "Graphs" |
+      | an IndexedDB that refuses to open | "Graphs" |
 
   Scenario: Signing out clears the device
     Given Ana used Deyslide online and opened the deck "Graphs" of the project "Talks"

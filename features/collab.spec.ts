@@ -235,10 +235,15 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     await vi.waitFor(() => expect(slidesOf(page.doc)[number - 1]).toContain(text), SOON)
   }
 
+  /** Each page's connection closes, and joining again is refused: for good, or as signed out once the sign in ended. */
   async function closesBecauseAccessChanged(...live: LivePage[]) {
+    await closesAndIsRefused('permission-denied', ...live)
+  }
+
+  async function closesAndIsRefused(reason: string, ...live: LivePage[]) {
     for (const page of live) {
       await vi.waitFor(() => expect(page.closes).toEqual([ACCESS_CHANGED]), SOON)
-      await vi.waitFor(() => expect(page.refusals).toEqual(['permission-denied']), SOON)
+      await vi.waitFor(() => expect(page.refusals).toEqual([reason]), SOON)
     }
   }
 
@@ -618,7 +623,8 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       await connectClaude()
       const mcpToken = claudeAuth.tokens()!.access_token
       const page = openLive(deckId, { token: mcpToken })
-      await vi.waitFor(() => expect(page.refusals).toEqual(['permission-denied']), SOON)
+      // It signs nobody in for live editing.
+      await vi.waitFor(() => expect(page.refusals).toEqual(['signed-out']), SOON)
     })
   })
 
@@ -1129,7 +1135,7 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       expect((await anaBrowser.request('/api/auth/sign-out', { json: {} })).status).toBe(200)
       expect(await anaBrowser.signedInEmail()).toBeUndefined()
     })
-    Then('Ana\'s connection closes because access changed, and joining again is refused', () => closesBecauseAccessChanged(ana))
+    Then('Ana\'s connection closes because access changed, and joining again is refused', () => closesAndIsRefused('signed-out', ana))
   })
 
   Scenario('Pages that only listen stay connected, and a client that stops answering is let go', ({ Given, And, When, Then, But }) => {

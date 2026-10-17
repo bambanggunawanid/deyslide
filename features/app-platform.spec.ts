@@ -12,6 +12,8 @@ import { LATEST_RELEASE_API, RELEASES_PAGE } from '../apps/web/src/platform/rele
 import { HttpProjectApi } from '../apps/web/src/projects/api'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { LocalStore } from '../apps/web/src/projects/local-store'
+import { OfflineCache } from '../apps/web/src/projects/offline-cache'
+import { MemoryOfflineStorage } from '../apps/web/src/projects/offline-storage'
 import { deckIdOf, FakeDeviceLibrary, projectIdOf } from './support/device-library'
 import { FakeProjectApi } from './support/project-api'
 import { find, findAll, mountWebApp, pageText, text } from './support/web'
@@ -220,9 +222,9 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
   }
 
   /** Opens a page the way main.ts would, with the app's account service in the app. */
-  async function open(path: string, { wait, api }: { wait?: number, api?: FakeProjectApi } = {}) {
+  async function open(path: string, { wait, api, offline }: { wait?: number, api?: FakeProjectApi, offline?: OfflineCache } = {}) {
     // Deck pages open in the Markdown view, where these scenarios type; the app's decks on the device come from `local`.
-    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, local, view: 'markdown' })
+    web = await mountWebApp({ path, service: isApp() ? new AppAccountService({ wait }) : undefined, api, local, view: 'markdown', offline })
     if (isApp())
       stopFollowing = await followAppAccount(web.account, web.router)
   }
@@ -738,6 +740,39 @@ describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, After
     })
     And('the header has a "Sign in" link', async () => {
       await vi.waitFor(() => expect(text('[data-testid="sign-in-link"]')).toBe('Sign in'))
+    })
+  })
+
+  Scenario('Signing out in the app deletes the account\'s decks kept on the device', ({ Given, When, Then, And }) => {
+    // The webview's IndexedDB, as memory that outlasts the page.
+    const storage = new MemoryOfflineStorage({ durable: true })
+    const offline = new OfflineCache(storage)
+    Given('the app on a computer, signed in as "Ana", with the deck "Intro" kept on the device', async () => {
+      const api = new FakeProjectApi()
+      await inApp('linux')
+      await signedIn(ANA)
+      const cloud = await CloudStore.open(api)
+      const project = await cloud.createProject('Talks')
+      const deck = await cloud.createDeck(project.id, 'Intro', 'blank')
+      await open(`/p/${project.id}/d/${deck.id}`, { api, offline })
+      await vi.waitFor(async () => expect(await offline.decks(ANA.id)).toEqual([deck.id]))
+      expect(await offline.lists(ANA.id)).toBeDefined()
+      expect(await offline.lastAccount()).toEqual(ANA)
+    })
+    When('they sign out from the account menu', async () => {
+      const trigger = await web!.waitFor('[data-testid="account-menu"]')
+      trigger.focus()
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await web!.settle()
+      await web!.click('[data-testid="sign-out"]')
+    })
+    Then('the header has a "Sign in" link', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="sign-in-link"]')).toBe('Sign in'))
+      expect(fake.invoke.mock.calls.map(([command]) => command)).toContain('auth_sign_out')
+    })
+    And('nothing of Ana\'s account is left on the device', async () => {
+      await vi.waitFor(() => expect(storage.keepsAnythingFor(ANA.id)).toBe(false))
+      expect(await offline.lastAccount()).toBeUndefined()
     })
   })
 

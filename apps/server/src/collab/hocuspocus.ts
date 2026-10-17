@@ -33,12 +33,26 @@ export interface CollabContext {
 }
 
 /**
- * Refuses a connection. It reads the same whether the deck is missing, not
- * shared with the person or their sign in failed, and Hocuspocus logs no
- * message for it.
+ * Why a connection was refused, as the page reads it. Pages keep their
+ * copy of a deck unless the refusal is final (`permission-denied`).
  */
-class NoAccess extends Error {
-  readonly reason = 'permission-denied'
+export const REFUSALS = {
+  /** Final: the deck is missing or not shared with the person. It reads the same either way. */
+  noAccess: 'permission-denied',
+  /** The sign in the page joined with is not valid (anymore): it ended, expired or was never there. */
+  signedOut: 'signed-out',
+  /** Access could not be checked just now (the database, say). The page joins again later. */
+  tryAgain: 'try-again',
+} as const
+
+/** Refuses a connection with one of {@link REFUSALS}. Hocuspocus logs no message for it. */
+class Refused extends Error {
+  readonly reason: typeof REFUSALS[keyof typeof REFUSALS]
+
+  constructor(reason: typeof REFUSALS[keyof typeof REFUSALS]) {
+    super(reason)
+    this.reason = reason
+  }
 }
 
 /**
@@ -319,11 +333,25 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
     async onAuthenticate({ token, requestHeaders, requestParameters, documentName, connectionConfig }) {
       if (requestParameters.get(SHAPE_PARAM) !== String(LIVE_SHAPE))
         throw new ShapeRefused()
-      const person = await personOf(token, requestHeaders)
+      // A page on another site never gets in, and learns nothing about the sign in.
+      if (token === COOKIE_TOKEN && requestHeaders.get('origin') !== publicUrl)
+        throw new Refused(REFUSALS.noAccess)
+      let person: Awaited<ReturnType<typeof personOf>>
+      let access: Awaited<ReturnType<typeof projects.deckAccess>> | undefined
       const deckId = deckIdOf(documentName)
-      const access = person && deckId ? await projects.deckAccess(person.id, deckId) : undefined
-      if (!person || !access)
-        throw new NoAccess()
+      try {
+        person = await personOf(token, requestHeaders)
+        access = person && deckId ? await projects.deckAccess(person.id, deckId) : undefined
+      }
+      catch (error) {
+        // Not a refusal: the page keeps what it has and joins again later.
+        console.error(`Could not check access to the live deck ${documentName}`, error)
+        throw new Refused(REFUSALS.tryAgain)
+      }
+      if (!person)
+        throw new Refused(REFUSALS.signedOut)
+      if (!access)
+        throw new Refused(REFUSALS.noAccess)
       // Viewers follow along: the room ignores their changes but shows their presence.
       if (!atLeast(access.role, 'editor'))
         connectionConfig.readOnly = true

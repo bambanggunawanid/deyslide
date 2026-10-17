@@ -20,13 +20,24 @@ export interface DeckConnection {
    * can never be saved (a failure, a viewer) counts.
    */
   unsaved: Ref<boolean>
+  /**
+   * Why the connection stopped for good, once it failed: the server refused
+   * the deck for good (`refused`: access removed, the deck deleted), turned
+   * down changes made here (`turned-down`: view only now, too big), or the
+   * sign in ended (`signed-out`).
+   */
+  failure: Ref<DeckFailure | undefined>
   /** Waits until the server has every change so far, or the connection is down. */
   flush: () => Promise<void>
   destroy: () => void
 }
 
+/** What kind of failure stopped a connection. See `DeckConnection.failure`. */
+export type DeckFailure = 'refused' | 'turned-down' | 'signed-out' | 'outdated'
+
 /** Why a connection stopped for good, as the page says it. */
 export const NO_ACCESS = 'You no longer have access to this deck.'
+export const SIGNED_OUT = 'Your sign in ended. Sign in again to save your changes.'
 export const TOO_BIG = 'This deck is too big to save. Remove some content.'
 /** The server holds the deck in a shape this code does not read and write: the page or the app is out of date. */
 export const UPDATE_REQUIRED = 'Deyslide was updated. Reload the page, or update the app, to keep editing this deck.'
@@ -35,6 +46,15 @@ export const VIEW_ONLY_NOW = 'You can only view this deck now. Reload the page t
 
 /** Close codes the server sends. Access changed: the client joins again and is checked again. */
 const ACCESS_CHANGED_CODE = 4001
+/**
+ * Why the server refused to let the page in (see REFUSALS on the server).
+ * Anything else, `permission-denied` included, is a refusal for good.
+ */
+const SIGNED_OUT_REASON = 'signed-out'
+const TRY_AGAIN_REASON = 'try-again'
+/** How long to wait before joining again after the server could not check access, at first and at most. */
+const AUTH_RETRY_MS = 2000
+const AUTH_RETRY_MAX_MS = 30_000
 /** The deck grew too big to save. */
 const TOO_BIG_CODE = 4002
 /** How long `flush` waits for the server before giving up for now. */
@@ -69,6 +89,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
   const readOnly = ref(true)
   const error = ref('')
   const unsaved = ref(false)
+  const failure = ref<DeckFailure>()
   /** Synced with the room since the socket last opened. */
   let live = false
   /** The connection dropped or never came up, so the page is offline. */
@@ -83,6 +104,8 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
   let provider: HocuspocusProvider | undefined
   let destroyed = false
   let retry: ReturnType<typeof setTimeout> | undefined
+  let authRetry: ReturnType<typeof setTimeout> | undefined
+  let authRetryMs = AUTH_RETRY_MS
 
   function update() {
     if (failed) {
@@ -104,8 +127,9 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
     }
   }
 
-  function fail(message: string) {
+  function fail(message: string, kind: DeckFailure) {
     failed = true
+    failure.value = kind
     error.value = message
     live = false
     provider?.disconnect()
@@ -115,9 +139,18 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
   function listen(room: HocuspocusProvider) {
     room.on('authenticated', ({ scope }: { scope: string }) => {
       viewer = scope === 'readonly'
+      authRetryMs = AUTH_RETRY_MS
       update()
     })
-    room.on('authenticationFailed', ({ reason }: { reason?: string }) => fail(reason === SHAPE_REFUSED ? UPDATE_REQUIRED : NO_ACCESS))
+    room.on('authenticationFailed', ({ reason }: { reason?: string }) => {
+      if (reason === SHAPE_REFUSED)
+        return fail(UPDATE_REQUIRED, 'outdated')
+      if (reason === TRY_AGAIN_REASON)
+        return tryAgainLater()
+      if (reason === SIGNED_OUT_REASON)
+        return fail(SIGNED_OUT, 'signed-out')
+      fail(NO_ACCESS, 'refused')
+    })
     room.on('synced', ({ state }: { state: boolean }) => {
       if (!state || failed)
         return
@@ -135,7 +168,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
       try {
         message.readVarString()
         if (message.readVarUint() === SYNC_STATUS_MESSAGE && message.readVarUint() === REFUSED)
-          fail(VIEW_ONLY_NOW)
+          fail(VIEW_ONLY_NOW, 'turned-down')
       }
       catch {
         // Not a message this page reads.
@@ -146,7 +179,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
         return
       live = false
       if (event?.code === TOO_BIG_CODE)
-        return fail(TOO_BIG)
+        return fail(TOO_BIG, 'turned-down')
       if (event?.code === ACCESS_CHANGED_CODE)
         rejoining = true
       else
@@ -170,6 +203,24 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
       provider?.configuration.websocketProvider.webSocket?.close()
       return new Promise<string>(() => {})
     }
+  }
+
+  /**
+   * The server could not check access just now: nothing was refused, so the
+   * page keeps what it has and joins again a little later, waiting longer
+   * each time.
+   */
+  function tryAgainLater() {
+    live = false
+    rejoining = false
+    provider?.disconnect()
+    update()
+    clearTimeout(authRetry)
+    authRetry = setTimeout(() => {
+      if (!destroyed && !failed)
+        void provider?.connect()
+    }, authRetryMs)
+    authRetryMs = Math.min(authRetryMs * 2, AUTH_RETRY_MAX_MS)
   }
 
   /**
@@ -215,6 +266,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
     readOnly,
     error,
     unsaved,
+    failure,
     flush() {
       provider?.flushPendingUpdates()
       if (failed || !live || viewer || unsynced === 0)
@@ -232,6 +284,7 @@ export function connectLiveDeck({ url, deckId, doc, awareness, token, WebSocketP
     destroy() {
       destroyed = true
       clearTimeout(retry)
+      clearTimeout(authRetry)
       if (typeof window !== 'undefined')
         window.removeEventListener('online', reconnectNow)
       for (const done of [...waiting])

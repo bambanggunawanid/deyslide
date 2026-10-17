@@ -189,6 +189,12 @@ Feature: The web app inside the Deyslide app
     Then the app got the command "auth_sign_out"
     And the header has a "Sign in" link
 
+  Scenario: Signing out in the app deletes the account's decks kept on the device
+    Given the app on a computer, signed in as "Ana", with the deck "Intro" kept on the device
+    When they sign out from the account menu
+    Then the header has a "Sign in" link
+    And nothing of Ana's account is left on the device
+
   Scenario: The app signs them out when the server ends the sign in
     Given the app on a computer, signed in as "Ana"
     When the app says the account changed and nobody is signed in anymore

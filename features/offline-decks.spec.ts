@@ -12,7 +12,7 @@ import { followRememberedAccount } from '../apps/web/src/account/remembered'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { StoreError } from '../apps/web/src/projects/names'
 import { copyName, copyPrefix, OfflineCache } from '../apps/web/src/projects/offline-cache'
-import { IndexedDbOfflineStorage } from '../apps/web/src/projects/offline-storage'
+import { IndexedDbOfflineStorage, MemoryOfflineStorage } from '../apps/web/src/projects/offline-storage'
 import { deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { accountDeck, changeSlide, openReady, slidesOf as slideMarkdowns } from './support/live-decks'
@@ -28,15 +28,15 @@ const GRAPHS = '# Graphs\n\n---\n\n## Nodes\n\n---\n\n## Edges\n'
 
 const ANA: Account = { id: 'user-ana', name: 'Ana', email: 'ana@example.com' }
 
-/** The names of the IndexedDB databases on this device. */
 /** Each slide's Markdown in a live document, without the blank lines around it. */
 const slidesOf = (doc: Y.Doc) => slideMarkdowns(doc).map(slide => slide.trim())
 
+/** The names of the IndexedDB databases on this device. */
 async function databases() {
   return (await indexedDB.databases()).map(database => database.name ?? '')
 }
 
-describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) => {
+describeFeature(feature, ({ Scenario, ScenarioOutline, BeforeEachScenario, AfterEachScenario }) => {
   let api: FakeProjectApi
   let cache: OfflineCache
   let projectId: string
@@ -47,6 +47,8 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
   let service: FakeAccountService
   /** Every store a scenario opened, so each lets go of its decks at the end. */
   let stores: CloudStore[]
+  /** Ana's page that is open now, when one is. */
+  let anasStore: CloudStore | undefined
   let stopFollowing: (() => void) | undefined
 
   BeforeEachScenario(() => {
@@ -55,6 +57,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     api = new FakeProjectApi()
     cache = new OfflineCache(new IndexedDbOfflineStorage())
     stores = []
+    anasStore = undefined
     session = undefined
     budiSession = undefined
     web = undefined
@@ -90,6 +93,7 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
   async function anaOpensDeyslide() {
     const store = await CloudStore.open(anasApi(), { token: async () => 'ana', cache, userId: ANA.id })
     stores.push(store)
+    anasStore = store
     return store
   }
 
@@ -104,6 +108,8 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
   async function closePage(store: CloudStore) {
     await store.close()
     stores = stores.filter(item => item !== store)
+    if (anasStore === store)
+      anasStore = undefined
   }
 
   /** Waits until the device keeps a copy of the deck that holds it. */
@@ -136,6 +142,68 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     session = await openReady(store, projectId, deckId)
     changeSlide(session, 2, () => markdown)
     return store
+  }
+
+  async function changedOfflineThenClosed(markdown: string) {
+    const store = await changedOffline(markdown)
+    await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([deckId]))
+    session!.close()
+    session = undefined
+    await closePage(store)
+    expect(await serverSlides()).toEqual(['# Graphs', '## Nodes', '## Edges'])
+  }
+
+  async function opensAgainOnline() {
+    anaIsOnline()
+    await anaOpensDeyslide()
+  }
+
+  /** The deck as the server has it, whether or not its room is open. */
+  async function serverSlides() {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, await api.deckState(deckId))
+    const slides = slidesOf(doc)
+    doc.destroy()
+    return slides
+  }
+
+  /** Ana opens the deck from the page she has open, or from a new one. */
+  async function opensFromDevice() {
+    session = await openReady(anasStore ?? await anaOpensDeyslide(), projectId, deckId)
+  }
+
+  /** Budi's project "Budi's talks" with the deck "Graphs", shared with Ana with this role. Ana opened it once online. */
+  async function sharedWithAna(role: 'editor' | 'viewer') {
+    const now = Date.now()
+    projectId = 'budi-talks'
+    deckId = 'budi-graphs'
+    api.sharedProjects.push({
+      id: projectId,
+      name: 'Budi\'s talks',
+      createdAt: now,
+      updatedAt: now,
+      shared: { owner: { name: 'Budi', email: 'budi@example.com' }, role: null },
+      decks: [{ id: deckId, name: 'Graphs', slideCount: 3, createdAt: now, updatedAt: now, role }],
+    })
+    api.putDeckState(deckId, Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown(GRAPHS))))
+    const store = await anaOpensDeyslide()
+    const first = await openReady(store, projectId, deckId)
+    await waitForCopy(deckId)
+    first.close()
+    await closePage(store)
+  }
+
+  /** The deck's copy is gone from the device, and the page no longer counts it. */
+  async function noCopyLeft() {
+    await vi.waitFor(async () => expect(await databases()).not.toContain(copyName(ANA.id, deckId)))
+    expect(await cache.decks(ANA.id)).toEqual([])
+    expect(anasStore?.keptOnDevice(deckId)).toBe(false)
+  }
+
+  /** The deck's copy is still on the device. */
+  async function copyKept() {
+    expect(await cache.decks(ANA.id)).toEqual([deckId])
+    expect(await databases()).toContain(copyName(ANA.id, deckId))
   }
 
   Scenario('Edit a deck kept on this device while offline', ({ Given, And, When, Then }) => {
@@ -184,18 +252,8 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
 
   Scenario('Changes kept on this device reach the account after the page closed', ({ Given, And, When, Then }) => {
     Given('Ana opened the deck "Graphs" once while online', openedOnceOnline)
-    And('Ana changed slide 2 to "## On the plane" while offline, then closed Deyslide', async () => {
-      const store = await changedOffline('## On the plane')
-      await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([deckId]))
-      session!.close()
-      session = undefined
-      await closePage(store)
-      expect(slidesOf(room())[1]).toBe('## Nodes')
-    })
-    When('Ana opens Deyslide again while online, without opening the deck', async () => {
-      anaIsOnline()
-      await anaOpensDeyslide()
-    })
+    And('Ana changed slide 2 to "## On the plane" while offline, then closed Deyslide', () => changedOfflineThenClosed('## On the plane'))
+    When('Ana opens Deyslide again while online, without opening the deck', opensAgainOnline)
     Then('the account\'s deck has "## On the plane" on slide 2', async () => {
       await vi.waitFor(() => expect(slidesOf(room())[1]).toBe('## On the plane'))
       await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([]))
@@ -259,22 +317,33 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
 
   /** Closes the open page, then opens Deyslide again without a connection. */
   async function opensOffline() {
-    const cloud = web!.workspace.stores.value.cloud as CloudStore | undefined
+    const previous = web!.workspace.stores.value.cloud as CloudStore | undefined
     web!.unmount()
-    await cloud?.close()
+    await previous?.close()
     pageOffline()
     web = await mountWebApp({ service, api, offline: cache })
-    stores.push(web.workspace.stores.value.cloud as CloudStore)
+    const cloud = web.workspace.stores.value.cloud as CloudStore | undefined
+    if (cloud)
+      stores.push(cloud)
     // As the website does from its start, it asks again once the server may answer.
+    stopFollowing?.()
     stopFollowing = followRememberedAccount(web.account, web.router)
+  }
+
+  async function signedOutPage() {
+    await vi.waitFor(() => expect(find('[data-testid="account-menu"]')).toBeNull())
+    expect(find('[data-project="Talks"]')).toBeNull()
+    expect(find('[data-testid="projects-offline"]')).toBeNull()
+  }
+
+  async function chartsAlsoInTalks() {
+    await api.createDeck(projectId, 'Charts', Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown('# Charts\n'))))
+    await (web!.workspace.stores.value.cloud as CloudStore).refresh()
   }
 
   Scenario('Home lists the account\'s projects offline', ({ Given, And, When, Then }) => {
     Given('Ana used Deyslide online and opened the deck "Graphs" of the project "Talks"', usedOnline)
-    And('the project "Talks" also has the deck "Charts", never opened on this device', async () => {
-      await api.createDeck(projectId, 'Charts', Y.encodeStateAsUpdate(deckToYDoc(fromMarkdown('# Charts\n'))))
-      await (web!.workspace.stores.value.cloud as CloudStore).refresh()
-    })
+    And('the project "Talks" also has the deck "Charts", never opened on this device', chartsAlsoInTalks)
     When('Ana opens Deyslide while offline', opensOffline)
     Then('the account menu shows Ana', () => {
       expect(text('[data-testid="account-menu"]')).toBe('Ana')
@@ -338,14 +407,31 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
       pageOnline()
       window.dispatchEvent(new Event('online'))
     })
-    Then('the page is signed out and lists no account projects', async () => {
-      await vi.waitFor(() => expect(find('[data-testid="account-menu"]')).toBeNull())
-      expect(find('[data-project="Talks"]')).toBeNull()
-      expect(find('[data-testid="projects-offline"]')).toBeNull()
-    })
+    Then('the page is signed out and lists no account projects', signedOutPage)
     And('the device still keeps Ana\'s decks for the next sign in', async () => {
       expect(await cache.decks(ANA.id)).toEqual([deckId])
       expect(await databases()).toContain(copyName(ANA.id, deckId))
+      // Only the copies stay: the next offline start shows nobody.
+      expect(await cache.lastAccount()).toBeUndefined()
+    })
+    When('Ana opens Deyslide while offline again', opensOffline)
+    Then('the page shows no account and lists no account projects', async () => {
+      await signedOutPage()
+      expect(find('[data-testid="empty-projects"]')).not.toBeNull()
+    })
+  })
+
+  Scenario('A deck never opened on this device says it needs a connection', ({ Given, And, When, Then }) => {
+    Given('Ana used Deyslide online and opened the deck "Graphs" of the project "Talks"', usedOnline)
+    And('the project "Talks" also has the deck "Charts", never opened on this device', chartsAlsoInTalks)
+    When('Ana opens Deyslide while offline', opensOffline)
+    And('Ana opens the deck "Charts" from the project page', async () => {
+      await web!.router.push({ name: 'project', params: { projectId } })
+      await web!.click('[data-deck="Charts"]')
+    })
+    Then('the deck page says "This deck has no copy on this device yet, so it opens once you are back online."', async () => {
+      await vi.waitFor(() => expect(text('[data-testid="deck-needs-connection"]')).toBe('This deck has no copy on this device yet, so it opens once you are back online.'))
+      expect(find('[data-testid="design-view"]')).toBeNull()
     })
   })
 
@@ -391,6 +477,177 @@ describeFeature(feature, ({ Scenario, BeforeEachScenario, AfterEachScenario }) =
     And('the project no longer lists "Graphs"', async () => {
       await vi.waitFor(() => expect(store.getProject(projectId)?.decks).toEqual([]))
       expect((await cache.lists(ANA.id))?.projects[0].decks).toEqual([])
+    })
+  })
+
+  Scenario('Access removed while the deck is open deletes its copy', ({ Given, And, When, Then }) => {
+    Given('Budi shared the deck "Graphs" with Ana as an editor, and Ana opened it once while online', () => sharedWithAna('editor'))
+    And('Ana has "Graphs" open online', async () => {
+      await opensFromDevice()
+      await vi.waitFor(() => expect(header(session!)).toBe('Saved'))
+      expect(session!.readOnly.value).toBe(false)
+    })
+    When('Budi removes Ana from the deck', () => {
+      api.sharedProjects.splice(0)
+      // Like the server, the connection closes and joins again, and is refused.
+      api.rejoinAs(deckId, 'editor')
+    })
+    Then('the session says "Not saved: You no longer have access to this deck. Its copy on this device was deleted." and is read only', async () => {
+      await vi.waitFor(() => expect(header(session!)).toBe('Not saved: You no longer have access to this deck. Its copy on this device was deleted.'))
+      expect(session!.readOnly.value).toBe(true)
+    })
+    And('this device keeps no copy of "Graphs"', noCopyLeft)
+  })
+
+  Scenario('A sign in that ended keeps the copy and the changes made offline', ({ Given, And, When, Then }) => {
+    Given('Ana opened the deck "Graphs" once while online', openedOnceOnline)
+    And('Ana changed slide 2 to "## Offline idea" while offline', async () => {
+      await changedOffline('## Offline idea')
+      await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([deckId]))
+    })
+    And('Ana\'s sign in ended on the server meanwhile', () => {
+      api.endSignIn('ana')
+    })
+    When('Ana is online again', anaIsOnline)
+    Then('the session says "Not saved: Your sign in ended. Sign in again to save your changes. They stay on this device until then." and is read only', async () => {
+      await vi.waitFor(() => expect(header(session!)).toBe('Not saved: Your sign in ended. Sign in again to save your changes. They stay on this device until then.'))
+      expect(session!.readOnly.value).toBe(true)
+      expect(slidesOf(session!.doc)[1]).toBe('## Offline idea')
+    })
+    And('this device still keeps "Graphs" with the change waiting for the server', async () => {
+      // Give a deletion the time it would take.
+      await new Promise(resolve => setTimeout(resolve, 50))
+      await copyKept()
+      expect(await cache.pending(ANA.id)).toEqual([deckId])
+      expect(anasStore!.keptOnDevice(deckId)).toBe(true)
+      expect(await serverSlides()).toEqual(['# Graphs', '## Nodes', '## Edges'])
+    })
+    When('Ana signs in again and opens Deyslide', async () => {
+      api.signInAgain('ana')
+      session!.close()
+      session = undefined
+      await closePage(anasStore!)
+      await anaOpensDeyslide()
+    })
+    Then('the account\'s deck has "## Offline idea" on slide 2', async () => {
+      await vi.waitFor(async () => expect((await serverSlides())[1]).toBe('## Offline idea'))
+      await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([]))
+    })
+  })
+
+  Scenario('A server that cannot check access just then keeps the copy and syncs later', ({ Given, And, When, Then }) => {
+    Given('Ana opened the deck "Graphs" once while online', openedOnceOnline)
+    And('Ana changed slide 2 to "## Offline idea" while offline', async () => {
+      await changedOffline('## Offline idea')
+    })
+    And('the server cannot check Ana\'s access the next two times she joins', () => {
+      api.failAccessChecks('ana', 2)
+    })
+    When('Ana is online again', anaIsOnline)
+    Then('the account\'s deck has "## Offline idea" on slide 2', async () => {
+      await vi.waitFor(() => expect(slidesOf(room())[1]).toBe('## Offline idea'))
+    })
+    And('the header says "Saved"', async () => {
+      await vi.waitFor(() => expect(header(session!)).toBe('Saved'))
+      expect(session!.error.value).toBe('')
+    })
+    And('this device still keeps "Graphs"', async () => {
+      await copyKept()
+      expect(anasStore!.keptOnDevice(deckId)).toBe(true)
+    })
+  })
+
+  Scenario('Changes the server turns down are kept until Ana sees why', ({ Given, And, When, Then }) => {
+    Given('Budi shared the deck "Graphs" with Ana as an editor, and Ana opened it once while online', () => sharedWithAna('editor'))
+    And('Ana changed slide 2 to "## On the plane" while offline, then closed Deyslide', () => changedOfflineThenClosed('## On the plane'))
+    And('Budi made Ana a viewer of "Graphs" meanwhile', () => {
+      api.sharedProjects[0].decks[0].role = 'viewer'
+    })
+    When('Ana opens Deyslide again while online, without opening the deck', opensAgainOnline)
+    Then('the account\'s deck still has "## Nodes" on slide 2', async () => {
+      // The page tried to send the change in the background, and the server turned it down.
+      await vi.waitFor(async () => expect(await cache.pending(ANA.id)).toEqual([]))
+      expect(await serverSlides()).toEqual(['# Graphs', '## Nodes', '## Edges'])
+    })
+    And('this device still keeps "Graphs", no longer waiting to send it', async () => {
+      await copyKept()
+      expect(await cache.pending(ANA.id)).toEqual([])
+    })
+    When('Ana opens "Graphs" from this device', opensFromDevice)
+    Then('the session says "Not saved: You can only view this deck now. Reload the page to see it as it is. Its copy on this device was deleted. Download the Markdown to keep your changes."', async () => {
+      await vi.waitFor(() => expect(header(session!)).toBe('Not saved: You can only view this deck now. Reload the page to see it as it is. Its copy on this device was deleted. Download the Markdown to keep your changes.'))
+      expect(session!.readOnly.value).toBe(true)
+    })
+    And('the open deck still has "## On the plane" on slide 2', () => {
+      expect(slidesOf(session!.doc)[1]).toBe('## On the plane')
+      expect(session!.ready.value).toBe(true)
+    })
+    And('this device keeps no copy of "Graphs"', noCopyLeft)
+  })
+
+  Scenario('A viewer\'s kept deck opens offline read only', ({ Given, And, When, Then }) => {
+    Given('Budi shared the deck "Graphs" with Ana as a viewer, and Ana opened it once while online', () => sharedWithAna('viewer'))
+    And('Ana is offline', anaIsOffline)
+    When('Ana opens "Graphs" from this device', opensFromDevice)
+    Then('the session holds the deck, is read only and says "Offline. Changes sync when you are back online."', async () => {
+      expect(slidesOf(session!.doc)).toEqual(['# Graphs', '## Nodes', '## Edges'])
+      expect(session!.readOnly.value).toBe(true)
+      await vi.waitFor(() => expect(header(session!)).toBe(OFFLINE))
+    })
+  })
+
+  ScenarioOutline('Closing Deyslide warns about changes not sent yet, unless the copy outlasts the page', ({ Given, And, When, Then }, variables) => {
+    let store: CloudStore
+    let warned: string[]
+    let asked: boolean
+    Given('this device keeps deck copies in <storage>', () => {
+      if (variables.storage === 'memory only') {
+        cache = new OfflineCache(new MemoryOfflineStorage())
+      }
+      else if (variables.storage === 'an IndexedDB that refuses to open') {
+        // Some private windows and blocked site data refuse IndexedDB like this.
+        globalThis.indexedDB = {
+          open: () => {
+            throw new DOMException('The operation is insecure.', 'SecurityError')
+          },
+          databases: async () => [],
+        } as unknown as IDBFactory
+        cache = new OfflineCache(new IndexedDbOfflineStorage())
+      }
+      else {
+        expect(variables.storage).toBe('IndexedDB')
+      }
+    })
+    And('Ana opened the deck "Graphs" while online, changed slide 2 while offline and left the deck', async () => {
+      ;({ projectId, deckId } = await accountDeck(api, GRAPHS, 'Graphs'))
+      store = await anaOpensDeyslide()
+      session = await openReady(store, projectId, deckId)
+      if (variables.storage === 'IndexedDB')
+        await vi.waitFor(() => expect(store.keptOnDevice(deckId)).toBe(true))
+      else
+        await new Promise(resolve => setTimeout(resolve, 50))
+      anaIsOffline()
+      changeSlide(session, 2, () => '## Offline idea')
+      session.close()
+      session = undefined
+    })
+    When('Deyslide closes', async () => {
+      warned = await store.flushAll()
+      const leaving = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(leaving)
+      asked = leaving.defaultPrevented
+    })
+    Then('it warns about <warned>', () => {
+      if (variables.warned === 'no deck') {
+        expect(warned).toEqual([])
+        expect(asked).toBe(false)
+      }
+      else {
+        expect(variables.warned).toBe('"Graphs"')
+        expect(warned).toEqual(['Graphs'])
+        expect(asked).toBe(true)
+        expect(store.keptOnDevice(deckId)).toBe(false)
+      }
     })
   })
 

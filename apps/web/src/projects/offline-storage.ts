@@ -49,6 +49,19 @@ async function run<T>(store: string, mode: IDBTransactionMode, work: (store: IDB
  * database of its own, named apart from the guest's decks.
  */
 export class IndexedDbOfflineStorage implements OfflineStorage {
+  readonly durable = true
+  /** Whether IndexedDB opens at all here. Some private windows and blocked site data refuse it. */
+  private usable?: Promise<boolean>
+
+  private works() {
+    // Some browsers throw at once instead of failing the request.
+    this.usable ??= Promise.resolve().then(openDb).then((db) => {
+      db.close()
+      return true
+    }, () => false)
+    return this.usable
+  }
+
   async loadAccount() {
     return await run(META, 'readonly', store => store.get(ACCOUNT_KEY)) as Account | undefined
   }
@@ -73,16 +86,28 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
   }
 
   openCopy(name: string, doc: Y.Doc): OpenCopy {
-    const persistence = new IndexeddbPersistence(name, doc)
-    let closed!: () => void
-    const stopped = new Promise<void>(resolve => (closed = resolve))
-    return {
+    let persistence: IndexeddbPersistence | undefined
+    let closed = false
+    let stop!: () => void
+    const stopped = new Promise<false>(resolve => (stop = () => resolve(false)))
+    // y-indexeddb writes the document as it loads the copy, before it says it synced.
+    const stored = this.works().then((works) => {
+      if (!works || closed)
+        return false
+      persistence = new IndexeddbPersistence(name, doc)
       // A copy closed before it loaded never says it synced.
-      loaded: Promise.race([persistence.whenSynced.then(() => {}), stopped]),
-      origin: persistence,
+      return Promise.race([persistence.whenSynced.then(() => true), stopped])
+    })
+    return {
+      loaded: stored.then(() => {}),
+      stored,
+      get origin() {
+        return persistence
+      },
       close: async () => {
-        closed()
-        await persistence.destroy()
+        closed = true
+        stop()
+        await persistence?.destroy()
       },
     }
   }
@@ -100,11 +125,21 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
   }
 }
 
-/** Keeps everything in memory: tests, and browsers without IndexedDB, where nothing outlasts the tab. */
+/**
+ * Keeps everything in memory: tests, and browsers without IndexedDB, where
+ * nothing outlasts the tab. Copies are not `durable` then: closing the tab
+ * loses them, so the page still warns about changes that wait for the server.
+ */
 export class MemoryOfflineStorage implements OfflineStorage {
+  readonly durable: boolean
   private account: Account | undefined
   private readonly people = new Map<string, PersonRecord>()
   readonly copies = new Map<string, Uint8Array>()
+
+  /** `durable` makes it stand in for storage that outlasts the page, in tests. */
+  constructor({ durable = false }: { durable?: boolean } = {}) {
+    this.durable = durable
+  }
 
   async loadAccount() {
     return this.account && { ...this.account }
@@ -145,6 +180,7 @@ export class MemoryOfflineStorage implements OfflineStorage {
     doc.on('update', store)
     return {
       loaded: Promise.resolve(),
+      stored: Promise.resolve(this.durable),
       origin,
       close: async () => {
         doc.off('update', store)

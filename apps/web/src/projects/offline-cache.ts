@@ -33,14 +33,21 @@ export interface PersonRecord {
 export interface OpenCopy {
   /** Resolves once what the copy holds is in the document. */
   loaded: Promise<void>
+  /**
+   * Resolves true once the copy is written to storage that outlasts the
+   * page, and false when it is not (no IndexedDB, say, or closed first).
+   */
+  stored: Promise<boolean>
   /** The origin of the changes the copy brings into the document. */
-  origin: unknown
+  readonly origin: unknown
   /** Stops keeping the document's changes. The copy stays. */
   close: () => Promise<void>
 }
 
 /** Where the copies and records live: IndexedDB in browsers and the apps, memory in tests. */
 export interface OfflineStorage {
+  /** Whether what it keeps outlasts the page. Memory storage does not. */
+  readonly durable: boolean
   loadAccount: () => Promise<Account | undefined>
   saveAccount: (account: Account | undefined) => Promise<void>
   loadPerson: (userId: string) => Promise<PersonRecord | undefined>
@@ -57,6 +64,12 @@ export interface DeckCopy {
   loaded: Promise<void>
   /** True when the copy holds the deck: it can be read and changed before any sync. */
   readonly holdsDeck: boolean
+  /**
+   * Resolves true once the copy is written where it outlasts the page, so
+   * closing the page loses nothing. False when it never is: no lasting
+   * storage, storage that failed, or the copy closed first.
+   */
+  stored: Promise<boolean>
   /** The origin of the changes the copy brings into the document. */
   readonly origin: unknown
   /** Stops following the document. The copy stays on the device. */
@@ -97,6 +110,11 @@ export class OfflineCache {
     this.storage = storage
   }
 
+  /** Whether copies outlast the page. */
+  get durable() {
+    return this.storage.durable
+  }
+
   /** The person signed in last on this device, so their projects show while the server is out of reach. */
   async lastAccount(): Promise<Account | undefined> {
     return this.storage.loadAccount().catch(() => undefined)
@@ -104,6 +122,15 @@ export class OfflineCache {
 
   async rememberAccount(account: Account) {
     await this.storage.saveAccount(account).catch(() => {})
+  }
+
+  /**
+   * Forgets the person signed in last, once the server said nobody is: the
+   * next offline start shows no account. Their copies stay for their next
+   * sign in.
+   */
+  async forgetLastAccount() {
+    await this.storage.saveAccount(undefined).catch(() => {})
   }
 
   async lists(userId: string): Promise<ProjectLists | undefined> {
@@ -144,19 +171,25 @@ export class OfflineCache {
     let open: OpenCopy | undefined
     let closed = false
     let holds = false
+    let settle!: (stored: boolean) => void
+    const stored = new Promise<boolean>(resolve => (settle = resolve))
+    const follow = (copy: OpenCopy) => {
+      open = copy
+      copy.stored.then(settle, () => settle(false))
+    }
     const startWhenItHoldsDeck = () => {
       if (closed || open || !holdsDeck(doc))
         return
       doc.off('update', startWhenItHoldsDeck)
-      open = this.storage.openCopy(name, doc)
+      follow(this.storage.openCopy(name, doc))
       void this.change(userId, record => ({ ...record, decks: [...new Set([...record.decks, deckId])] }))
     }
     const loaded = this.decks(userId).then(async (decks) => {
       if (closed)
         return
       if (decks.includes(deckId)) {
-        open = this.storage.openCopy(name, doc)
-        await open.loaded.catch(() => {})
+        follow(this.storage.openCopy(name, doc))
+        await open!.loaded.catch(() => {})
         holds = holdsDeck(doc)
         return
       }
@@ -165,6 +198,7 @@ export class OfflineCache {
     })
     return {
       loaded,
+      stored,
       get holdsDeck() {
         return holds
       },
@@ -174,6 +208,8 @@ export class OfflineCache {
       close: async () => {
         closed = true
         doc.off('update', startWhenItHoldsDeck)
+        if (!open)
+          settle(false)
         await open?.close().catch(() => {})
       },
     }

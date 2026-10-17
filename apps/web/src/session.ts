@@ -31,6 +31,9 @@ export async function startSession({ service, guest, local, api, collabToken, of
   const remembered = !answered && service.unsure ? await offline?.lastAccount() : undefined
   if (answered)
     await offline?.rememberAccount(answered)
+  // The server says nobody is signed in: an offline start must not show the last person again.
+  else if (!service.unsure)
+    await offline?.forgetLastAccount()
   const workspace = new Workspace({
     guest,
     local,
@@ -50,8 +53,11 @@ export async function startSession({ service, guest, local, api, collabToken, of
     async setAccount(next) {
       await workspace.useAccount(next)
       account.value = next
+      // Callers pass undefined only once the server said nobody is signed in.
       if (next)
         await offline?.rememberAccount(next)
+      else
+        await offline?.forgetLastAccount()
     },
     async signOut() {
       const leaving = account.value

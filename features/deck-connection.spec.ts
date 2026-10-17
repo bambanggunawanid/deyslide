@@ -5,6 +5,7 @@ import type { Listening, TestBrowser, TestServer } from './support/server'
 import { Buffer } from 'node:buffer'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { beforeAll, expect, vi } from 'vitest'
+import { watch } from 'vue'
 import WebSocket from 'ws'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
@@ -196,6 +197,52 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then('Budi\'s connection says "You no longer have access to this deck." and is read only', async () => {
       await vi.waitFor(() => expect(label(page)).toBe('Not saved: You no longer have access to this deck.'), SOON)
       expect(page.connection.readOnly.value).toBe(true)
+      // A refusal for good: a copy of the deck on the device goes with it.
+      expect(page.connection.failure.value).toBe('refused')
+    })
+  })
+
+  Scenario('A page whose sign in ended is told to sign in again, not refused for good', ({ Given, When, Then, And }) => {
+    Given('Ana\'s sign in ended on the server', async () => {
+      await server.db.updateTable('session').set({ expiresAt: new Date(Date.now() - 1000) }).execute()
+    })
+    When('Ana\'s page connects to the deck', () => {
+      page = connect(anaBrowser)
+    })
+    Then('the connection says "Your sign in ended. Sign in again to save your changes." and is read only', async () => {
+      await vi.waitFor(() => expect(label(page)).toBe('Not saved: Your sign in ended. Sign in again to save your changes.'), SOON)
+      expect(page.connection.readOnly.value).toBe(true)
+    })
+    And('the failure is a sign in that ended, not a refusal', () => {
+      expect(page.connection.failure.value).toBe('signed-out')
+    })
+  })
+
+  Scenario('A page joins again when the server cannot check access just then', ({ Given, When, Then }) => {
+    Given('the server cannot check access the next time someone joins', () => {
+      const real = server.projects.deckAccess.bind(server.projects)
+      let fails = 1
+      vi.spyOn(server.projects, 'deckAccess').mockImplementation(async (...args) => {
+        if (fails-- > 0)
+          throw new Error('database connection reset')
+        return real(...args)
+      })
+      // The server logs the error it hides from the page.
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+    When('Ana\'s page connects to the deck', () => {
+      page = connect(anaBrowser)
+    })
+    Then('a moment later it holds the deck and says "Saved", without failing', async () => {
+      const statuses = new Set<string>()
+      const stop = watch(page.connection.status, status => statuses.add(status), { immediate: true })
+      await vi.waitFor(() => expect(label(page)).toBe('Saved'), { timeout: 8000, interval: 20 })
+      stop()
+      expect(statuses.has('failed')).toBe(false)
+      expect(page.connection.failure.value).toBeUndefined()
+      expect(page.connection.readOnly.value).toBe(false)
+      expect(page.tokens).toBe(2)
+      vi.restoreAllMocks()
     })
   })
 

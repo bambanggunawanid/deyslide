@@ -4,6 +4,7 @@ import type { DeckSession, OpenDeckOptions } from '../deck/session'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
 import type { DeckConnection, ProjectApi } from './api'
+import type { DeckFailure } from './collab'
 import type { DeckCopy, OfflineCache } from './offline-cache'
 import type { SharingApi } from './sharing'
 import type { ExportedProject, ProjectStore } from './types'
@@ -37,6 +38,10 @@ export interface CloudStoreOptions {
 
 /** What the page adds to a failure once the deck's copy on this device is gone. */
 export const COPY_DELETED = 'Its copy on this device was deleted.'
+/** Added when that copy held changes the server never got: the open page still has them. */
+export const DOWNLOAD_TO_KEEP = 'Download the Markdown to keep your changes.'
+/** Added when the sign in ended and the deck's copy keeps the changes for the next sign in. */
+export const KEPT_UNTIL_SIGN_IN = 'They stay on this device until then.'
 
 /** How often the store asks the server again while it is out of reach, by default. */
 const RETRY_MS = 30_000
@@ -59,6 +64,8 @@ interface LiveDeck {
   error: Readonly<Ref<string>>
   /** Changes made here wait for the server, also those made from the copy before any sync. */
   unsaved: Readonly<Ref<boolean>>
+  /** Sessions showing the deck to the person, apart from sending changes in the background. */
+  shown: Ref<number>
   /** The deck's copy on this device, when the store keeps copies. */
   copy?: DeckCopy
   /** What the copy holds is in the document (true at once without a copy). */
@@ -153,12 +160,14 @@ export class CloudStore implements ProjectStore {
       return
     if (typeof window !== 'undefined')
       window.addEventListener('offline', this.wentOffline)
-    this.copies.value = new Set([...this.copies.value, ...await this.kept.cache.decks(this.kept.userId)])
+    // Copies in memory go with the page, so they do not count as kept.
+    if (this.kept.cache.durable)
+      this.copies.value = new Set([...this.copies.value, ...await this.kept.cache.decks(this.kept.userId)])
     if (!this.offlineState.value)
       void this.sendPending()
   }
 
-  /** Whether the deck has a copy on this device, so it opens and changes offline. */
+  /** Whether the deck has a copy on this device that outlasts the page, so it opens and changes offline. */
   keptOnDevice(deckId: string) {
     return this.copies.value.has(deckId)
   }
@@ -270,11 +279,13 @@ export class CloudStore implements ProjectStore {
         if (closed)
           return
         closed = true
+        deck.shown.value--
         this.sessions.delete(session)
         this.letGo(deckId, deck)
       },
     }, options)
     this.sessions.set(session, deckId)
+    deck.shown.value++
     return session
   }
 
@@ -340,8 +351,9 @@ export class CloudStore implements ProjectStore {
     })
     const stopChecking = watch(connection.synced, check, { immediate: true })
     const failed = computed(() => connection.status.value === 'failed')
-    /** The copy was deleted because the server refused the deck. */
-    const dropped = ref(false)
+    /** What the page adds to the failure once the copy was deleted: what happened to the copy and its changes. */
+    const dropped = ref('')
+    const shown = ref(0)
     const readOnlyNow = computed(() => connection.synced.value || !fromCopy.value
       ? connection.readOnly.value
       : failed.value || viewer)
@@ -353,7 +365,16 @@ export class CloudStore implements ProjectStore {
     const stopFollowing = watch(() => connection.synced.value && connection.readOnly.value, () => {
       void this.refresh().catch(() => {})
     })
-    const stopKeeping = this.kept ? this.keep(deckId, { loaded, unsaved, failed, connection, dropped, copy, copyLoaded }) : () => {}
+    const stopKeeping = this.kept ? this.keep(deckId, { unsaved, connection, dropped, copy, copyLoaded, shown }) : () => {}
+    const error = computed(() => {
+      const message = connection.error.value
+      if (dropped.value)
+        return `${message} ${dropped.value}`
+      // The sign in ended: the copy keeps the changes for the next one.
+      if (connection.failure.value === 'signed-out' && this.keptOnDevice(deckId))
+        return `${message} ${KEPT_UNTIL_SIGN_IN}`
+      return message
+    })
     const deck: LiveDeck = {
       id: deckId,
       users: 1,
@@ -362,8 +383,9 @@ export class CloudStore implements ProjectStore {
       connection,
       loaded,
       readOnly: readOnlyNow,
-      error: computed(() => dropped.value ? `${connection.error.value} ${COPY_DELETED}` : connection.error.value),
+      error,
       unsaved,
+      shown,
       copy,
       copyLoaded,
       stop: () => {
@@ -389,37 +411,67 @@ export class CloudStore implements ProjectStore {
   }
 
   /**
-   * Follows a deck's copy on this device: notes when it holds changes the
+   * Follows a deck's copy on this device: counts it as kept once it is
+   * written where it outlasts the page, notes when it holds changes the
    * server does not have yet, so they go out the next time Deyslide is
-   * online, and deletes it when the server refuses the deck. Returns a
-   * function that stops following.
+   * online, and deletes it when the server refuses the deck for good.
+   * Returns a function that stops following.
    */
-  private keep(deckId: string, deck: { loaded: Ref<boolean>, unsaved: Readonly<Ref<boolean>>, failed: Readonly<Ref<boolean>>, connection: DeckConnection, dropped: Ref<boolean>, copy?: DeckCopy, copyLoaded: Ref<boolean> }) {
+  private keep(deckId: string, deck: { unsaved: Readonly<Ref<boolean>>, connection: DeckConnection, dropped: Ref<string>, copy?: DeckCopy, copyLoaded: Ref<boolean>, shown: Ref<number> }) {
     const { cache, userId } = this.kept!
-    const stopListing = watch(deck.loaded, (loaded) => {
-      if (loaded && !this.copies.value.has(deckId))
-        this.copies.value = new Set([...this.copies.value, deckId])
-    }, { immediate: true })
-    // Changes wait for the server, or the server has everything the copy holds. Until either is known, nothing changes.
-    const pending = () => deck.unsaved.value || (deck.copyLoaded.value && deck.connection.synced.value ? false : undefined)
+    const { connection } = deck
+    let following = true
+    let deleting = false
+    void deck.copy?.stored.then((stored) => {
+      if (!stored || !following || deleting || this.copies.value.has(deckId))
+        return
+      this.copies.value = new Set([...this.copies.value, deckId])
+      // Its changes are safe now: closing the tab need not ask.
+      this.warnWhileWaiting()
+    })
+    // Changes wait for the server, or the server has everything the copy holds.
+    // Until either is known, and after a failure, the mark stays as it is.
+    const pending = () => connection.failure.value
+      ? undefined
+      : deck.unsaved.value || (deck.copyLoaded.value && connection.synced.value ? false : undefined)
     const stopNoting = watch(pending, (waiting) => {
       if (waiting !== undefined)
         void cache.markPending(userId, deckId, waiting)
     }, { immediate: true })
-    // Access removed, the deck deleted, or changes the server turned down:
-    // the copy would only bring them back, so it goes.
-    const stopRefusing = watch(deck.failed, async (failed) => {
-      if (!failed)
+    // What becomes of the copy once the connection stopped for good.
+    const fate = (failure: DeckFailure | undefined, shown: number) => {
+      // Access removed or the deck deleted: the copy has nothing left to sync with.
+      if (failure === 'refused')
+        return 'delete'
+      // Changes turned down (view only now, too big) would only be turned
+      // down again. The copy goes once the person saw why, with the page
+      // still open to download them; sent in the background, it waits for that.
+      if (failure === 'turned-down')
+        return shown > 0 ? 'delete' : 'hold'
+      // A sign in that ended, a page or app out of date, or still working: the copy stays.
+      return undefined
+    }
+    const stopRefusing = watch(() => fate(connection.failure.value, deck.shown.value), async (action) => {
+      if (action === 'hold') {
+        // Not sent again in the background.
+        void cache.markPending(userId, deckId, false)
         return
+      }
+      if (action !== 'delete' || deleting)
+        return
+      deleting = true
+      const hadChanges = connection.failure.value === 'turned-down' || (await cache.pending(userId)).includes(deckId)
       const copies = new Set(this.copies.value)
-      deck.dropped.value = copies.delete(deckId) || Boolean(deck.copy?.holdsDeck)
+      const hadCopy = copies.delete(deckId) || Boolean(deck.copy?.holdsDeck) || (await cache.decks(userId)).includes(deckId)
       this.copies.value = copies
+      if (hadCopy)
+        deck.dropped.value = hadChanges ? `${COPY_DELETED} ${DOWNLOAD_TO_KEEP}` : COPY_DELETED
       await deck.copy?.close()
       await cache.deleteDeck(userId, deckId)
       void this.refresh().catch(() => {})
     }, { immediate: true })
     return () => {
-      stopListing()
+      following = false
       stopNoting()
       stopRefusing()
     }
