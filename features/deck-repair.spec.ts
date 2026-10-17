@@ -262,7 +262,9 @@ describeFeature(feature, ({ Background, Scenario }) => {
     })
     Then('slide "b" has the frontmatter layout "center" and the check passes', () => {
       expect(changed).toBe(true)
-      expect(findSlide(ana, 'b')!.get('frontmatter')).toEqual({ layout: 'center' })
+      // The repair stores the frontmatter one key at a time, as every change does.
+      expect(readDeckDoc(ana).slides[1].frontmatter).toEqual({ layout: 'center' })
+      expect([...(findSlide(ana, 'b')!.get('frontmatter') as Y.Map<unknown>).keys()]).toEqual(['layout'])
       expect(failure(checkDeckDoc(ana))).toBe('passes')
     })
   })

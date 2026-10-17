@@ -60,6 +60,42 @@ Feature: Canvas geometry
     Then the move keeps its 6 units across and snaps its top to the top of the slide
     And the only guide lies flat at 0
 
+  Scenario: A resized edge snaps to the slide's center line
+    Given a box whose right edge is 3 units left of the slide's center line
+    When Ana drags its right handle 4 units to the right
+    Then the right edge sits on the center line and a guide shows it
+    And the left edge stayed where it was
+
+  Scenario: A corner snaps each edge it pulls to another element
+    Given a box at 100, 100 of 200 by 100
+    And another element from 400 to 500 across and 300 to 400 down
+    When the bottom right handle moves 97 right and 197 down
+    Then the box is at 100, 100 and 300 by 300
+    And an upright guide and a flat one show at 400, each spanning both elements
+
+  Scenario: Only the edges a handle pulls snap, and nothing further than 5 units away
+    Given a box at 3, 100 of 200 by 100
+    When the right handle moves 281 right, leaving its right edge 6 units left of the slide's center line
+    Then the box is at 3, 100 and 481 by 100, with no guide
+    When the left handle moves 1 right instead
+    Then the box is at 0, 100 and 203 by 100, with a guide on the slide's left edge
+
+  Scenario: With the ratio kept, a snapped corner keeps the ratio
+    Given a box at 100, 100 of 200 by 100
+    When the bottom right handle moves 187 right with the ratio kept
+    Then the box is at 100, 100 and 390 by 195, with its right edge on the slide's center line
+
+  Scenario: The bottom edge can be left out of snapping
+    Given a box at 100, 100 of 200 by 100
+    When the bottom right handle moves 187 right and 3 down with the bottom edge left out
+    Then the box is at 100, 100 and 390 by 103, with only an upright guide
+
+  Scenario: A turned box resizes without snapping
+    Given a box whose right edge is 3 units left of the slide's center line, turned 10 degrees
+    When Ana drags its right handle 4 units to the right
+    Then the box resizes as it would without snapping and no guide shows
+    And the same box turned a full circle snaps like an upright one
+
   Scenario: An element always keeps part of itself on the slide
     Given an element from 100 to 300 across and 100 to 200 down
     When it moves 1000 units left and 1000 units down

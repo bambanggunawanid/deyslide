@@ -1,7 +1,7 @@
 import type { Deck, DeckElement, Slide } from './schema.ts'
 import * as Y from 'yjs'
 import { DECK_VERSION, DeckSchema } from './schema.ts'
-import { DECK_KEY, elementValues, slidesOf, slideToY } from './y-shape.ts'
+import { DECK_KEY, elementValues, isFrontmatterEntry, readFrontmatter, slidesOf, slideToY, storedFrontmatter } from './y-shape.ts'
 
 /**
  * Shape of the live document:
@@ -9,14 +9,23 @@ import { DECK_KEY, elementValues, slidesOf, slideToY } from './y-shape.ts'
  *   deck: Y.Map
  *     version: number
  *     slides: Y.Array<Y.Map>
- *       id, frontmatter (plain JSON), notes: Y.Text
+ *       id, notes: Y.Text
+ *       frontmatter: Y.Map                  one entry per key, { value, order },
+ *                                           so two people changing different
+ *                                           keys both win
  *       elements: Y.Array<Y.Map>
  *         id, type
  *         pos: Y.Map (x, y, w, h, rotate)   one key per field, so two people
  *                                           moving different axes both win
+ *         props: Y.Map                      one entry per setting, for the
+ *                                           same reason
  *         markdown: Y.Text                  text and raw elements, so
  *                                           concurrent typing merges
  *         every other field as plain JSON
+ *
+ * Decks stored before frontmatter and props were split hold each of them as
+ * one plain JSON value. Readers accept both, and the first change to one of
+ * them writes the map (see `y-shape.ts`).
  */
 export { DECK_KEY, DeckNotLoadedError } from './y-shape.ts'
 
@@ -35,9 +44,12 @@ export function deckToYDoc(deck: Deck, doc: Y.Doc = new Y.Doc()): Y.Doc {
 
 function yToSlide(map: Y.Map<unknown>): Slide {
   const notes = (map.get('notes') as Y.Text).toString()
+  const frontmatter = map.get('frontmatter')
+  if (frontmatter instanceof Y.Map && [...frontmatter.values()].some(entry => !isFrontmatterEntry(entry)))
+    throw new Error(`The frontmatter of slide "${String(map.get('id'))}" is not stored the right way`)
   const slide: Slide = {
     id: map.get('id') as string,
-    frontmatter: map.get('frontmatter') as Record<string, unknown>,
+    frontmatter: storedFrontmatter(frontmatter) as Record<string, unknown>,
     elements: (map.get('elements') as Y.Array<Y.Map<unknown>>).map(element => elementValues(element) as DeckElement),
   }
   if (notes)
@@ -67,6 +79,14 @@ export function findElement(doc: Y.Doc, slideId: string, elementId: string): Y.M
   if (!(elements instanceof Y.Array))
     return undefined
   return elements.toArray().find((element): element is Y.Map<unknown> => element instanceof Y.Map && element.get('id') === elementId)
+}
+
+/**
+ * A slide map's frontmatter as views show it, in either stored shape. Values
+ * YAML cannot write are left out.
+ */
+export function slideFrontmatter(slide: Y.Map<unknown>): Record<string, unknown> {
+  return readFrontmatter(storedFrontmatter(slide.get('frontmatter')))
 }
 
 /** The shared text of a text or raw element, for editors to bind to. */

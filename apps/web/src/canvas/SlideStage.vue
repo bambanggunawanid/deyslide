@@ -26,6 +26,7 @@ import {
   rotationFor,
   round2,
   snapMove,
+  snapResize,
   toCanvas,
   unionBounds,
   wheelZoom,
@@ -476,7 +477,7 @@ function endEdit(keep: boolean) {
 type Gesture
   = | { kind: 'press', pointerId: number, start: Point, id?: string, handle?: Handle | 'rotate', touch: boolean, shift: boolean, moved: boolean, narrow: boolean }
     | { kind: 'move', pointerId: number, from: Point, starts: Map<string, Position>, bounds: Bounds[], others: Bounds[] }
-    | { kind: 'resize', pointerId: number, id: string, handle: Handle, start: Position, box: Box, from: Point }
+    | { kind: 'resize', pointerId: number, id: string, handle: Handle, start: Position, box: Box, from: Point, others: Bounds[] }
     | { kind: 'rotate', pointerId: number, id: string, start: Position, box: Box, from: Point }
     | { kind: 'pan', pointerId: number, start: Point, startView: View }
     | { kind: 'pinch', ids: [number, number], from: [Point, Point], startView: View }
@@ -522,7 +523,8 @@ function startTransform(press: Extract<Gesture, { kind: 'press' }>) {
   }
   else {
     beginEdit(['x', 'y', 'w', 'h'], starts)
-    gesture = { kind: 'resize', pointerId: press.pointerId, id: item.id, handle: press.handle, start, box: item.box, from }
+    const others = items.value.filter(entry => entry.id !== item.id).map(entry => boundsOf(entry.box))
+    gesture = { kind: 'resize', pointerId: press.pointerId, id: item.id, handle: press.handle, start, box: item.box, from, others }
   }
 }
 
@@ -547,9 +549,20 @@ function applyMove(move: Extract<Gesture, { kind: 'move' }>, event: PointerEvent
 function applyResize(resize: Extract<Gesture, { kind: 'resize' }>, event: PointerEvent) {
   const now = canvasPoint(event)
   const delta = { x: Math.round(now.x - resize.from.x), y: Math.round(now.y - resize.from.y) }
-  const box = resizeBox(resize.box, resize.handle, delta, { keepRatio: event.shiftKey })
-  // An auto height stays auto while the drag leaves the height as it was.
-  const autoHeight = resize.start.h === null && !event.shiftKey && Math.abs(box.h - resize.box.h) < 0.5
+  const keepRatio = event.shiftKey
+  // An auto height stays auto while the drag leaves the height as it was,
+  // so its bottom edge does not snap then.
+  const keepsHeight = (box: Box) => resize.start.h === null && !keepRatio && Math.abs(box.h - resize.box.h) < 0.5
+  let box = resizeBox(resize.box, resize.handle, delta, { keepRatio })
+  let shown: Guide[] = []
+  // Alt (Option) resizes freely, and so does a box turned away from 0 degrees (see `snapResize`).
+  if (!event.altKey) {
+    const snapped = snapResize(resize.box, resize.handle, delta, resize.others, { keepRatio, axes: { y: !keepsHeight(box) } })
+    box = snapped.box
+    shown = snapped.guides
+  }
+  guides.value = shown
+  const autoHeight = keepsHeight(box)
   setPositions({ [resize.id]: { x: round2(box.x), y: round2(box.y), w: round2(box.w), h: autoHeight ? null : round2(box.h), rotate: resize.start.rotate } })
 }
 

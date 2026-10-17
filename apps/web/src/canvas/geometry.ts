@@ -345,6 +345,76 @@ export function snapMove(moving: Bounds, delta: Point, others: Bounds[], { dista
   }
 }
 
+export interface ResizeSnapOptions extends ResizeOptions, SnapOptions {
+  /**
+   * Whether the edge a handle pulls may snap on each axis. A box with an
+   * auto height leaves `y` out, so a sideways drag does not fix its height.
+   */
+  axes?: { x?: boolean, y?: boolean }
+}
+
+/**
+ * Resizes a box like `resizeBox`, then snaps the edges the handle pulls
+ * (the left or right edge, the top or bottom one, or one of each for a
+ * corner) to the slide's edges and center lines and to the edges and
+ * centers of `others`, within `distance`. With the ratio kept, a corner
+ * snaps the edge that lines up with the smaller change, and the other side
+ * follows the ratio. Returns the box and the guides to show.
+ *
+ * A turned box only snaps when it is turned 0 degrees: its edges do not
+ * run along the slide's lines, so it resizes freely.
+ */
+export function snapResize(start: Box, handle: Handle, delta: Point, others: Bounds[], options: ResizeSnapOptions = {}): { box: Box, guides: Guide[] } {
+  const { distance = SNAP_DISTANCE, canvas = CANVAS, axes = {} } = options
+  const unsnapped = resizeBox(start, handle, delta, options)
+  if (normalizeAngle(start.rotate) !== 0)
+    return { box: unsnapped, guides: [] }
+  const sides = handleSides(handle)
+  const targets = targetsOf(others, canvas)
+  /** The edges the handle pulls, on each axis. */
+  const pulled = (box: Box) => ({
+    x: sides.x === 0 || axes.x === false ? [] : [sides.x < 0 ? box.x : box.x + box.w],
+    y: sides.y === 0 || axes.y === false ? [] : [sides.y < 0 ? box.y : box.y + box.h],
+  })
+  const lines = pulled(unsnapped)
+  const change = { x: nearest(lines.x, targets.x, distance), y: nearest(lines.y, targets.y, distance) }
+  /** Whether the pulled edge on an axis now sits on a target. */
+  const lands = (box: Box, axis: 'x' | 'y') =>
+    pulled(box)[axis].some(line => targets[axis].some(target => Math.abs(line - target.at) < SAME))
+  const resized = (by: Point) => resizeBox(start, handle, { x: delta.x + by.x, y: delta.y + by.y }, options)
+
+  let box = unsnapped
+  if (options.keepRatio) {
+    // The ratio ties the two sides together: snap one axis, the smaller change first.
+    const tries = (['x', 'y'] as const)
+      .flatMap(axis => change[axis] === undefined ? [] : [{ axis, by: change[axis]! }])
+      .sort((a, b) => Math.abs(a.by) - Math.abs(b.by))
+    for (const { axis, by } of tries) {
+      const candidate = resized(axis === 'x' ? { x: by, y: 0 } : { x: 0, y: by })
+      if (lands(candidate, axis)) {
+        box = candidate
+        break
+      }
+    }
+  }
+  else {
+    // Each axis on its own: one that cannot land (the smallest size held it back) stays as dragged.
+    const by = { x: change.x ?? 0, y: change.y ?? 0 }
+    const both = resized(by)
+    box = resized({ x: lands(both, 'x') ? by.x : 0, y: lands(both, 'y') ? by.y : 0 })
+  }
+
+  const placed = boundsOf(box)
+  const shown = pulled(box)
+  return {
+    box,
+    guides: [
+      ...guidesFor('x', shown.x, targets.x, { from: placed.top, to: placed.bottom }),
+      ...guidesFor('y', shown.y, targets.y, { from: placed.left, to: placed.right }),
+    ],
+  }
+}
+
 /**
  * Limits a move so that at least `keep` canvas units of each of `moving`
  * stay on the slide on each axis. When things already lie off the slide

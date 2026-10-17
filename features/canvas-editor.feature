@@ -83,6 +83,21 @@ Feature: Canvas editor
     When Ana drags the bottom right handle 60 right with Shift held
     Then the deck has the rectangle at 100, 100, 360 by 144
 
+  Scenario: Resizing snaps the edge a handle pulls to the slide's center, unless Alt is held
+    Given Ana has the deck "Shapes" open in the Design view
+    When Ana selects the rectangle and drags its right handle until its right edge is 3 left of the slide's center line, and holds it there
+    Then a guide shows on that line, with the rectangle's right edge on it
+    When Ana lets go of the handle
+    Then the deck has the rectangle at 100, 100, 390 by 100, and the guide is gone
+    When Ana drags the right handle 3 right with Alt held
+    Then the deck has the rectangle 393 wide
+
+  Scenario: A text box with auto height keeps it while its right edge snaps
+    Given Ana has the deck "Shapes" open in the Design view
+    When Ana adds a text box from the toolbar
+    And Ana drags its bottom right handle until its right edge is 3 right of the note's right edge, near the note's top
+    Then the text box ends at the note's right edge and still has an auto height
+
   Scenario: Pressing a handle without moving it changes nothing
     Given Ana has the deck "Shapes" open in the Design view
     When Ana adds a text box from the toolbar

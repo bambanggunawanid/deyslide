@@ -663,6 +663,51 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  Scenario('Resizing snaps the edge a handle pulls to the slide\'s center, unless Alt is held', ({ Given, When, Then }) => {
+    anaOpens(Given)
+    When('Ana selects the rectangle and drags its right handle until its right edge is 3 left of the slide\'s center line, and holds it there', async () => {
+      await select(RECTANGLE)
+      dragTo({ x: 300, y: 150 }, { x: 487, y: 150 }, {}, find('[data-element="box"] [data-handle="e"]')!)
+      await web.settle()
+    })
+    Then('a guide shows on that line, with the rectangle\'s right edge on it', () => {
+      const guide = find('[data-testid="snap-guide"]')
+      expect(guide?.dataset).toMatchObject({ axis: 'x', at: '490' })
+      expect(box('box').style.left).toBe('100px')
+      expect(box('box').style.width).toBe('390px')
+    })
+    When('Ana lets go of the handle', () => release({ x: 487, y: 150 }))
+    Then('the deck has the rectangle at 100, 100, 390 by 100, and the guide is gone', () => {
+      expectPos('box', { x: 100, y: 100, w: 390, h: 100, rotate: 0 })
+      expect(find('[data-testid="snap-guide"]')).toBeNull()
+    })
+    When('Ana drags the right handle 3 right with Alt held', async () => {
+      // Out past the distance a press may wander before it drags, and back.
+      dragTo({ x: 490, y: 150 }, { x: 500, y: 150 }, { alt: true }, find('[data-element="box"] [data-handle="e"]')!)
+      pointer('pointermove', { x: 493, y: 150 }, { alt: true })
+      await release({ x: 493, y: 150 }, { alt: true })
+    })
+    Then('the deck has the rectangle 393 wide', () => {
+      expectPos('box', { x: 100, y: 100, w: 393, h: 100, rotate: 0 })
+    })
+  })
+
+  Scenario('A text box with auto height keeps it while its right edge snaps', ({ Given, When, And, Then }) => {
+    let added: PositionedElement
+    anaOpens(Given)
+    When('Ana adds a text box from the toolbar', () => web.click('[data-testid="add-text"]'))
+    And('Ana drags its bottom right handle until its right edge is 3 right of the note\'s right edge, near the note\'s top', async () => {
+      added = elements().at(-1)!
+      // The new box spans 250 to 730 across, and its first guessed height ends at 304,
+      // 4 below the note's top: that edge would snap, but the drag does not change the height.
+      const corner = { x: 250 + 480, y: 248 + 56 }
+      await drag(corner, { x: 703, y: corner.y }, {}, find(`[data-element="${added.id}"] [data-handle="se"]`)!)
+    })
+    Then('the text box ends at the note\'s right edge and still has an auto height', () => {
+      expect(pos(added.id)).toEqual({ x: 250, y: 248, w: 450, h: null, rotate: 0 })
+    })
+  })
+
   Scenario('Pressing a handle without moving it changes nothing', ({ Given, When, And, Then }) => {
     let added: PositionedElement
     let steps: number

@@ -180,7 +180,7 @@ The deck page opens in Design: the real slide, drawn by the preview, under an ov
 | --- | --- | --- |
 | Select | Click, Shift adds | Tap |
 | Move | Drag, with guides that snap to the slide's edges and center lines and to other boxes. Alt or Option turns snapping off | Drag |
-| Resize, rotate | Eight handles, Shift keeps the ratio. The rotate handle turns, Shift snaps to 15 degrees | Larger handles |
+| Resize, rotate | Eight handles, Shift keeps the ratio. The edges a handle pulls snap as a move does, with the same guides; Alt or Option turns that off. A turned box resizes freely unless it sits at 0 degrees, since its edges do not run along the slide. The rotate handle turns, Shift steps by 15 degrees | Larger handles |
 | Edit text in place | Double click. Escape or a click outside closes it | Double tap |
 | Zoom | Ctrl or Cmd and the wheel, or the zoom menu (Fit, 50, 100, 200 percent) | Pinch, and two fingers pan |
 | Reorder slides | Drag in the slide strip | Long press, then drag |
@@ -491,7 +491,7 @@ Install Chromium once with `pnpm exec playwright install chromium`. To use a Chr
 - `DeckSchema` (Zod) validates a deck: slides with Slidev frontmatter, speaker notes, and elements. Element types are `text`, `image`, `shape`, `code` (one step, or several for a Magic Move), `scene3d`, `algo-player`, `sandbox`, and `raw` for Markdown the model does not understand.
 - `toMarkdown(deck)` writes Slidev Markdown. Positioned elements use Slidev's own `<v-drag pos="x,y,w,h,rotate">` in Slidev canvas units (980 by 551.25), so plain Slidev renders the output. Slide ids live in frontmatter as `id`, element ids as `data-id`.
 - `fromMarkdown(markdown)` reads it back. Anything it cannot represent exactly, including a `v-drag` block with a JavaScript expression, is kept byte for byte as a `raw` element.
-- `deckToYDoc(deck)` and `yDocToDeck(doc)` map the deck to a Yjs document. Positions are per field and text is `Y.Text`, so concurrent moves and typing merge.
+- `deckToYDoc(deck)` and `yDocToDeck(doc)` map the deck to a Yjs document. Positions are per field and text is `Y.Text`, so concurrent moves and typing merge. A block's settings (`props`, such as a shape's fill and stroke) and a slide's frontmatter keep one entry per key, so two people changing the fill and the stroke, or the layout and the transition, both keep their change. Frontmatter entries also hold their place, so every copy writes the keys in the same order. Decks stored before this hold each of them as one value: they read as before, and the first change to a block's settings or a slide's frontmatter stores it key by key, with no migration and no change to the Markdown.
 - The Yjs document is the single source of truth while a deck is open. `applyMarkdown` and `applyDeck` change it with the fewest operations: slides and boxes are lined up by the ids written in the Markdown, then by content, then by position (slides left between those by how alike their text is, so a slide edited next to one inserted or deleted keeps its id), so untouched slides keep their ids and shared text.
 - `mergeMarkdown` and `forkMarkdown` apply Markdown written against an older state through a fork of that state, so the Markdown view, the assistant, Claude Code and a file on disk never undo each other's work.
 - Structural edits (`insertSlide`, `moveSlide`, `updateElement`, `makeMovable` and the others in `edit.ts`) each run as one checked transaction. `readDeckDoc` reads a deck tolerantly and `repairDeckDoc` fixes one that concurrent edits left invalid.

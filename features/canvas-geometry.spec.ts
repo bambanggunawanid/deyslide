@@ -13,6 +13,7 @@ import {
   rotateHandlePlace,
   rotationFor,
   snapMove,
+  snapResize,
   toCanvas,
   zoomAt,
 } from '../apps/web/src/canvas/geometry'
@@ -191,6 +192,125 @@ describeFeature(feature, ({ Scenario }) => {
     })
     And('the only guide lies flat at 0', () => {
       expect(snapped.guides).toEqual([{ axis: 'y', at: 0, from: 0, to: 980 }])
+    })
+  })
+
+  Scenario('A resized edge snaps to the slide\'s center line', ({ Given, When, Then, And }) => {
+    let start: Box
+    let result: { box: Box, guides: Guide[] }
+    Given('a box whose right edge is 3 units left of the slide\'s center line', () => {
+      start = { x: 300, y: 100, w: 187, h: 100, rotate: 0 }
+    })
+    When('Ana drags its right handle 4 units to the right', () => {
+      result = snapResize(start, 'e', { x: 4, y: 0 }, [])
+    })
+    Then('the right edge sits on the center line and a guide shows it', () => {
+      expectBox(result.box, { x: 300, y: 100, w: 190, h: 100, rotate: 0 })
+      expect(result.guides).toEqual<Guide[]>([{ axis: 'x', at: 490, from: 0, to: 551.25 }])
+    })
+    And('the left edge stayed where it was', () => {
+      expect(result.box.x).toBe(300)
+    })
+  })
+
+  Scenario('A corner snaps each edge it pulls to another element', ({ Given, And, When, Then }) => {
+    let start: Box
+    let other: Bounds
+    let result: { box: Box, guides: Guide[] }
+    Given('a box at 100, 100 of 200 by 100', () => {
+      start = { x: 100, y: 100, w: 200, h: 100, rotate: 0 }
+    })
+    And('another element from 400 to 500 across and 300 to 400 down', () => {
+      other = { left: 400, top: 300, right: 500, bottom: 400 }
+    })
+    When('the bottom right handle moves 97 right and 197 down', () => {
+      result = snapResize(start, 'se', { x: 97, y: 197 }, [other])
+    })
+    Then('the box is at 100, 100 and 300 by 300', () => {
+      expectBox(result.box, { x: 100, y: 100, w: 300, h: 300 })
+    })
+    And('an upright guide and a flat one show at 400, each spanning both elements', () => {
+      expect(result.guides).toEqual<Guide[]>([
+        { axis: 'x', at: 400, from: 100, to: 400 },
+        { axis: 'y', at: 400, from: 100, to: 500 },
+      ])
+    })
+  })
+
+  Scenario('Only the edges a handle pulls snap, and nothing further than 5 units away', ({ Given, When, Then }) => {
+    let start: Box
+    let result: { box: Box, guides: Guide[] }
+    Given('a box at 3, 100 of 200 by 100', () => {
+      start = { x: 3, y: 100, w: 200, h: 100, rotate: 0 }
+    })
+    When('the right handle moves 281 right, leaving its right edge 6 units left of the slide\'s center line', () => {
+      result = snapResize(start, 'e', { x: 281, y: 0 }, [])
+    })
+    Then('the box is at 3, 100 and 481 by 100, with no guide', () => {
+      // The left edge is 3 units from the slide's edge, but the right handle does not pull it.
+      expectBox(result.box, { x: 3, y: 100, w: 481, h: 100 })
+      expect(result.guides).toEqual([])
+    })
+    When('the left handle moves 1 right instead', () => {
+      result = snapResize(start, 'w', { x: 1, y: 0 }, [])
+    })
+    Then('the box is at 0, 100 and 203 by 100, with a guide on the slide\'s left edge', () => {
+      expectBox(result.box, { x: 0, y: 100, w: 203, h: 100 })
+      expect(result.guides).toEqual<Guide[]>([{ axis: 'x', at: 0, from: 0, to: 551.25 }])
+    })
+  })
+
+  Scenario('With the ratio kept, a snapped corner keeps the ratio', ({ Given, When, Then }) => {
+    let start: Box
+    let result: { box: Box, guides: Guide[] }
+    Given('a box at 100, 100 of 200 by 100', () => {
+      start = { x: 100, y: 100, w: 200, h: 100, rotate: 0 }
+    })
+    When('the bottom right handle moves 187 right with the ratio kept', () => {
+      result = snapResize(start, 'se', { x: 187, y: 0 }, [], { keepRatio: true })
+    })
+    Then('the box is at 100, 100 and 390 by 195, with its right edge on the slide\'s center line', () => {
+      expectBox(result.box, { x: 100, y: 100, w: 390, h: 195 })
+      expect(result.guides).toEqual<Guide[]>([{ axis: 'x', at: 490, from: 0, to: 551.25 }])
+    })
+  })
+
+  Scenario('The bottom edge can be left out of snapping', ({ Given, When, Then }) => {
+    let start: Box
+    let result: { box: Box, guides: Guide[] }
+    Given('a box at 100, 100 of 200 by 100', () => {
+      start = { x: 100, y: 100, w: 200, h: 100, rotate: 0 }
+    })
+    When('the bottom right handle moves 187 right and 3 down with the bottom edge left out', () => {
+      // The bottom edge lands at 203, 3 units below the other element's top. Left out, it
+      // stays where the pointer took it, and only the right edge snaps.
+      result = snapResize(start, 'se', { x: 187, y: 3 }, [{ left: 600, top: 200, right: 700, bottom: 260 }], { axes: { y: false } })
+    })
+    Then('the box is at 100, 100 and 390 by 103, with only an upright guide', () => {
+      expectBox(result.box, { x: 100, y: 100, w: 390, h: 103 })
+      expect(result.guides.map(guide => guide.axis)).toEqual(['x'])
+      // Asked to, the bottom edge snaps to the other element's top.
+      expectBox(snapResize(start, 'se', { x: 187, y: 3 }, [{ left: 600, top: 200, right: 700, bottom: 260 }]).box, { w: 390, h: 100 })
+    })
+  })
+
+  Scenario('A turned box resizes without snapping', ({ Given, When, Then, And }) => {
+    let start: Box
+    let result: { box: Box, guides: Guide[] }
+    Given('a box whose right edge is 3 units left of the slide\'s center line, turned 10 degrees', () => {
+      start = { x: 300, y: 100, w: 187, h: 100, rotate: 10 }
+    })
+    When('Ana drags its right handle 4 units to the right', () => {
+      result = snapResize(start, 'e', { x: 4, y: 0 }, [])
+    })
+    Then('the box resizes as it would without snapping and no guide shows', () => {
+      expect(result.box).toEqual(resizeBox(start, 'e', { x: 4, y: 0 }))
+      expect(result.guides).toEqual([])
+    })
+    And('the same box turned a full circle snaps like an upright one', () => {
+      const turned = snapResize({ ...start, rotate: 360 }, 'e', { x: 4, y: 0 }, [])
+      expectBox(turned.box, { x: 300, y: 100, w: 190, h: 100 })
+      expect(turned.guides.map(guide => guide.at)).toEqual([490])
     })
   })
 
