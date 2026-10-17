@@ -46,6 +46,30 @@ Feature: Markdown view in sync with the live deck
     When Ana closes the comment
     Then the live deck has five slides, with the comment on slide 1
 
+  Scenario: Text typed after the --- on line 1 waits with an error, and undo takes it away
+    When Ana types "x" right after the "---" on line 1
+    Then the live deck still has its five slides as they were
+    And Ana sees the error "Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."
+    And Ana's editor still shows "---x" on line 1, as typing that is not saved
+    When Ana undoes
+    Then Ana's editor holds the deck as it was, with no note
+
+  Scenario: Text after a slide break waits even with a real change beside it
+    When Ana types "x" right after the "---" that opens slide 3
+    And Ana types "# Bubble sort, slowly" in place of the heading of slide 2 before the typing is merged
+    Then the live deck still has its five slides as they were
+    And Ana sees the error "Line 11 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."
+    When Ana takes the "x" back by hand
+    Then a moment later the live deck has "# Bubble sort, slowly" on slide 2, and Ana sees no note
+
+  Scenario: An edit that Slidev reads as no change waits with a note
+    When Ana writes the YAML comment "# the cover" after the title in the deck's frontmatter
+    Then the live deck still has its five slides as they were
+    And Ana sees the error "Deyslide cannot keep this edit: Slidev reads the Markdown just as before, so the deck stays as it was. Undo it or write it another way."
+    And Ana's editor still shows the comment, as typing that is not saved
+    When Ana takes the comment back by hand
+    Then Ana's editor holds the deck as it was, with no note
+
   Scenario: A comment that would run into another slide waits until it is closed
     Given Budi wrote "Split --> merge" on slide 3, and Ana's editor shows it
     When Ana starts an HTML comment after the heading of slide 1, which would end at the arrow on slide 3

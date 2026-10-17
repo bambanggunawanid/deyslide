@@ -109,6 +109,13 @@ Feature: Markdown editor
     And the editor says "Not saved yet: finish the Markdown change."
     And the stored deck's first slide still reads "Graphs"
 
+  Scenario: Text typed after the --- on line 1 is not saved, and the editor says why
+    Given the blank deck "Graphs" is open in the editor
+    When I type "x" right after the "---" on line 1
+    Then the error under the editor says "Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."
+    And the editor says "Not saved: fix the Markdown error."
+    And the stored deck still has "---" alone on line 1
+
   Scenario: Phones switch between writing and the preview
     Given the blank deck "Graphs" is open in the editor
     When I choose the "Preview" tab

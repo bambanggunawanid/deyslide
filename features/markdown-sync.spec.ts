@@ -3,7 +3,7 @@ import type { MarkdownBinding } from '../apps/web/src/editor/markdown-sync'
 import { describeFeature, loadFeature } from '@amiceli/vitest-cucumber'
 import { expect, vi } from 'vitest'
 import { CAPTURE_TIMEOUT_MS } from '../apps/web/src/deck/session'
-import { createMarkdownBinding, HOLD_MESSAGE, MERGE_DELAY_MS, NOT_KEPT_MESSAGE, PATCH_INTERVAL_MS, TYPING_WAITING_HINT, WAITING_HINT } from '../apps/web/src/editor/markdown-sync'
+import { createMarkdownBinding, HOLD_MESSAGE, MERGE_DELAY_MS, NO_CHANGE_MESSAGE, NOT_KEPT_MESSAGE, PATCH_INTERVAL_MS, slideBreakMessage, TYPING_WAITING_HINT, WAITING_HINT } from '../apps/web/src/editor/markdown-sync'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
 import { deckMarkdown, elementText, readDeckDoc, setNotes, slideAtLine, splitSlides } from '../packages/deck-model/src'
 import { accountDeck, changeSlide, EditorModel, openReady, setSlides, slidesOf } from './support/live-decks'
@@ -204,6 +204,94 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       expect(roomSlides()).toHaveLength(5)
       expect(roomSlides().slice(1)).toEqual(original.slice(1))
       expect(binding.problem.value).toBeUndefined()
+    })
+  })
+
+  /** Ana's typing is held back by an error: the deck does not have it, and the editor says so. */
+  const heldWithError = async (message: string) => {
+    await sleep(AFTER_MERGE)
+    expect(binding.problem.value).toEqual({ kind: 'invalid', message })
+    expect(binding.pending.value).toBe(true)
+  }
+  const deckAsItWas = async () => {
+    await sleep(AFTER_MERGE)
+    expect(roomSlides()).toEqual(original)
+    expect(slidesOf(ana.doc)).toEqual(original)
+  }
+  const editorAsItWas = async () => {
+    await vi.waitFor(() => expect(editor.text).toBe(originalText))
+    expect(editor.text).toBe(deckMarkdown(ana.doc))
+    expect(binding.problem.value).toBeUndefined()
+    expect(binding.pending.value).toBe(false)
+  }
+
+  Scenario('Text typed after the --- on line 1 waits with an error, and undo takes it away', ({ When, Then, And }) => {
+    When('Ana types "x" right after the "---" on line 1', () => {
+      expect(editor.text.startsWith('---\n')).toBe(true)
+      editor.edit({ from: 3, to: 3, insert: 'x' })
+    })
+    Then('the live deck still has its five slides as they were', deckAsItWas)
+    And('Ana sees the error "Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."', async () => {
+      expect(slideBreakMessage(1)).toBe('Line 1 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line.')
+      await heldWithError(slideBreakMessage(1))
+    })
+    And('Ana\'s editor still shows "---x" on line 1, as typing that is not saved', () => {
+      expect(editor.text.split('\n')[0]).toBe('---x')
+      expect(ana.typingPending.value).toBe(true)
+      expect(deckMarkdown(ana.doc).split('\n')[0]).toBe('---')
+    })
+    When('Ana undoes', () => {
+      ana.undoStep()
+    })
+    Then('Ana\'s editor holds the deck as it was, with no note', editorAsItWas)
+  })
+
+  Scenario('Text after a slide break waits even with a real change beside it', ({ When, And, Then }) => {
+    When('Ana types "x" right after the "---" that opens slide 3', () => {
+      const opening = '\n---\n\n# Merge sort'
+      const at = editor.text.indexOf(opening) + '\n---'.length
+      // Line 11, counted from 1.
+      expect(editor.text.slice(0, at).split('\n')).toHaveLength(11)
+      editor.edit({ from: at, to: at, insert: 'x' })
+    })
+    And('Ana types "# Bubble sort, slowly" in place of the heading of slide 2 before the typing is merged', () => {
+      editor.replace('# Bubble sort', '# Bubble sort, slowly')
+    })
+    Then('the live deck still has its five slides as they were', deckAsItWas)
+    And('Ana sees the error "Line 11 is a slide break, and Slidev ignores anything after its ---. Keep --- alone on that line."', () =>
+      heldWithError(slideBreakMessage(11)))
+    When('Ana takes the "x" back by hand', () => {
+      editor.replace('---x\n', '---\n')
+    })
+    Then('a moment later the live deck has "# Bubble sort, slowly" on slide 2, and Ana sees no note', async () => {
+      await vi.waitFor(() => expect(roomSlides()[1]).toBe('\n# Bubble sort, slowly\n'))
+      expect(roomSlides()).toHaveLength(5)
+      expect(binding.problem.value).toBeUndefined()
+      expect(binding.pending.value).toBe(false)
+      expect(editor.text).toBe(deckMarkdown(ana.doc))
+    })
+  })
+
+  Scenario('An edit that Slidev reads as no change waits with a note', ({ When, Then, And }) => {
+    When('Ana writes the YAML comment "# the cover" after the title in the deck\'s frontmatter', () => {
+      editor.replace('title: Sorting\n', 'title: Sorting # the cover\n')
+    })
+    Then('the live deck still has its five slides as they were', deckAsItWas)
+    And('Ana sees the error "Deyslide cannot keep this edit: Slidev reads the Markdown just as before, so the deck stays as it was. Undo it or write it another way."', async () => {
+      expect(NO_CHANGE_MESSAGE).toBe('Deyslide cannot keep this edit: Slidev reads the Markdown just as before, so the deck stays as it was. Undo it or write it another way.')
+      await heldWithError(NO_CHANGE_MESSAGE)
+    })
+    And('Ana\'s editor still shows the comment, as typing that is not saved', () => {
+      expect(editor.text).toContain('# the cover')
+      expect(deckMarkdown(ana.doc)).not.toContain('# the cover')
+      expect(ana.typingPending.value).toBe(true)
+    })
+    When('Ana takes the comment back by hand', () => {
+      editor.replace(' # the cover', '')
+    })
+    Then('Ana\'s editor holds the deck as it was, with no note', async () => {
+      await sleep(AFTER_MERGE)
+      await editorAsItWas()
     })
   })
 
