@@ -114,11 +114,15 @@ jobs:
           git merge --ff-only --quiet ${{ github.sha }}
 
           # Rootless Podman keeps its state in the user's runtime dir, which a
-          # non-interactive SSH login may not set.
+          # non-interactive SSH login may not set. The docker CLI talks to Podman's
+          # socket and builds with the server's BuildKit builder, which builds the
+          # shared stage once and keeps base images cached (Docker Hub limits
+          # anonymous pulls).
           export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
-          podman compose up -d --build --remove-orphans --wait --wait-timeout 300
-          podman image prune -f >/dev/null
-          podman compose ps
+          export DOCKER_HOST="unix://\$XDG_RUNTIME_DIR/podman/podman.sock"
+          docker compose up -d --build --remove-orphans --wait --wait-timeout 300
+          docker image prune -f >/dev/null
+          docker compose ps
           SCRIPT
 
       - name: Check the public site

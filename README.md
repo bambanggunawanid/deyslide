@@ -540,7 +540,7 @@ Production runs on the server from a clone of this repository at `~/projects/dey
 1. Runs the BDD scenarios (with Rust installed, since they build the on-device MCP server).
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
 3. Over Tailscale SSH, as user `ryzen`, sets the tunnel token in `~/projects/deyslide/.env` and writes the API settings to `server.env`.
-4. On the server, fast-forwards the clone to the pushed commit and runs `podman compose up -d --build --wait`. The images are built there from `deploy/Dockerfile`, and the old containers keep serving until the new ones are built. `compose.yaml` defines five services:
+4. On the server, fast-forwards the clone to the pushed commit and runs `docker compose up -d --build --wait`. The docker CLI talks to Podman's socket and builds with the server's BuildKit builder. The images are built there from `deploy/Dockerfile`, and the old containers keep serving until the new ones are built. `compose.yaml` defines five services:
 
    | Service | Image | Role |
    | --- | --- | --- |
@@ -597,7 +597,7 @@ systemctl --user enable podman-restart.service
 A manual deploy can be started from the Actions tab with **Run workflow** on the Deploy workflow. On the server itself, the same deploy is:
 
 ```bash
-cd ~/projects/deyslide && git pull --ff-only && podman compose up -d --build
+cd ~/projects/deyslide && git pull --ff-only && docker compose up -d --build
 ```
 
 ## Releases

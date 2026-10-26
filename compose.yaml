@@ -7,7 +7,7 @@
 # Nothing is published on the host. Settings live in two files next to this one, never committed:
 #   .env         CLOUDFLARE_TUNNEL_TOKEN, POSTGRES_PASSWORD and BETTER_AUTH_SECRET (see .env.example)
 #   server.env   API settings, written by the deploy workflow (see server.env.example)
-# The deploy workflow runs, on the server: git pull, then podman compose up -d --build
+# The deploy workflow runs, on the server: git pull, then docker compose up -d --build
 name: deyslide
 
 services:
