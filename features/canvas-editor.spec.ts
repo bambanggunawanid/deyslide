@@ -17,7 +17,7 @@ import { clearMediaLinks, mediaAddress } from '../apps/web/src/platform/media'
 import { LAYOUTS } from '../apps/web/src/preview/layouts'
 import { LAST_CLICKS } from '../apps/web/src/preview/protocol'
 import { CloudStore } from '../apps/web/src/projects/cloud-store'
-import { deckMarkdown, deckToYDoc, deleteSlide, duplicateSlide, fromMarkdown, moveSlide, readDeckDoc, setNotes, updateElement } from '../packages/deck-model/src'
+import { deckMarkdown, deckToYDoc, deleteSlide, duplicateSlide, fromMarkdown, insertSlide, moveSlide, readDeckDoc, setNotes, updateElement } from '../packages/deck-model/src'
 import { FakeAccountService } from './support/account'
 import { FakeAssistantApi } from './support/assistant-api'
 import { previewPositions, previewRequests, renderPreviews, reportPreviewSizes, resetEditorDoubles } from './support/editor-doubles'
@@ -153,8 +153,11 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
   let images: string[] = []
   let restoreFetch: (() => void) | undefined
   let restoreObserver: (() => void) | undefined
+  let restoreLayout: (() => void) | undefined
 
   AfterEachScenario(() => {
+    restoreLayout?.()
+    restoreLayout = undefined
     restoreFetch?.()
     restoreFetch = undefined
     restoreObserver?.()
@@ -301,6 +304,52 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
       const [left, top, width, height] = across ? [index * 150, 0, 140, 40] : [0, index * 50, 160, 40]
       item.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect
     }
+  }
+
+  /** How the strip scrolled: each call to its `scrollTo`. */
+  let stripScrolls: ScrollToOptions[] = []
+
+  /**
+   * Lays the strip out as a browser would, following its scroll: items of
+   * 40 pixels every 50 down a list with room for `room` of them, or every
+   * 150 across, 140 wide, on a phone.
+   */
+  function layScrollingStrip({ across = false, room }: { across?: boolean, room: number }) {
+    const list = find('[data-testid="slide-strip"] ol')!
+    const scroll = { left: 0, top: 0 }
+    stripScrolls = []
+    Object.defineProperty(list, 'scrollLeft', { configurable: true, get: () => scroll.left })
+    Object.defineProperty(list, 'scrollTop', { configurable: true, get: () => scroll.top })
+    list.scrollTo = ((options: ScrollToOptions) => {
+      stripScrolls.push(options)
+      scroll.left = options.left ?? scroll.left
+      scroll.top = options.top ?? scroll.top
+    }) as typeof list.scrollTo
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect
+    const proto = HTMLElement.prototype
+    const own = Object.getOwnPropertyDescriptor(proto, 'getBoundingClientRect')
+    const original = proto.getBoundingClientRect
+    proto.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === list)
+        return across ? rect(0, 0, room * 150, 40) : rect(0, 100, 160, room * 50)
+      if (this.dataset.testid === 'strip-slide') {
+        const index = findAll('[data-testid="strip-slide"]').indexOf(this)
+        return across ? rect(index * 150 - scroll.left, 0, 140, 40) : rect(0, 100 + index * 50 - scroll.top, 160, 40)
+      }
+      return original.call(this)
+    }
+    restoreLayout = () => {
+      if (own)
+        Object.defineProperty(proto, 'getBoundingClientRect', own)
+      else
+        delete (proto as Partial<HTMLElement>).getBoundingClientRect
+    }
+  }
+
+  async function nextSlides(count: number) {
+    for (let step = 0; step < count; step++)
+      await web.click('[data-testid="next-slide"]')
   }
 
   async function stripShows(expected: string[], current: number) {
@@ -660,6 +709,51 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
       drag({ x: 400, y: 220 }, { x: 460, y: 220 }, { shift: true }, find('[data-element="box"] [data-handle="se"]')!))
     Then('the deck has the rectangle at 100, 100, 360 by 144', () => {
       expectPos('box', { x: 100, y: 100, w: 360, h: 144, rotate: 0 })
+    })
+  })
+
+  Scenario('Resizing snaps the edge a handle pulls to the slide\'s center, unless Alt is held', ({ Given, When, Then }) => {
+    anaOpens(Given)
+    When('Ana selects the rectangle and drags its right handle until its right edge is 3 left of the slide\'s center line, and holds it there', async () => {
+      await select(RECTANGLE)
+      dragTo({ x: 300, y: 150 }, { x: 487, y: 150 }, {}, find('[data-element="box"] [data-handle="e"]')!)
+      await web.settle()
+    })
+    Then('a guide shows on that line, with the rectangle\'s right edge on it', () => {
+      const guide = find('[data-testid="snap-guide"]')
+      expect(guide?.dataset).toMatchObject({ axis: 'x', at: '490' })
+      expect(box('box').style.left).toBe('100px')
+      expect(box('box').style.width).toBe('390px')
+    })
+    When('Ana lets go of the handle', () => release({ x: 487, y: 150 }))
+    Then('the deck has the rectangle at 100, 100, 390 by 100, and the guide is gone', () => {
+      expectPos('box', { x: 100, y: 100, w: 390, h: 100, rotate: 0 })
+      expect(find('[data-testid="snap-guide"]')).toBeNull()
+    })
+    When('Ana drags the right handle 3 right with Alt held', async () => {
+      // Out past the distance a press may wander before it drags, and back.
+      dragTo({ x: 490, y: 150 }, { x: 500, y: 150 }, { alt: true }, find('[data-element="box"] [data-handle="e"]')!)
+      pointer('pointermove', { x: 493, y: 150 }, { alt: true })
+      await release({ x: 493, y: 150 }, { alt: true })
+    })
+    Then('the deck has the rectangle 393 wide', () => {
+      expectPos('box', { x: 100, y: 100, w: 393, h: 100, rotate: 0 })
+    })
+  })
+
+  Scenario('A text box with auto height keeps it while its right edge snaps', ({ Given, When, And, Then }) => {
+    let added: PositionedElement
+    anaOpens(Given)
+    When('Ana adds a text box from the toolbar', () => web.click('[data-testid="add-text"]'))
+    And('Ana drags its bottom right handle until its right edge is 3 right of the note\'s right edge, near the note\'s top', async () => {
+      added = elements().at(-1)!
+      // The new box spans 250 to 730 across, and its first guessed height ends at 304,
+      // 4 below the note's top: that edge would snap, but the drag does not change the height.
+      const corner = { x: 250 + 480, y: 248 + 56 }
+      await drag(corner, { x: 703, y: corner.y }, {}, find(`[data-element="${added.id}"] [data-handle="se"]`)!)
+    })
+    Then('the text box ends at the note\'s right edge and still has an auto height', () => {
+      expect(pos(added.id)).toEqual({ x: 250, y: 248, w: 450, h: null, rotate: 0 })
     })
   })
 
@@ -1024,6 +1118,78 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
+  Scenario('The strip keeps the current slide in sight, whatever changes it', ({ Given, When, Then }) => {
+    Given('Ana has a deck of 20 slides open in the Design view, with room for 5 slides in the strip', async () => {
+      await openDeck('Twenty')
+      layScrollingStrip({ room: 5 })
+    })
+    When('Ana goes to slide 8 with the next slide button', async () => {
+      await nextSlides(7)
+      expect(text('[data-testid="slide-position"]')).toBe('Slide 8 of 20')
+    })
+    Then('the strip scrolled smoothly, only once slide 6 was out of sight, until slide 8 is the last slide in sight', () => {
+      // Slide 8 ends 7 * 50 + 40 pixels down the list, which shows 250.
+      expect(stripScrolls).toEqual([
+        { left: 0, top: 40, behavior: 'smooth' },
+        { left: 0, top: 90, behavior: 'smooth' },
+        { left: 0, top: 140, behavior: 'smooth' },
+      ])
+    })
+    When('Ana adds a slide after slide 8', () => web.click('[data-testid="add-slide"]'))
+    Then('the strip scrolls smoothly until the new slide 9 is the last slide in sight', async () => {
+      await stripShows([...range(1, 8).map(number => `${number} Slide ${number}`), '9 Empty slide', ...range(9, 20).map(number => `${number + 1} Slide ${number}`)], 9)
+      expect(stripScrolls.at(-1)).toEqual({ left: 0, top: 190, behavior: 'smooth' })
+    })
+    When('someone else adds a slide at the start of the deck', async () => {
+      insertSlide(session().doc, 0, { id: 'from-budi', frontmatter: {}, elements: [] }, 'budi')
+      await web.settle()
+    })
+    Then('the strip scrolls along, so the new slide, now slide 10, stays the last slide in sight', async () => {
+      await vi.waitFor(() => expect(currentInStrip()).toBe(10))
+      expect(stripScrolls.at(-1)).toEqual({ left: 0, top: 240, behavior: 'smooth' })
+    })
+    When('Ana goes back to slide 2 with the previous slide button', async () => {
+      for (let step = 0; step < 8; step++)
+        await web.click('[data-testid="previous-slide"]')
+      expect(text('[data-testid="slide-position"]')).toBe('Slide 2 of 22')
+    })
+    Then('the strip scrolls smoothly until slide 2 is the first slide in sight', () => {
+      expect(stripScrolls.at(-1)).toEqual({ left: 0, top: 50, behavior: 'smooth' })
+    })
+  })
+
+  Scenario('Without motion the strip jumps to the current slide', ({ Given, When, Then }) => {
+    Given('Ana asked her system for less motion, and has a deck of 20 slides open in the Design view, with room for 5 slides in the strip', async () => {
+      const original = window.matchMedia
+      window.matchMedia = ((query: string) => ({ matches: query.includes('prefers-reduced-motion: reduce'), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+      restoreMatchMedia = () => {
+        window.matchMedia = original
+      }
+      await openDeck('Twenty')
+      layScrollingStrip({ room: 5 })
+    })
+    When('Ana goes to slide 6 with the next slide button', () => nextSlides(5))
+    Then('the strip jumps, without smooth scrolling, until slide 6 is the last slide in sight', () => {
+      expect(stripScrolls).toEqual([{ left: 0, top: 40, behavior: 'auto' }])
+    })
+  })
+
+  Scenario('On a phone the strip scrolls across to the current slide', ({ Given, When, Then }) => {
+    Given('Ana has a deck of 20 slides open in the Design view on a phone, with room for 2 slides in the strip', async () => {
+      screenIs({ phone: true })
+      await openDeck('Twenty')
+      layScrollingStrip({ across: true, room: 2 })
+    })
+    When('Ana goes to slide 4 with the next slide button', () => nextSlides(3))
+    Then('the strip scrolls smoothly across until slide 4 is the last slide in sight', () => {
+      // Slide 4 ends 3 * 150 + 140 pixels along the strip, which shows 300.
+      expect(stripScrolls).toEqual([
+        { left: 140, top: 0, behavior: 'smooth' },
+        { left: 290, top: 0, behavior: 'smooth' },
+      ])
+    })
+  })
+
   Scenario('A long press on a slide reorders it on touch, and a swipe does not', ({ Given, When, Then }) => {
     Given('Ana has the deck "Three" open in the Design view on a phone', async () => {
       await openDeck('Three')
@@ -1273,7 +1439,7 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
     })
   })
 
-  Scenario('On a touch screen a small box keeps its middle free of handles', ({ Given, When, Then }) => {
+  Scenario('On a touch screen a small box keeps its middle free of handles', ({ Given, When, Then, And }) => {
     let added: PositionedElement
     Given('Ana has the deck "Shapes" open in the Design view on a touch screen', async () => {
       touchScreen()
@@ -1291,6 +1457,12 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
         ['480px', '56px', '24px'],
         ['-24px', '56px', '24px'],
       ])
+    })
+    And('its rotate handle sits clear of the corner handles above it', () => {
+      const rotate = find(`[data-element="${added.id}"] [data-testid="rotate-handle"]`)!
+      expect(rotate.dataset.place).toBe('above')
+      // Centered 40 pixels above the box: its lower edge, 28 above, is past the corner handles' 24.
+      expect([rotate.style.top, rotate.style.width]).toEqual(['-52px', '24px'])
     })
     When('Ana double taps the middle of the text box', async () => {
       await tap({ x: 490, y: 276 }, { touch: true })
@@ -1893,10 +2065,10 @@ describeFeature(feature, ({ Scenario, AfterEachScenario }) => {
   Scenario('Slide settings', ({ Given, Then, When, And }) => {
     const options = () => [...(find('[data-testid="field-layout"]') as HTMLSelectElement).options].map(option => option.value)
     anaOpens(Given)
-    Then('the layout menu offers "Automatic (cover)", then the preview\'s own layouts', async () => {
+    Then('the layout menu offers "Auto (cover)", then the preview\'s own layouts', async () => {
       await vi.waitFor(() => expect(options()).toEqual(['', ...Object.keys(LAYOUTS)]))
       // The first slide is a cover unless it names a layout: the empty choice says so, unlike "default".
-      expect((find('[data-testid="field-layout"]') as HTMLSelectElement).options[0].textContent?.trim()).toBe('Automatic (cover)')
+      expect((find('[data-testid="field-layout"]') as HTMLSelectElement).options[0].textContent?.trim()).toBe('Auto (cover)')
       expect((find('[data-testid="field-layout"]') as HTMLSelectElement).value).toBe('default')
     })
     When('Ana chooses the "center" layout and the "slide-up" transition', async () => {

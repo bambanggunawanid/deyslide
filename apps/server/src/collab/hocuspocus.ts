@@ -3,7 +3,7 @@ import type { Auth } from '../auth.ts'
 import type { Role } from '../db.ts'
 import type { ProjectStore } from '../projects.ts'
 import { Buffer } from 'node:buffer'
-import { applyDeck, checkDeckDoc, DECK_KEY, readDeckDoc, repairDeckDoc } from '@deyslide/deck-model'
+import { applyDeck, checkDeckDoc, DECK_KEY, LIVE_SHAPE, readDeckDoc, repairDeckDoc, SHAPE_PARAM, SHAPE_REFUSED, upgradeDeckDoc } from '@deyslide/deck-model'
 import { Hocuspocus, shouldSkipStoreHooks } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { verifyAccessToken } from '../access-token.ts'
@@ -33,12 +33,35 @@ export interface CollabContext {
 }
 
 /**
- * Refuses a connection. It reads the same whether the deck is missing, not
- * shared with the person or their sign in failed, and Hocuspocus logs no
- * message for it.
+ * Why a connection was refused, as the page reads it. Pages keep their
+ * copy of a deck unless the refusal is final (`permission-denied`).
  */
-class NoAccess extends Error {
-  readonly reason = 'permission-denied'
+export const REFUSALS = {
+  /** Final: the deck is missing or not shared with the person. It reads the same either way. */
+  noAccess: 'permission-denied',
+  /** The sign in the page joined with is not valid (anymore): it ended, expired or was never there. */
+  signedOut: 'signed-out',
+  /** Access could not be checked just now (the database, say). The page joins again later. */
+  tryAgain: 'try-again',
+} as const
+
+/** Refuses a connection with one of {@link REFUSALS}. Hocuspocus logs no message for it. */
+class Refused extends Error {
+  readonly reason: typeof REFUSALS[keyof typeof REFUSALS]
+
+  constructor(reason: typeof REFUSALS[keyof typeof REFUSALS]) {
+    super(reason)
+    this.reason = reason
+  }
+}
+
+/**
+ * Refuses a client whose code reads and writes another shape of the live
+ * document (see `LIVE_SHAPE`): an older tab or app would read some of the
+ * deck as empty and write that back for everyone.
+ */
+class ShapeRefused extends Error {
+  readonly reason = SHAPE_REFUSED
 }
 
 /** A room was opened for a deck that no longer exists. */
@@ -307,12 +330,28 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
     maxDebounce: 10_000,
     quiet: true,
 
-    async onAuthenticate({ token, requestHeaders, documentName, connectionConfig }) {
-      const person = await personOf(token, requestHeaders)
+    async onAuthenticate({ token, requestHeaders, requestParameters, documentName, connectionConfig }) {
+      if (requestParameters.get(SHAPE_PARAM) !== String(LIVE_SHAPE))
+        throw new ShapeRefused()
+      // A page on another site never gets in, and learns nothing about the sign in.
+      if (token === COOKIE_TOKEN && requestHeaders.get('origin') !== publicUrl)
+        throw new Refused(REFUSALS.noAccess)
+      let person: Awaited<ReturnType<typeof personOf>>
+      let access: Awaited<ReturnType<typeof projects.deckAccess>> | undefined
       const deckId = deckIdOf(documentName)
-      const access = person && deckId ? await projects.deckAccess(person.id, deckId) : undefined
-      if (!person || !access)
-        throw new NoAccess()
+      try {
+        person = await personOf(token, requestHeaders)
+        access = person && deckId ? await projects.deckAccess(person.id, deckId) : undefined
+      }
+      catch (error) {
+        // Not a refusal: the page keeps what it has and joins again later.
+        console.error(`Could not check access to the live deck ${documentName}`, error)
+        throw new Refused(REFUSALS.tryAgain)
+      }
+      if (!person)
+        throw new Refused(REFUSALS.signedOut)
+      if (!access)
+        throw new Refused(REFUSALS.noAccess)
       // Viewers follow along: the room ignores their changes but shows their presence.
       if (!atLeast(access.role, 'editor'))
         connectionConfig.readOnly = true
@@ -350,6 +389,9 @@ export function createCollab({ auth, projects, publicUrl, signInCheckMs = SIGN_I
         if (!shouldSkipStoreHooks(origin))
           unsaved.add(document)
       })
+      // A deck stored before settings were split gets them key by key now,
+      // before anyone edits it, and the change is saved like any other.
+      upgradeDeckDoc(document, { source: 'local' })
     },
 
     async onChange({ documentName, instance }) {

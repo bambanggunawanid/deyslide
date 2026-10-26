@@ -22,7 +22,13 @@ export class AccountError extends Error {}
 
 export interface AccountService {
   options: () => Promise<SignInOptions>
+  /** The signed in account. Undefined when signed out, and when the server could not say (see `unsure`). */
   current: () => Promise<Account | undefined>
+  /**
+   * True when the last `current` got no answer from the server, offline
+   * say, so undefined did not mean signed out.
+   */
+  readonly unsure?: boolean
   /** Creates the account and sends the confirmation email. */
   signUp: (input: { name: string, email: string, password: string }) => Promise<void>
   /** `next` is where the browser goes after signing in, when not the home page. */

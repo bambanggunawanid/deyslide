@@ -9,7 +9,7 @@ import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { roomName } from '../apps/server/src/collab/rooms'
 import { R2MediaStorage } from '../apps/server/src/media/storage'
-import { applyMarkdown, deckMarkdown, deckToYDoc, fromMarkdown } from '../packages/deck-model/src'
+import { applyMarkdown, deckMarkdown, deckToYDoc, fromMarkdown, withLiveShape } from '../packages/deck-model/src'
 import { FakeMediaStorage, sampleFile } from './support/media-storage'
 import { closeTestServers, createTestServer, DATABASE_WARM_UP_MS, TestBrowser as Browser, signedInBrowser, warmUpDatabase } from './support/server'
 
@@ -45,7 +45,7 @@ async function openLive(server: TestServer, browser: TestBrowser, deckId: string
     }
   }
   const doc = new Y.Doc()
-  const socket = new HocuspocusProviderWebsocket({ url: collabUrl, WebSocketPolyfill: PageSocket })
+  const socket = new HocuspocusProviderWebsocket({ url: withLiveShape(collabUrl), WebSocketPolyfill: PageSocket })
   const provider = new HocuspocusProvider({ websocketProvider: socket, name: roomName(deckId), document: doc, token: 'cookie' })
   provider.attach()
   await vi.waitFor(() => expect(provider.isSynced).toBe(true), SOON)

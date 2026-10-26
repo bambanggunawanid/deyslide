@@ -86,6 +86,225 @@ export function positionToY(pos: Position) {
   return map
 }
 
+// Settings --------------------------------------------------------------------
+//
+// An element's `props` and a slide's `frontmatter` are stored as a Y.Map
+// with one entry per top level key, so two people changing different keys
+// at once both keep their change. Decks stored before this hold one plain
+// object instead: readers accept both shapes, and the first change writes
+// the map (the server converts a cloud deck when its room loads, see
+// `upgradeDeckDoc`).
+//
+// Props entries are the plain values. Their order does not matter, because
+// the schema puts them in its own order when an element is read.
+//
+// Frontmatter keys are written to YAML in their order, but peers can see the
+// keys of a Y.Map in different orders. So each frontmatter entry is a Y.Map
+// of its own with two fields, `value` and `order`, and keys are read sorted
+// by `order`, then by key (two people adding a key at once can pick the same
+// number). The two fields merge apart: a write that only moves keys changes
+// their `order`, so someone changing one of their values at that moment
+// keeps the change.
+
+/** One stored frontmatter key, as plain values. */
+export interface FrontmatterEntry {
+  value: unknown
+  order: number
+}
+
+/** A stored frontmatter entry as plain values, or undefined when it is not stored the right way. */
+export function frontmatterEntry(entry: unknown): FrontmatterEntry | undefined {
+  if (!(entry instanceof Y.Map) || !entry.has('value'))
+    return undefined
+  const order = entry.get('order')
+  return typeof order === 'number' && Number.isFinite(order) ? { value: entry.get('value'), order } : undefined
+}
+
+export function isFrontmatterEntry(entry: unknown): boolean {
+  return frontmatterEntry(entry) !== undefined
+}
+
+function frontmatterEntryToY(value: unknown, order: number) {
+  const entry = new Y.Map<unknown>()
+  entry.set('value', value)
+  entry.set('order', order)
+  return entry
+}
+
+/** Whether one key's place comes before another's: by order, then by key. */
+function precedes([order, key]: [number, string], [nextOrder, nextKey]: [number, string]) {
+  return order < nextOrder || (order === nextOrder && key < nextKey)
+}
+
+/** The well formed entries of a frontmatter map, in their order. */
+function frontmatterEntries(map: Y.Map<unknown>): [string, FrontmatterEntry][] {
+  const entries: [string, FrontmatterEntry][] = []
+  for (const [key, value] of map.entries()) {
+    const entry = frontmatterEntry(value)
+    if (entry)
+      entries.push([key, entry])
+  }
+  return entries.sort(([a, first], [b, second]) => precedes([first.order, a], [second.order, b]) ? -1 : precedes([second.order, b], [first.order, a]) ? 1 : 0)
+}
+
+/**
+ * Frontmatter as stored, as one plain value: a frontmatter map's keys in
+ * their order (leaving out entries that are not stored the right way), or an
+ * older plain value as it is.
+ */
+export function storedFrontmatter(value: unknown): unknown {
+  if (!(value instanceof Y.Map))
+    return value
+  return Object.fromEntries(frontmatterEntries(value).map(([key, entry]) => [key, entry.value]))
+}
+
+export function frontmatterToY(frontmatter: Record<string, unknown>) {
+  const map = new Y.Map<unknown>()
+  for (const [order, [key, value]] of Object.entries(frontmatter).entries())
+    map.set(key, frontmatterEntryToY(value, order))
+  return map
+}
+
+/**
+ * The order number of each key of `keys`. Keys the map holds keep theirs
+ * while they are read in that same order (two keys with one number count as
+ * in order when their names are), and new keys fit between their neighbors.
+ * When keys changed places, or no number fits, every key is numbered again
+ * from 0.
+ */
+function frontmatterOrders(map: Y.Map<unknown>, keys: string[]): number[] {
+  const stored = new Map(frontmatterEntries(map).map(([key, entry]) => [key, entry.order]))
+  const orders: (number | undefined)[] = keys.map(key => stored.get(key))
+  const renumbered = keys.map((_, index) => index)
+  let last: [number, string] | undefined
+  for (const [index, order] of orders.entries()) {
+    if (order === undefined)
+      continue
+    const place: [number, string] = [order, keys[index]]
+    if (last && !precedes(last, place))
+      return renumbered
+    last = place
+  }
+  for (let index = 0; index < keys.length; index++) {
+    if (orders[index] !== undefined)
+      continue
+    const before: [number, string] | undefined = index > 0 ? [orders[index - 1]!, keys[index - 1]] : undefined
+    const next = orders.findIndex((order, at) => at > index && order !== undefined)
+    const after: [number, string] | undefined = next < 0 ? undefined : [orders[next]!, keys[next]]
+    const order = before === undefined
+      ? (after === undefined ? 0 : after[0] - 1)
+      : (after === undefined ? before[0] + 1 : (before[0] + after[0]) / 2)
+    const place: [number, string] = [order, keys[index]]
+    if ((before && !precedes(before, place)) || (after && !precedes(place, after)))
+      return renumbered
+    orders[index] = order
+  }
+  return orders as number[]
+}
+
+/**
+ * Makes a slide map hold `frontmatter`. A frontmatter map changes only the
+ * fields that differ (a key's value, or its order when it moved) and deletes
+ * the keys that are gone; an older plain value becomes a frontmatter map.
+ * Runs inside the caller's transaction.
+ */
+export function writeFrontmatter(slide: Y.Map<unknown>, frontmatter: Record<string, unknown>) {
+  const map = slide.get('frontmatter')
+  if (!(map instanceof Y.Map)) {
+    if (!isRecord(map) || !sameJson(map, frontmatter))
+      slide.set('frontmatter', frontmatterToY(frontmatter))
+    return
+  }
+  const keys = Object.keys(frontmatter)
+  for (const key of [...map.keys()]) {
+    if (!Object.hasOwn(frontmatter, key) || !isFrontmatterEntry(map.get(key)))
+      map.delete(key)
+  }
+  const orders = frontmatterOrders(map, keys)
+  for (const [index, key] of keys.entries()) {
+    const entry = map.get(key)
+    const stored = frontmatterEntry(entry)
+    const value = frontmatter[key]
+    if (!stored) {
+      map.set(key, frontmatterEntryToY(value, orders[index]))
+      continue
+    }
+    if (stored.order !== orders[index])
+      (entry as Y.Map<unknown>).set('order', orders[index])
+    if (!sameJson(stored.value, value))
+      (entry as Y.Map<unknown>).set('value', value)
+  }
+}
+
+export function propsToY(props: Record<string, unknown>) {
+  const map = new Y.Map<unknown>()
+  for (const [key, value] of Object.entries(props))
+    map.set(key, value)
+  return map
+}
+
+/**
+ * Makes an element map hold `props`. A props map changes only the keys whose
+ * value differs and deletes the keys that are gone; an older plain value
+ * becomes a props map. Runs inside the caller's transaction.
+ */
+export function writeProps(element: Y.Map<unknown>, props: Record<string, unknown>) {
+  const map = element.get('props')
+  if (!(map instanceof Y.Map)) {
+    if (!sameJson(map, props))
+      element.set('props', propsToY(props))
+    return
+  }
+  for (const key of [...map.keys()]) {
+    if (!Object.hasOwn(props, key))
+      map.delete(key)
+  }
+  for (const [key, value] of Object.entries(props)) {
+    if (!map.has(key) || !sameJson(map.get(key), value))
+      map.set(key, value)
+  }
+}
+
+/** A copy of a shared value, or the value itself when it is plain. */
+function cloneValue(value: unknown) {
+  return value instanceof Y.AbstractType ? value.clone() : value
+}
+
+/**
+ * A copy of an element map, to insert elsewhere: Yjs cannot move a shared
+ * type. Older plain props are copied as a props map, like any other write.
+ */
+export function cloneElement(map: Y.Map<unknown>): Y.Map<unknown> {
+  const copy = new Y.Map<unknown>()
+  for (const [key, value] of map.entries()) {
+    const plainProps = key === 'props' && !(value instanceof Y.Map) && isRecord(value)
+    copy.set(key, plainProps ? propsToY(value) : cloneValue(value))
+  }
+  return copy
+}
+
+/**
+ * A copy of a slide map and its elements, to insert elsewhere. Older plain
+ * frontmatter and props are copied as maps, like any other write.
+ */
+export function cloneSlide(map: Y.Map<unknown>): Y.Map<unknown> {
+  const copy = new Y.Map<unknown>()
+  for (const [key, value] of map.entries()) {
+    if (key === 'frontmatter' && !(value instanceof Y.Map) && isRecord(value)) {
+      copy.set(key, frontmatterToY(value))
+    }
+    else if (key === 'elements' && value instanceof Y.Array) {
+      const elements = new Y.Array<unknown>()
+      elements.push(value.toArray().map(element => element instanceof Y.Map ? cloneElement(element) : cloneValue(element)))
+      copy.set(key, elements)
+    }
+    else {
+      copy.set(key, cloneValue(value))
+    }
+  }
+  return copy
+}
+
 export function elementToY(element: DeckElement) {
   const map = new Y.Map<unknown>()
   for (const [key, value] of Object.entries(element)) {
@@ -93,6 +312,8 @@ export function elementToY(element: DeckElement) {
       map.set(key, positionToY(value as Position))
     else if (key === 'markdown')
       map.set(key, new Y.Text(value as string))
+    else if (key === 'props')
+      map.set(key, propsToY(value as Record<string, unknown>))
     else
       map.set(key, value)
   }
@@ -102,7 +323,7 @@ export function elementToY(element: DeckElement) {
 export function slideToY(slide: Slide) {
   const map = new Y.Map<unknown>()
   map.set('id', slide.id)
-  map.set('frontmatter', slide.frontmatter)
+  map.set('frontmatter', frontmatterToY(slide.frontmatter))
   map.set('notes', new Y.Text(slide.notes ?? ''))
   const elements = new Y.Array<Y.Map<unknown>>()
   elements.push(slide.elements.map(elementToY))
@@ -110,7 +331,10 @@ export function slideToY(slide: Slide) {
   return map
 }
 
-/** An element map as plain values, without checking it. */
+/**
+ * An element map as plain values, without checking it. A props map reads as
+ * its keys and values, like an older plain props value.
+ */
 export function elementValues(map: Y.Map<unknown>): Record<string, unknown> {
   const element: Record<string, unknown> = {}
   for (const [key, value] of map.entries()) {
@@ -160,7 +384,7 @@ export function readSlideEntry(value: unknown): SlideEntry | undefined {
     : []
   const slide: Slide = {
     id,
-    frontmatter: readFrontmatter(frontmatter),
+    frontmatter: readFrontmatter(storedFrontmatter(frontmatter)),
     elements: elements.flatMap(entry => entry.element ? [entry.element] : []),
   }
   const text = notes instanceof Y.Text ? notes.toString() : ''

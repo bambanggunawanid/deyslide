@@ -35,6 +35,22 @@ Feature: Live connection of an account deck
     When Ana removes Budi from the project
     Then Budi's connection says "You no longer have access to this deck." and is read only
 
+  Scenario: A page older than the deck's shape on the server is told to update
+    Given the server holds decks in a newer shape than Ana's page reads
+    When Ana's page connects to the deck
+    Then the connection says "Deyslide was updated. Reload the page, or update the app, to keep editing this deck." and is read only
+
+  Scenario: A page whose sign in ended is told to sign in again, not refused for good
+    Given Ana's sign in ended on the server
+    When Ana's page connects to the deck
+    Then the connection says "Your sign in ended. Sign in again to save your changes." and is read only
+    And the failure is a sign in that ended, not a refusal
+
+  Scenario: A page joins again when the server cannot check access just then
+    Given the server cannot check access the next time someone joins
+    When Ana's page connects to the deck
+    Then a moment later it holds the deck and says "Saved", without failing
+
   Scenario: Someone whose role changes joins again with the new role
     Given Ana shared the project with Budi as an editor
     And Budi's page is connected to the deck

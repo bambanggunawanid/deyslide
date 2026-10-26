@@ -23,3 +23,4 @@ Feature: Approving the Deyslide apps in the browser
     And the app "Claude Code" asks for the MCP endpoint with the answer going to "http://localhost:33418/callback"
     Then it lists "See your projects and decks, and those shared with you", "Create projects and decks" and "Change the slides in decks you can edit"
     And it says the app cannot delete projects or decks
+    And the list shows a bullet before each item

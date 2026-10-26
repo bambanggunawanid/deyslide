@@ -10,6 +10,7 @@ import { useWorkspace } from '../composables/useProjects'
 import { plural, timeAgo } from '../format'
 import ClaudeCodePanel from '../platform/ClaudeCodePanel.vue'
 import { isDesktopApp } from '../platform/platform'
+import UpdatesPanel from '../platform/UpdatesPanel.vue'
 
 /**
  * The website lists one set of projects: the browser's for guests, the
@@ -119,6 +120,11 @@ async function createProject(name: string) {
         </button>
       </div>
 
+      <p v-if="section.store.offline?.value" class="m-0 mt-4 flex flex-wrap items-center gap-2 text-sm text-dey-muted" role="status" data-testid="projects-offline">
+        <span class="rounded-full border border-dey-line px-2 py-0.5 text-xs">Offline</span>
+        <span>These are your projects as of your last connection. Decks opened on this device before open and change offline.</span>
+      </p>
+
       <p v-if="problemOf(section)" class="m-0 mt-4 text-sm text-rose-300" role="alert" data-testid="library-problem">
         {{ problemOf(section) }}
       </p>
@@ -171,6 +177,7 @@ async function createProject(name: string) {
     </section>
 
     <ClaudeCodePanel v-if="desktop" />
+    <UpdatesPanel />
 
     <NameDialog
       v-model:open="creating"

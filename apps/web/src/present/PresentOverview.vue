@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="absolute inset-0 overflow-y-auto bg-black/90 p-4" role="dialog" aria-label="All slides" data-testid="present-overview-grid" @click.self="emit('close')">
+  <div class="absolute inset-0 overflow-y-auto bg-black p-4" role="dialog" aria-label="All slides" data-testid="present-overview-grid" @click.self="emit('close')">
     <div class="mb-3 flex items-center justify-between gap-2">
       <h2 class="m-0 text-base font-medium text-slate-300">
         All slides

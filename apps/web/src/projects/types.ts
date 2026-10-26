@@ -1,4 +1,5 @@
 import type { Deck } from '@deyslide/deck-model'
+import type { Ref } from 'vue'
 import type { DeckSession, OpenDeckOptions } from '../deck/session'
 import type { DeckTemplate } from '../guest/templates'
 import type { DeckSummary, Project } from '../guest/types'
@@ -42,6 +43,13 @@ export interface ProjectStore {
    * save at once have none.
    */
   flushAll?: () => Promise<string[]>
+  /**
+   * True while the lists come from this device because the server is out
+   * of reach. Only the account's store is ever offline.
+   */
+  offline?: Readonly<Ref<boolean>>
+  /** Whether a deck has a copy on this device, so it opens and changes offline. */
+  keptOnDevice?: (deckId: string) => boolean
 }
 
 /** A browser project with each deck's Yjs document in base64, ready to move into an account. */

@@ -9,16 +9,19 @@ import { escapeNotes } from './scan.ts'
 import { DECK_VERSION, DeckSchema } from './schema.ts'
 import { applyTextDiff } from './text-diff.ts'
 import {
+  cloneElement,
+  cloneSlide,
   DECK_KEY,
   DeckNotLoadedError,
   elementToY,
-  isRecord,
   POSITION_KEYS,
   positionToY,
   readSlideEntry,
   sameJson,
   slidesOf,
   slideToY,
+  writeFrontmatter,
+  writeProps,
   zodMessage,
 } from './y-shape.ts'
 
@@ -394,6 +397,9 @@ function patchElement(map: Y.Map<unknown>, next: DeckElement) {
       else
         map.set('markdown', new Y.Text(value as string))
     }
+    else if (key === 'props') {
+      writeProps(map, value as Record<string, unknown>)
+    }
     else if (!sameJson(map.get(key), value)) {
       map.set(key, value)
     }
@@ -426,7 +432,7 @@ function applyElements(array: Y.Array<unknown>, entry: SlideEntry, next: DeckEle
   const copies = new Map<number, Y.Map<unknown>>()
   for (const [index, from] of match.entries()) {
     if (from >= 0 && !stays[index])
-      copies.set(index, (entry.elements[from].map as Y.Map<unknown>).clone())
+      copies.set(index, cloneElement(entry.elements[from].map as Y.Map<unknown>))
   }
   const keep = entry.elements.map(() => false)
   for (const [index, from] of match.entries()) {
@@ -446,9 +452,7 @@ function applyElements(array: Y.Array<unknown>, entry: SlideEntry, next: DeckEle
 
 /** Makes a changed slide hold `next`: frontmatter, notes and elements. */
 function applySlide(map: Y.Map<unknown>, next: Slide, explicit: boolean[]) {
-  const frontmatter = map.get('frontmatter')
-  if (!isRecord(frontmatter) || !sameJson(frontmatter, next.frontmatter))
-    map.set('frontmatter', next.frontmatter)
+  writeFrontmatter(map, next.frontmatter)
   // Notes that write the same Markdown are left alone, like elements, so the
   // trailing space someone just typed in them survives.
   const notes = map.get('notes')
@@ -518,9 +522,9 @@ export interface ApplyDeckOptions {
  *   order in each gap (by place when the gap's sides are the same size and
  *   no slide clearly continues another). Old slides left over are deleted;
  *   new ones are inserted.
- * - Inside a changed slide, frontmatter is replaced when it differs, notes
- *   change by a text diff, and elements pair the same way (by place and type
- *   in the gaps), then change field by field.
+ * - Inside a changed slide, frontmatter changes key by key, notes change
+ *   by a text diff, and elements pair the same way (by place and type in
+ *   the gaps), then change field by field (props key by key).
  * - Paired slides and elements keep their ids. New ones keep an explicit id
  *   when it is free, and get a fresh id otherwise.
  *
@@ -563,7 +567,7 @@ export function applyDeck(doc: Y.Doc, input: ParsedDeck | Deck, origin?: unknown
   const copies = new Map<number, Y.Map<unknown>>()
   for (const [index, from] of match.entries()) {
     if (from >= 0 && !stays[index])
-      copies.set(index, entries[from]!.map.clone())
+      copies.set(index, cloneSlide(entries[from]!.map))
   }
   const keep = entries.map(() => false)
   for (const [index, from] of match.entries()) {

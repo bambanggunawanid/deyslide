@@ -360,9 +360,12 @@ fn body_bytes(body: &InvokeBody) -> Option<Vec<u8>> {
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub version: String,
-    /// `windows`, `macos`, `linux` or `android`.
+    /// `windows`, `macos`, `linux`, `android` or `ios`.
     pub platform: &'static str,
     pub server_url: String,
+    /// Whether this build installs updates itself (computers with a
+    /// release build only).
+    pub updates: bool,
 }
 
 #[tauri::command]
@@ -371,7 +374,15 @@ pub fn app_info(app: AppHandle, state: State<'_, AppState>) -> AppInfo {
         version: app.package_info().version.to_string(),
         platform: std::env::consts::OS,
         server_url: state.server_url(),
+        updates: cfg!(desktop) && crate::updates::configured(app.config()),
     }
+}
+
+/// Starts the app again, once an update is installed. The page saves
+/// every open deck first, since closing this way asks nothing.
+#[tauri::command]
+pub fn app_restart(app: AppHandle) {
+    app.request_restart();
 }
 
 /// Prints a preview message to stderr when `DEYSLIDE_DEBUG_PREVIEW` is set.
@@ -421,10 +432,11 @@ mod tests {
             version: "0.1.0".into(),
             platform: "linux",
             server_url: "https://deyslide.example".into(),
+            updates: true,
         };
         assert_eq!(
             serde_json::to_value(info).unwrap(),
-            serde_json::json!({ "version": "0.1.0", "platform": "linux", "serverUrl": "https://deyslide.example" })
+            serde_json::json!({ "version": "0.1.0", "platform": "linux", "serverUrl": "https://deyslide.example", "updates": true })
         );
     }
 
@@ -512,7 +524,7 @@ mod tests {
             .filter_map(|line| line.trim().strip_prefix("commands::"))
             .map(|line| line.trim_end_matches(','))
             .collect();
-        assert_eq!(registered.len(), 22);
+        assert_eq!(registered.len(), 23);
         for command in &registered {
             assert!(
                 build.contains(&format!("\"{command}\"")),
@@ -567,6 +579,6 @@ mod tests {
             actual.sort();
             assert_eq!(actual, expected, "the arguments of {command}");
         }
-        assert_eq!((rows, steps), (22, 2));
+        assert_eq!((rows, steps), (23, 2));
     }
 }

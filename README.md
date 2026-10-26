@@ -9,7 +9,7 @@ Built on [Slidev](https://sli.dev) (Vue 3, Vite, UnoCSS, Shiki Magic Move), [Tre
 
 The hosted app at https://deyslide.bambanggunawan.id opens on a projects home page. A project holds decks, like a file in Figma. Decks are edited on a visual canvas or as Markdown, by several people at once, then presented full screen or exported to PDF and video. The demo deck plays at [/demo/](https://deyslide.bambanggunawan.id/demo/).
 
-The same app runs on Windows, macOS, Linux and Android (see "The apps"), where decks can also live as Markdown files on the device and Claude Code edits them through an MCP server on that computer.
+The same app runs on Windows, macOS, Linux, Android and iOS (see "The apps"), where decks can also live as Markdown files on the device and Claude Code edits them through an MCP server on that computer.
 
 ## Quick start
 
@@ -165,12 +165,27 @@ The sign in page offers only what the API reports as configured at `/api/config`
 
 A deck opens as one live Yjs document that both views, the assistant and Claude Code change together. Decks in an account join a room on the API through a WebSocket at `/api/collab` ([Hocuspocus](https://tiptap.dev/docs/hocuspocus/introduction), one room per deck). Guest decks share one document per deck inside the browser, and decks on a device are read from and written to their files.
 
-- A deck is read only until it has synced, and for viewers. The header says `Connecting...`, `Saving...`, `Saved`, `Offline. Changes sync when you are back online.`, or `Not saved` with the reason.
-- Changes made offline stay in the tab until the server has them, even after leaving the deck, and the browser asks before such a tab closes.
+- A deck is read only until it has synced, or until its copy on this device has loaded (see below), and always for viewers. The header says `Connecting...`, `Saving...`, `Saved`, `Offline. Changes sync when you are back online.`, or `Not saved` with the reason.
+- Changes made offline stay in the tab until the server has them, even after leaving the deck. Decks whose copy is written to IndexedDB also keep them there; for any other deck (no IndexedDB, or one that refuses to open) the browser asks before such a tab closes.
 - Everyone in the deck shows as an avatar in the header and as a dot on their slide in the slide strip. On the canvas, other people's selections show as colored outlines with their name, their pointers as small labeled cursors, and the text cursors of anyone editing the same text box. Names and colors come from the server, so nobody can pose as someone else.
 - Deleting a deck or project, removing someone, changing a role, leaving, signing out and an expired app token close the affected connections, and people reconnect with the access they have now. Someone who lost access sees "You no longer have access to this deck."
 - A room refuses a deck past 200,000 characters of Markdown, 500 slides or 5 MB, and everyone in it sees "This deck is too big to save. Remove some content." A single change over 2 MB, or one that would take the deck's data past 5 MB, is refused before the room takes it in: only the page that sent it is let go, with the same message. A page that writes anything outside the deck is let go too, and presence passes on only the known fields (who, view, slide, selection, pointer, text cursor), up to 8 KB.
-- Rooms load from the database, store a couple of seconds after changes stop (and try again when a store fails), and repair a deck that concurrent edits left invalid, for everyone at once.
+- Rooms load from the database, store a couple of seconds after changes stop (and try again when a store fails), and repair a deck that concurrent edits left invalid, for everyone at once. A deck stored before block settings and frontmatter were split by key is converted as its room loads, before anyone edits it.
+- Pages and apps say which shape of the live deck their code reads (`?shape=2` on the socket address, `LIVE_SHAPE` in deck-model). The room turns away any other, since older code would read the new frontmatter as empty and write that back for everyone. A current page that is turned away says "Deyslide was updated. Reload the page, or update the app, to keep editing this deck." A page or an app built before this check says "You no longer have access to this deck." instead, and stops without changing the deck.
+
+### Working offline
+
+Account decks open and change without a connection, on the website and in the apps, once they were opened on that device.
+
+- Every account deck opened on a device keeps a copy of its live document there, in IndexedDB (`deyslide-account-<userId>-<deckId>`, apart from guest decks), updated as it changes. A copy only starts once the deck has synced, so it shares the deck's history with the server.
+- A deck with a copy opens at once and can be changed while it connects in the background. Changes made offline merge with what others did meanwhile once the connection is back. If the page closed first, they go out the next time Deyslide opens online, without opening the deck.
+- A deck never opened on the device still waits for its first sync, read only, and says it opens once you are back online. Offline, a project page marks each deck **On this device** or **Needs a connection**.
+- The last project list, and the shared list, are kept per person too. Offline, the home page lists the account's projects with an **Offline** mark, and the person signed in last stays shown. The lists refresh as soon as the server answers again. Once the server says nobody is signed in, the next offline start shows no account.
+- When the server refuses a deck for good (access removed, the deck deleted), its copy is deleted and the header says so: "Not saved: You no longer have access to this deck. Its copy on this device was deleted." If the copy held changes the server never got, it adds "Download the Markdown to keep your changes.": the open deck still has them.
+- Changes the server turns down (you can only view the deck now, or it grew too big) would be turned down again, so the copy goes too, but only once the deck is open and the header says why. Sent in the background, the copy waits for that.
+- A sign in that ended (it expired, or ended on another device) is not a refusal: the copy and its changes stay, the header says "Your sign in ended. Sign in again to save your changes. They stay on this device until then.", and they sync after the next sign in. When the server cannot check access just then, the page joins again a little later.
+- Signing out deletes every deck copy, both lists and the remembered account of that person on the device. In the apps, the same IndexedDB lives inside the webview.
+- The website itself needs a connection to load the page, so offline it works in a tab that is already open.
 
 ### Design view
 
@@ -180,7 +195,7 @@ The deck page opens in Design: the real slide, drawn by the preview, under an ov
 | --- | --- | --- |
 | Select | Click, Shift adds | Tap |
 | Move | Drag, with guides that snap to the slide's edges and center lines and to other boxes. Alt or Option turns snapping off | Drag |
-| Resize, rotate | Eight handles, Shift keeps the ratio. The rotate handle turns, Shift snaps to 15 degrees | Larger handles |
+| Resize, rotate | Eight handles, Shift keeps the ratio. The edges a handle pulls snap as a move does, with the same guides; Alt or Option turns that off. A turned box resizes freely unless it sits at 0 degrees, since its edges do not run along the slide. The rotate handle turns, Shift steps by 15 degrees | Larger handles |
 | Edit text in place | Double click. Escape or a click outside closes it | Double tap |
 | Zoom | Ctrl or Cmd and the wheel, or the zoom menu (Fit, 50, 100, 200 percent) | Pinch, and two fingers pan |
 | Reorder slides | Drag in the slide strip | Long press, then drag |
@@ -326,7 +341,7 @@ To try it locally, run `pnpm build`, then `pnpm dev:server` with `RENDERER_URL=h
 
 ## The apps
 
-`apps/native` is the Deyslide app for Windows, macOS, Linux and Android, built with [Tauri 2](https://tauri.app) around the web app. It adds what a browser cannot do: decks kept as Markdown files on the device, and an MCP server so Claude Code on the same computer edits them. Signed in, it opens the decks in the account too, live, like the website.
+`apps/native` is the Deyslide app for Windows, macOS, Linux, Android and iOS, built with [Tauri 2](https://tauri.app) around the web app. It adds what a browser cannot do: decks kept as Markdown files on the device, and an MCP server so Claude Code on the same computer edits them. Signed in, it opens the decks in the account too, live, like the website.
 
 ### Downloads
 
@@ -346,21 +361,33 @@ The builds are not signed by Apple or Microsoft yet, so each system asks once:
 - **Linux**: make the AppImage executable (`chmod +x`) and run it, or install the `.deb`.
 - **Android**: open the APK on the phone and, when asked, allow the browser to install apps.
 
+iPhones and iPads get the app through TestFlight once the project's Apple developer account is set up (see "Releases"). There is no file to download for them.
+
+### Updates
+
+The apps look for a new version when they start and once a day after. When there is one, a note under the header says "Deyslide 0.3.0 is available":
+
+- **Windows, macOS and Linux**: **Install** downloads it, checks its signature against the key built into the app, saves every open deck, installs it, saves anything changed during the install, and restarts. When some changes cannot be saved and you keep them, the app stays open with a **Restart** button. A file whose signature does not match is never installed, and the note says it could not be verified. Builds made without the updater key (any build outside the release workflow, or a release before the key was set) offer **Open the download page** instead.
+- **Android**: an app cannot replace itself there, so **Download the APK** opens the new APK from the latest release in the browser.
+- **iPhone and iPad**: TestFlight and the App Store bring new versions; the app does not look.
+
+The **Updates** panel on the home page shows the running version, has a **Check for updates** button, and a switch that turns the automatic check off on that device.
+
 ### Decks on the device
 
-The home page shows **On this device** and, signed in, **Your account**. On the device, a project is a folder in the library folder and a deck is a `.md` file in it, holding plain Slidev Markdown that any editor can open. The library folder is `Documents/Deyslide` on a computer (the home page shows it, with a **Change** button) and a folder inside the app on Android.
+The home page shows **On this device** and, signed in, **Your account**. On the device, a project is a folder in the library folder and a deck is a `.md` file in it, holding plain Slidev Markdown that any editor can open. The library folder is `Documents/Deyslide` on a computer (the home page shows it, with a **Change** button) and a folder inside the app on Android and iOS, which other apps cannot reach.
 
 - A change in the app is written to its file a moment later, and only when the deck differs from the file. Each write checks that the file still holds what the app last read or wrote, so a file Claude Code or another editor changed meanwhile is merged in, never overwritten.
 - Changes made to a file on disk appear in the open deck at once and merge with any typing.
 - A file that does not parse pauses writing and says "The file on disk has an error: ..." until a later change reads, and a deck moved or renamed on disk says so.
-- Closing the window, or the app going to the background, writes what is waiting first and sends account decks' changes to the server. When some cannot be saved (offline, say), closing asks before it goes without them.
+- Closing the window, or the app going to the background, writes what is waiting first and sends account decks' changes to the server. Account decks keep a copy on the device, so offline changes to them wait there for the next sync. When other changes cannot be saved (typing held back by a Markdown error, say), closing asks before it goes without them.
 - Deleting a project or deck moves it to the system's trash when there is one.
 
 Decks on a device are not shared and have no live room. Export from them makes a PDF on the device, or, signed in, sends their Markdown to the server for a PDF or a video.
 
 ### Signing in
 
-**Sign in with your browser** opens the system browser to sign in to Deyslide. After the consent page, which asks for full access to the account, the browser hands the app back an authorization code: through a callback on `127.0.0.1` on a computer, or through the app's own link (`id.bambanggunawan.deyslide:/oauth/callback`) on Android. The app keeps its tokens in `auth.json` in its data folder and refreshes them on its own. It signs in to the public server unless `serverUrl` in its `settings.json` names another, which takes effect after a restart.
+**Sign in with your browser** opens the system browser to sign in to Deyslide. After the consent page, which asks for full access to the account, the browser hands the app back an authorization code: through a callback on `127.0.0.1` on a computer, or through the app's own link (`id.bambanggunawan.deyslide:/oauth/callback`) on Android and iOS. The app keeps its tokens in `auth.json` in its data folder and refreshes them on its own. It signs in to the public server unless `serverUrl` in its `settings.json` names another, which takes effect after a restart.
 
 ### Claude Code on this computer
 
@@ -379,6 +406,15 @@ On macOS, move Deyslide to Applications first: a copy started from the disk imag
 The app and `deyslide mcp` share a data folder, `id.bambanggunawan.deyslide` inside the system's data folder (`DEYSLIDE_DATA_DIR` moves it): `settings.json` (the library folder and the server), `auth.json`, the library lock, and `render-bridge.json`, through which the server finds the open app. The bridge listens on `127.0.0.1` only and answers only requests that carry its random token.
 
 For the decks in an account, add the hosted server instead (see "Claude Code"). Both can be added side by side.
+
+### iPhone and iPad
+
+The iOS app works like the Android one: decks on the device and in the account, live co-editing, touch editing on the canvas, presenting and exports. Within Apple's rules:
+
+- There is no Claude Code on iOS, so no on-device MCP server and no **Connect Claude Code** panel. Account decks that Claude Code edits through the hosted server show the changes live.
+- Presenting uses the one window: the slides fill the screen and swipes move through them, with no separate audience window.
+- Exports and downloads go through the system's place to save files (Files, iCloud Drive and the like).
+- Builds come from CI on macOS only (Xcode does not run on Linux), and reach phones and tablets through TestFlight.
 
 How the apps are built, run and released: [`apps/native/README.md`](apps/native/README.md) and "Releases" below.
 
@@ -480,7 +516,7 @@ A new deck starts from one of two templates: **Blank** (one title slide) or **De
 - the production build of the web app with `vite preview`, sending `/api` (WebSockets included), `/mcp` and `/.well-known` to that API
 - the slide renderer from `apps/renderer`, serving that build, for slide images and exports
 
-It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, sharing, two people editing one deck live, the canvas with a mouse and with fingers, the Markdown view and preview, presenting and the presenter view, PDF exports on the device and on the server, the deck assistant, and Claude Code connecting through the MCP server, signing in, building a deck and getting real slide images. It is not part of CI. No test calls the real Claude API. The apps are not covered here; their Rust code has its own tests (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+It covers guest projects and decks, sign up, sign in, magic link, password reset, sign out, browser projects moving into the account and opening on a second browser, sharing, two people editing one deck live, an account deck changed offline and synced afterwards, the canvas with a mouse and with fingers, the Markdown view and preview, presenting and the presenter view, PDF exports on the device and on the server, the deck assistant, and Claude Code connecting through the MCP server, signing in, building a deck and getting real slide images. It is not part of CI. No test calls the real Claude API. The apps are not covered here; their Rust code has its own tests (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Install Chromium once with `pnpm exec playwright install chromium`. To use a Chromium you already have instead, set `PLAYWRIGHT_CHROMIUM_PATH` to its executable. After a failure, `pnpm exec playwright show-trace test-results/<test>/trace.zip` replays it step by step.
 
@@ -491,7 +527,7 @@ Install Chromium once with `pnpm exec playwright install chromium`. To use a Chr
 - `DeckSchema` (Zod) validates a deck: slides with Slidev frontmatter, speaker notes, and elements. Element types are `text`, `image`, `shape`, `code` (one step, or several for a Magic Move), `scene3d`, `algo-player`, `sandbox`, and `raw` for Markdown the model does not understand.
 - `toMarkdown(deck)` writes Slidev Markdown. Positioned elements use Slidev's own `<v-drag pos="x,y,w,h,rotate">` in Slidev canvas units (980 by 551.25), so plain Slidev renders the output. Slide ids live in frontmatter as `id`, element ids as `data-id`.
 - `fromMarkdown(markdown)` reads it back. Anything it cannot represent exactly, including a `v-drag` block with a JavaScript expression, is kept byte for byte as a `raw` element.
-- `deckToYDoc(deck)` and `yDocToDeck(doc)` map the deck to a Yjs document. Positions are per field and text is `Y.Text`, so concurrent moves and typing merge.
+- `deckToYDoc(deck)` and `yDocToDeck(doc)` map the deck to a Yjs document. Positions are per field and text is `Y.Text`, so concurrent moves and typing merge. A block's settings (`props`, such as a shape's fill and stroke) and a slide's frontmatter keep one entry per key, so two people changing the fill and the stroke, or the layout and the transition, both keep their change. Each frontmatter entry also holds its place, in a field apart from its value, so every copy writes the keys in the same order and moving keys never undoes someone's change to one of them. Decks stored before this hold each of them as one value: they read as before. The API converts a cloud deck when its room loads (`upgradeDeckDoc`), and for other decks the first change to a block's settings or a slide's frontmatter stores it key by key. The Markdown does not change.
 - The Yjs document is the single source of truth while a deck is open. `applyMarkdown` and `applyDeck` change it with the fewest operations: slides and boxes are lined up by the ids written in the Markdown, then by content, then by position (slides left between those by how alike their text is, so a slide edited next to one inserted or deleted keeps its id), so untouched slides keep their ids and shared text.
 - `mergeMarkdown` and `forkMarkdown` apply Markdown written against an older state through a fork of that state, so the Markdown view, the assistant, Claude Code and a file on disk never undo each other's work.
 - Structural edits (`insertSlide`, `moveSlide`, `updateElement`, `makeMovable` and the others in `edit.ts`) each run as one checked transaction. `readDeckDoc` reads a deck tolerantly and `repairDeckDoc` fixes one that concurrent edits left invalid.
@@ -555,7 +591,7 @@ A manual deploy can be started from the Actions tab with **Run workflow** on the
 
 ## Releases
 
-Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see [CONTRIBUTING.md](CONTRIBUTING.md) for how to release). It creates a draft GitHub Release with notes generated from the merged pull requests, builds the apps with the tag's version, attaches them, and publishes the release only when all four builds passed. Otherwise it stays a draft for a person to finish. **Run workflow** on the Release workflow builds the same files as workflow artifacts, version `0.0.<run number>`, and publishes nothing.
+Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see [CONTRIBUTING.md](CONTRIBUTING.md) for how to release). It creates a draft GitHub Release with notes generated from the merged pull requests, builds the apps with the tag's version, attaches them with `latest.json` for updates, and publishes the release only when every required build passed: Windows, macOS, Linux and Android, and iOS too when the Apple account below is set. Otherwise it stays a draft for a person to finish. **Run workflow** on the Release workflow builds the same files as workflow artifacts, version `0.0.<run number>`, and publishes nothing.
 
 | Job | Runs on | Release assets |
 | --- | --- | --- |
@@ -563,6 +599,25 @@ Pushing a version tag such as `v0.2.0` runs `.github/workflows/release.yml` (see
 | macOS | `macos-latest` | A universal `.dmg` for Apple silicon and Intel |
 | Linux | `ubuntu-22.04` | `.AppImage` and `.deb` |
 | Android | `ubuntu-latest` | A universal `.apk` for `aarch64` and `armv7`, attached only when it is release signed |
+| iOS | `macos-latest` | None: a signed `.ipa` goes to TestFlight, or a simulator build stays a workflow artifact |
+
+With updates on (see below), each computer job also attaches its update files' signatures (`.sig`), and the macOS job the app as `_universal.app.tar.gz`, which is what a Mac downloads to update.
+
+### Update signing
+
+Updates are signed with a key of the project's own, made once with:
+
+```sh
+pnpm --filter @deyslide/native tauri signer generate -w ~/.tauri/deyslide.key
+```
+
+| Where | Name | Holds |
+| --- | --- | --- |
+| Secret | `TAURI_SIGNING_PRIVATE_KEY` | The text of the private key file |
+| Secret | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Its password, if it has one |
+| Variable | `TAURI_UPDATER_PUBKEY` | The text of the `.pub` file, which every build checks updates against |
+
+With both the private key and the public key, the computer builds get the public key and the address of `latest.json` (`https://github.com/bambanggunawanid/deyslide/releases/latest/download/latest.json`), sign their update files, and the publish job writes `latest.json` (version, release notes, date, and a signed file for `windows-x86_64`, `darwin-aarch64`, `darwin-x86_64` and `linux-x86_64`, plus the `.msi` and `.deb` for apps installed from those). With either one missing, the builds have no updates and link to the download page; the workflow warns which half is missing. Keep the private key safe: apps only install updates signed with it, so losing it means people must reinstall by hand once.
 
 The macOS app is signed ad hoc unless the repository has the Apple secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID`. The Windows installers are not signed.
 
@@ -576,6 +631,24 @@ The Android APK is signed with the project's own key, from four repository secre
 | `ANDROID_KEY_PASSWORD` | The key's password |
 
 Without all four, the APK is unsigned and stays a workflow artifact, since it cannot be installed. Keep the keystore safe: every update must carry the same signature, and reinstalling the app to change keys deletes the decks kept inside it.
+
+### iOS
+
+The Xcode project is committed in `apps/native/src-tauri/gen/apple`. The iOS job builds it on macOS after applying the app's link scheme and settings (`apps/native/scripts/ios-settings.py`) and icons, and uploads the project it used as the workflow artifact `ios-project`. When the folder is deleted, the job makes it again with `tauri ios init`, ready to commit. A signed build for TestFlight needs an Apple developer account in these secrets:
+
+| Secret | Holds |
+| --- | --- |
+| `APPLE_CERTIFICATE` | An Apple Distribution certificate with its private key, as a `.p12` in base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` file's password |
+| `APPLE_PROVISIONING_PROFILE` | An App Store provisioning profile for `id.bambanggunawan.deyslide`, in base64 |
+| `APPLE_TEAM_ID` | The developer team's id |
+| `APPLE_API_ISSUER` | The issuer id of an App Store Connect API key |
+| `APPLE_API_KEY_ID` | That key's id |
+| `APPLE_API_KEY` | The text of that key's `.p8` file (or the text in base64) |
+
+The macOS job reads `APPLE_CERTIFICATE` too, with its Developer ID certificate. To sign both, export the two certificates into one `.p12`: each build picks its own.
+
+With all of them except the password (which may be empty), a pushed tag builds a signed `.ipa` (version `1.2.3` for any tag `v1.2.3...`, build number from the run) and uploads it to TestFlight, and the release waits for that build. Without them, the job builds the app for the iOS simulator as the workflow artifact `ios-app`, and the release does not wait for it: a failure there never holds back the other apps.
 
 ## Contributing
 

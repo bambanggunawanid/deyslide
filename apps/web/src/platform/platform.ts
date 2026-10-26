@@ -1,4 +1,5 @@
 import { createWebHashHistory, createWebHistory } from 'vue-router'
+import type { AppPlatform } from './native'
 import { appInfo, authAccessToken, emitPresentSync, onPresentSync, presentOpen, saveFile as saveToPath } from './native'
 
 /**
@@ -13,10 +14,17 @@ import { appInfo, authAccessToken, emitPresentSync, onPresentSync, presentOpen, 
 /** The server the app talks to when it cannot say which one its settings name. */
 const DEFAULT_SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://deyslide.bambanggunawan.id'
 
+/** The kind of device the app runs on: a computer, or a phone or tablet with its own rules. */
+type Device = 'computer' | 'android' | 'ios'
+
 interface AppDetails {
-  android: boolean
+  device: Device
   /** Without a trailing slash. */
   serverUrl: string
+  /** The app's version, such as `0.2.0`. Unknown when the app could not say. */
+  version?: string
+  /** Whether the app installs updates itself. */
+  updates: boolean
 }
 
 let details: AppDetails | undefined
@@ -26,8 +34,22 @@ export function isApp() {
   return import.meta.env.VITE_APP === '1'
 }
 
+function deviceOf(platform: AppPlatform): Device {
+  return platform === 'android' || platform === 'ios' ? platform : 'computer'
+}
+
+/** What the browser engine says about the device. An iPad asks for the pages of a Mac, but has a touch screen. */
+function guessedDevice(): Device {
+  const agent = navigator.userAgent
+  if (/android/i.test(agent))
+    return 'android'
+  if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1))
+    return 'ios'
+  return 'computer'
+}
+
 function guessedDetails(): AppDetails {
-  return { android: /android/i.test(navigator.userAgent), serverUrl: DEFAULT_SERVER_URL }
+  return { device: guessedDevice(), serverUrl: DEFAULT_SERVER_URL, updates: false }
 }
 
 function app() {
@@ -43,7 +65,12 @@ export async function startPlatform() {
     return
   try {
     const info = await appInfo()
-    details = { android: info.platform === 'android', serverUrl: info.serverUrl.replace(/\/+$/, '') }
+    details = {
+      device: deviceOf(info.platform),
+      serverUrl: info.serverUrl.replace(/\/+$/, ''),
+      version: info.version,
+      updates: info.updates === true,
+    }
   }
   catch {
     details = guessedDetails()
@@ -52,12 +79,36 @@ export async function startPlatform() {
 
 /** True inside the app on Windows, macOS or Linux. */
 export function isDesktopApp() {
-  return isApp() && !app().android
+  return isApp() && app().device === 'computer'
 }
 
 /** True inside the app on Android. */
 export function isAndroidApp() {
-  return isApp() && app().android
+  return isApp() && app().device === 'android'
+}
+
+/** True inside the app on an iPhone or iPad. */
+export function isIOSApp() {
+  return isApp() && app().device === 'ios'
+}
+
+/**
+ * True inside the app on a phone or tablet (Android or iOS): one window,
+ * decks kept in the app's own storage, no Claude Code, and the browser
+ * hands a sign in back through a link into the app.
+ */
+export function isMobileApp() {
+  return isAndroidApp() || isIOSApp()
+}
+
+/** The app's version, such as `0.2.0`, once {@link startPlatform} asked. Undefined on the website. */
+export function appVersion() {
+  return isApp() ? app().version : undefined
+}
+
+/** Whether the app installs updates itself: a release build on a computer. */
+export function installsUpdates() {
+  return isDesktopApp() && app().updates
 }
 
 /** What API paths start with: nothing on the website (the same origin), the server in the app. */
@@ -178,14 +229,16 @@ export async function saveFile(name: string, bytes: Uint8Array, mime: string): P
   const android = isAndroidApp()
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
   // Android's picker filters by media type, a computer's by extension.
+  // iOS shows its own place to export to, which takes none.
   const filters = android
     ? [{ name, extensions: [mime] }]
-    : extension ? [{ name: extension.toUpperCase(), extensions: [extension] }] : []
+    : extension && !isIOSApp() ? [{ name: extension.toUpperCase(), extensions: [extension] }] : []
   const path = await save({ defaultPath: name, filters })
   if (!path)
     return false
-  if (android) {
-    // The picker answers with a content URI, which the fs plugin writes through Android.
+  if (isMobileApp()) {
+    // The picker answers with a content URI on Android and a file in the
+    // place picked on iOS, both of which the fs plugin writes to.
     const { writeFile } = await import('@tauri-apps/plugin-fs')
     await writeFile(path, bytes)
   }
@@ -204,12 +257,12 @@ export interface PresentChannel<T = unknown> {
   post: (message: T) => void
   /** Hears the deck's other windows, never this one. Returns a function that stops listening. */
   listen: (handler: (message: T) => void) => () => void
-  /** False on Android, where the presenter has no second window. */
+  /** False on a phone or tablet, where the presenter has no second window. */
   readonly canOpenAudience: boolean
   /**
    * Opens the audience window, or brings it forward when it is open.
-   * Resolves with false when there is none: on Android, or when the
-   * browser blocked the window.
+   * Resolves with false when there is none: on a phone or tablet, or when
+   * the browser blocked the window.
    */
   openAudience: (target: { projectId: string, deckId: string, url: string }) => Promise<boolean>
   close: () => void
@@ -301,7 +354,7 @@ function appChannel<T>(deckId: string): PresentChannel<T> {
   }
 }
 
-/** Android has one window: the presenter view is all there is, and nothing travels. */
+/** A phone or tablet has one window: the presenter view is all there is, and nothing travels. */
 function singleWindowChannel<T>(): PresentChannel<T> {
   return {
     post: () => {},
@@ -315,18 +368,18 @@ function singleWindowChannel<T>(): PresentChannel<T> {
 /**
  * The channel between a deck's presenter and audience windows: in the
  * browser `window.open` and a BroadcastChannel; in the app on a computer
- * the `present_open` command and `present-sync` events; on Android a
- * single window.
+ * the `present_open` command and `present-sync` events; on Android and
+ * iOS a single window.
  */
 export function presentChannel<T = unknown>(deckId: string): PresentChannel<T> {
-  if (isAndroidApp())
+  if (isMobileApp())
     return singleWindowChannel()
   return isDesktopApp() ? appChannel(deckId) : browserChannel(deckId)
 }
 
 /** Whether this window is a deck's audience window, opened by its presenter view. */
 export async function isAudienceWindow(deckId: string): Promise<boolean> {
-  if (isAndroidApp())
+  if (isMobileApp())
     return false
   if (isDesktopApp()) {
     const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')

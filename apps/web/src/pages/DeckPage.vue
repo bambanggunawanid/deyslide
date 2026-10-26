@@ -406,43 +406,48 @@ onUnmounted(closeSession)
         </li>
       </ul>
       <span class="ml-auto" />
-      <div class="flex overflow-hidden rounded-md border border-dey-line text-sm" role="group" aria-label="Editor view">
-        <button
-          class="px-3 py-1"
-          :class="view === 'design' ? 'bg-slate-800 text-dey-accent' : 'text-dey-muted'"
-          :aria-pressed="view === 'design'"
-          data-testid="view-design"
-          @click="chooseView('design')"
-        >
-          Design
+      <!-- On phones the view and the actions share one row that scrolls sideways, so the slide starts near the top. -->
+      <div class="flex flex-wrap items-center gap-2 lt-md:w-full lt-md:flex-nowrap lt-md:overflow-x-auto lt-md:whitespace-nowrap" data-testid="header-row">
+        <div class="flex shrink-0 overflow-hidden rounded-md border border-dey-line text-sm" role="group" aria-label="Editor view">
+          <button
+            class="px-3 py-1"
+            :class="view === 'design' ? 'bg-slate-800 text-dey-accent' : 'text-dey-muted'"
+            :aria-pressed="view === 'design'"
+            data-testid="view-design"
+            @click="chooseView('design')"
+          >
+            Design
+          </button>
+          <button
+            class="px-3 py-1"
+            :class="view === 'markdown' ? 'bg-slate-800 text-dey-accent' : 'text-dey-muted'"
+            :aria-pressed="view === 'markdown'"
+            data-testid="view-markdown"
+            @click="chooseView('markdown')"
+          >
+            Markdown
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 lt-md:flex-nowrap" data-testid="header-actions">
+          <!-- Presenting starts on the slide open here, and leaving the talk comes back to the slide it ended on. -->
+          <RouterLink :to="{ name: 'present', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="present-deck">
+            Present
+          </RouterLink>
+          <RouterLink :to="{ name: 'presenter', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="presenter-deck">
+            Presenter view
+          </RouterLink>
+          <ExportMenu :deck-id="deckId" :deck-name="summary.name" :slides="outline" :markdown="exportMarkdown" :disabled="!ready" status-to="#deck-export-status" />
+        </div>
+        <button v-if="store.sharing && !viewOnly" class="dey-btn text-sm" data-testid="share-deck" @click="sharing = true">
+          Share
         </button>
-        <button
-          class="px-3 py-1"
-          :class="view === 'markdown' ? 'bg-slate-800 text-dey-accent' : 'text-dey-muted'"
-          :aria-pressed="view === 'markdown'"
-          data-testid="view-markdown"
-          @click="chooseView('markdown')"
-        >
-          Markdown
+        <button class="dey-btn text-sm" :disabled="!ready" data-testid="download-markdown" @click="downloadMarkdown">
+          Download Markdown
         </button>
       </div>
-      <div class="flex flex-wrap items-center gap-2" data-testid="header-actions">
-        <!-- Presenting starts on the slide open here, and leaving the talk comes back to the slide it ended on. -->
-        <RouterLink :to="{ name: 'present', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="present-deck">
-          Present
-        </RouterLink>
-        <RouterLink :to="{ name: 'presenter', params: { projectId, deckId }, query: { slide: String(currentIndex + 1) } }" class="dey-btn text-sm" data-testid="presenter-deck">
-          Presenter view
-        </RouterLink>
-        <ExportMenu :deck-id="deckId" :deck-name="summary.name" :slides="outline" :markdown="exportMarkdown" :disabled="!ready" />
-      </div>
-      <button v-if="store.sharing && !viewOnly" class="dey-btn text-sm" data-testid="share-deck" @click="sharing = true">
-        Share
-      </button>
-      <button class="dey-btn text-sm" :disabled="!ready" data-testid="download-markdown" @click="downloadMarkdown">
-        Download Markdown
-      </button>
     </div>
+    <!-- How an export goes, on a line of its own, so the buttons above never move while it runs. -->
+    <div id="deck-export-status" class="flex justify-end text-right empty:hidden" aria-live="polite" data-testid="export-status-line" />
 
     <ShareDialog
       v-if="store.sharing"
@@ -545,6 +550,10 @@ onUnmounted(closeSession)
         </div>
       </div>
     </template>
+
+    <p v-else-if="session?.status.value === 'offline'" class="m-0 text-dey-muted" data-testid="deck-needs-connection">
+      This deck has no copy on this device yet, so it opens once you are back online.
+    </p>
 
     <p v-else class="m-0 text-dey-muted">
       Opening the deck...

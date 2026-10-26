@@ -6,7 +6,8 @@
   "description": "The Deyslide deck format: Zod schema, Slidev Markdown conversion and Yjs mapping.",
   "exports": {
     ".": "./src/index.ts",
-    "./position": "./src/position.ts"
+    "./position": "./src/position.ts",
+    "./shape": "./src/shape.ts"
   },
   "dependencies": {
     "@slidev/parser": "53.0.0",

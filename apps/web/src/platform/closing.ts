@@ -35,38 +35,52 @@ export function closingQuestion(decks: string[] | undefined) {
     : `Your last changes to ${names.format(decks)} could not be saved yet. Each deck's page says why.`
 }
 
-async function askWithDialog(message: string) {
+/** What the app is about to do once the decks are saved. */
+export type Leaving = 'close' | 'restart'
+
+const QUESTIONS: Record<Leaving, { title: string, okLabel: string }> = {
+  close: { title: 'Close without your changes?', okLabel: 'Close without them' },
+  restart: { title: 'Restart without your changes?', okLabel: 'Restart without them' },
+}
+
+async function askWithDialog(message: string, leaving: Leaving) {
   const { ask } = await import('@tauri-apps/plugin-dialog')
-  return ask(message, { title: 'Close without your changes?', kind: 'warning', okLabel: 'Close without them', cancelLabel: 'Keep open' })
+  return ask(message, { ...QUESTIONS[leaving], kind: 'warning', cancelLabel: 'Keep open' })
 }
 
 export interface SaveBeforeClosingOptions {
-  /** Asks whether to close anyway. The app's own dialog unless a test passes another. */
-  ask?: (message: string) => Promise<boolean>
+  /** Asks whether to go on anyway. The app's own dialog unless a test passes another. */
+  ask?: (message: string, leaving: Leaving) => Promise<boolean>
   /** How long closing waits for the writes. */
   waitMs?: number
 }
 
 /**
- * Saves the decks' last changes before the window closes: device decks to
- * their files, account decks to the server. `stores` names the stores at
- * that moment, since signing in and out changes them. When some changes
+ * Saves the decks' last changes before the app goes away: device decks to
+ * their files, account decks to the server. Resolves true when everything
+ * was saved or the person chose to go on without it. When some changes
  * cannot be saved (a file on disk has an error, or the server is out of
- * reach), or saving takes too long, the person is asked whether to close
- * without them.
+ * reach), or saving takes too long, the person is asked.
  */
-export function saveBeforeClosing(stores: () => FlushingStore[], { ask = askWithDialog, waitMs = CLOSE_WAIT_MS }: SaveBeforeClosingOptions = {}) {
-  return onCloseRequested(async () => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const late = new Promise<undefined>((resolve) => {
-      timer = setTimeout(() => resolve(undefined), waitMs)
-    })
-    const unsaved = await Promise.race([flushStores(stores()), late])
-    clearTimeout(timer)
-    if (unsaved?.length === 0)
-      return true
-    return ask(closingQuestion(unsaved))
+export async function saveEverything(stores: FlushingStore[], leaving: Leaving, { ask = askWithDialog, waitMs = CLOSE_WAIT_MS }: SaveBeforeClosingOptions = {}) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), waitMs)
   })
+  const unsaved = await Promise.race([flushStores(stores), late])
+  clearTimeout(timer)
+  if (unsaved?.length === 0)
+    return true
+  return ask(closingQuestion(unsaved), leaving)
+}
+
+/**
+ * Saves every open deck before the window closes (see {@link saveEverything}).
+ * `stores` names the stores at that moment, since signing in and out
+ * changes them.
+ */
+export function saveBeforeClosing(stores: () => FlushingStore[], options: SaveBeforeClosingOptions = {}) {
+  return onCloseRequested(() => saveEverything(stores(), 'close', options))
 }
 
 /** Sends waiting changes on when the app goes out of sight, such as Android sending it to the background. */

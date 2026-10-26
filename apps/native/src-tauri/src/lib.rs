@@ -26,6 +26,7 @@ pub mod oauth;
 pub mod render_bridge;
 pub mod sign_in;
 pub mod state;
+pub mod updates;
 pub mod watcher;
 pub mod window;
 
@@ -106,6 +107,7 @@ fn serve_mcp(args: Vec<String>) -> Result<(), String> {
 /// Starts the app.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
     {
@@ -113,6 +115,10 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             window::show_main(app);
         }));
+        // Only a release build knows the key that signs updates.
+        if updates::configured(context.config()) {
+            builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        }
     }
     builder = builder
         .plugin(tauri_plugin_opener::init())
@@ -120,7 +126,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init());
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_deep_link::init());
     }
@@ -147,13 +153,14 @@ pub fn run() {
             commands::present_open,
             commands::save_file,
             commands::app_info,
+            commands::app_restart,
             commands::debug_preview_log,
         ])
         .setup(|app| {
             setup(app)?;
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Deyslide could not start");
     app.run(|app, event| {
         if let RunEvent::Exit = event {
@@ -184,13 +191,13 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     start_render_bridge(app.handle());
     #[cfg(all(desktop, unix))]
     exit_on_signals(app.handle());
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     finish_sign_in_from_links(app);
     Ok(())
 }
 
 /// The folder for settings, the bridge file and the sign in. A computer
-/// computes it the way `deyslide mcp` does; Android has Tauri's.
+/// computes it the way `deyslide mcp` does; a phone has Tauri's.
 fn data_dir(app: &App) -> Result<DataDir, Box<dyn std::error::Error>> {
     if cfg!(mobile) {
         Ok(DataDir::new(app.path().app_data_dir()?))
@@ -301,7 +308,7 @@ fn exit_on_signals(app: &AppHandle) {
 
 /// Finishes a sign in when the browser opens the app's link, whether the
 /// app was still running or starts from the link.
-#[cfg(target_os = "android")]
+#[cfg(mobile)]
 fn finish_sign_in_from_links(app: &App) {
     use tauri_plugin_deep_link::DeepLinkExt;
 

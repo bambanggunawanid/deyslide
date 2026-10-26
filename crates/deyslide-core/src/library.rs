@@ -169,7 +169,7 @@ impl Serialize for WriteOutcome {
 }
 
 /// Checks a project or deck name and returns it trimmed. The rules keep
-/// names valid as file names on Windows, macOS, Linux and Android.
+/// names valid as file names on Windows, macOS, Linux, Android and iOS.
 pub fn clean_name(name: &str) -> Result<String> {
     let name = js_trim(name);
     let problem = if name.is_empty() {
@@ -252,9 +252,10 @@ pub fn library_root(settings: &Settings, data_dir: &DataDir) -> PathBuf {
     }
 }
 
-/// `Documents/Deyslide` on a computer, the app's own `decks` folder on Android.
+/// `Documents/Deyslide` on a computer, the app's own `decks` folder on a
+/// phone (Android or iOS), where other apps cannot reach it.
 pub fn default_library_root(data_dir: &DataDir) -> PathBuf {
-    if cfg!(target_os = "android") {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
         return data_dir.path().join("decks");
     }
     dirs::document_dir()

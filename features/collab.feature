@@ -48,6 +48,22 @@ Feature: Live editing on the server
     And Ana opening the deck from a page on another site is refused the same way
     And Ana opening a deck that does not exist is refused the same way
 
+  Scenario: A page with code from before settings were split is turned away
+    When Ana opens the deck live from a page that does not say which shape of the deck it reads
+    Then Ana's page is refused because it is out of date, and gets no deck
+    When Ana opens the deck live from a page that says an older shape
+    Then that page is refused the same way
+
+  Scenario: A deck stored before settings were split is converted when its room loads
+    Given Ana shared the project with Budi as an editor
+    And the deck is stored the way decks were before settings were split, with a rectangle on slide 2
+    And Ana and Budi have the deck open live
+    Then both see the rectangle's settings and the slides' frontmatter stored key by key
+    When Ana changes the rectangle's fill while Budi changes its stroke
+    Then Ana and Budi both soon see Ana's fill and Budi's stroke
+    When Ana and Budi close the deck
+    Then the saved deck has the rectangle's settings stored key by key, with Ana's fill and Budi's stroke
+
   Scenario: The apps join with a token for the API
     Given Ana's app signed in and holds a token for the API
     When the app opens the deck live with its token
