@@ -1,0 +1,15 @@
+# keep the build context small and free of local state and secrets
+**/node_modules
+**/dist
+**/dist-app
+.git
+.env
+*.env
+target
+apps/native/src-tauri/target
+apps/deck/public/animations
+packages/animations/output
+.slidev
+test-results
+playwright-report
+exports

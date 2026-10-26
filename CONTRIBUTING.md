@@ -166,7 +166,7 @@ The repository is a pnpm workspace. Run every command from the root.
 | `features/` | Gherkin features and their step definitions for every package |
 | `e2e/` | Playwright end to end tests and the in-memory API they start, with a fake Claude |
 | `scripts/` | `guide-sync.ts`, behind `pnpm guide:sync` |
-| `deploy/` | Production Podman script (database, API, nginx, tunnel, renderer), nginx config and the renderer's Containerfile |
+| `deploy/` | Production Dockerfile (API, nginx and renderer images) and nginx config. `compose.yaml` at the root runs them with Postgres and the tunnel |
 | `plugins/deyslide/`, `.claude-plugin/` | The Claude Code plugin (MCP server settings and the `deyslide` skill) and the marketplace that lists it |
 | `patches/` | `pnpm patch` fixes for dependencies |
 

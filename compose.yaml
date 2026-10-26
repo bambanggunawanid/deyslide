@@ -1,0 +1,122 @@
+# Production stack for https://deyslide.bambanggunawan.id, on Docker or rootless Podman.
+#   db        Postgres, with its data in the deyslide-pgdata volume
+#   server    the API on port 3001
+#   app       nginx on port 3000: the web app at /, the demo deck at /demo/, the API at /api/ and /mcp
+#   renderer  headless Chromium that draws slides for the MCP server
+#   tunnel    cloudflared, which publishes app:3000 through the Cloudflare tunnel
+# Nothing is published on the host. Settings live in two files next to this one, never committed:
+#   .env         CLOUDFLARE_TUNNEL_TOKEN, POSTGRES_PASSWORD and BETTER_AUTH_SECRET (see .env.example)
+#   server.env   API settings, written by the deploy workflow (see server.env.example)
+# The deploy workflow runs, on the server: git pull, then podman compose up -d --build
+name: deyslide
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine
+    environment:
+      POSTGRES_USER: deyslide
+      POSTGRES_DB: deyslide
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - web
+    restart: always
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "deyslide", "--dbname", "deyslide"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: server
+    image: deyslide-server
+    env_file: server.env
+    environment:
+      PGHOST: db
+      PGUSER: deyslide
+      PGDATABASE: deyslide
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # A new secret signs everyone out, so it is set once and kept.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      RENDERER_URL: unix:/run/deyslide/renderer.sock
+    volumes:
+      - sockets:/run/deyslide
+    networks:
+      - web
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+    # On stop the API stores every open deck, for up to 8 seconds.
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: app
+    image: deyslide-app
+    networks:
+      - web
+    depends_on:
+      # nginx looks up "server" when it starts, so it restarts whenever the API is replaced.
+      server:
+        condition: service_healthy
+        restart: true
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Runs decks' code, so it gets no network at all. The API reaches it through a Unix socket.
+  renderer:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: renderer
+    image: deyslide-renderer
+    environment:
+      RENDERER_LISTEN: unix:/run/deyslide/renderer.sock
+    volumes:
+      - sockets:/run/deyslide
+    network_mode: none
+    mem_limit: 1g
+    pids_limit: 512
+    shm_size: 512m
+    restart: always
+
+  tunnel:
+    image: docker.io/cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    networks:
+      - web
+    # cloudflared retries until nginx answers.
+    depends_on:
+      - app
+    restart: always
+
+networks:
+  # The tunnel reaches nginx as http://app:3000, nginx the API as server:3001, the API Postgres as db.
+  web:
+    name: deyslide
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: deyslide-pgdata
+  sockets:
+    name: deyslide-sockets

@@ -24,6 +24,7 @@ Thumbs.db
 
 # Local settings with secrets
 .env
+server.env
 
 # Playwright
 test-results/

@@ -43,19 +43,6 @@ jobs:
       - name: BDD scenarios
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
-
-      - name: Package release
-        run: |
-          mkdir -p release/site/demo release/server release/renderer
-          cp -r apps/web/dist/. release/site/
-          cp -r apps/deck/dist/. release/site/demo/
-          cp apps/server/dist/server.mjs release/server/
-          cp apps/renderer/dist/renderer.mjs deploy/renderer/Containerfile release/renderer/
-          cp deploy/up.sh deploy/nginx.conf release/
-          tar -czf release.tgz -C release .
-
       - name: Join the tailnet
         uses: tailscale/github-action@v4
         with:
@@ -67,9 +54,9 @@ jobs:
       # Tailscale SSH authenticates with the tailnet identity, so no key is needed.
       # Optional settings may be empty: the API then hides that sign in option,
       # or the assistant when ANTHROPIC_API_KEY is empty.
-      # The database password and the auth secret are made on the server by
-      # up.sh, once, and never leave it.
-      - name: Upload release and settings
+      # The server's .env gets the tunnel token on every deploy. The database
+      # password and the auth secret are made there once, and never leave it.
+      - name: Upload settings
         env:
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -87,41 +74,51 @@ jobs:
           MEDIA_ACCOUNT_LIMIT_MB: ${{ vars.MEDIA_ACCOUNT_LIMIT_MB }}
         run: |
           ssh_opts=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=20)
-          ssh "${ssh_opts[@]}" "$SERVER" 'mkdir -p ~/deyslide'
-          ssh "${ssh_opts[@]}" "$SERVER" 'cat > ~/deyslide/release.tgz' < release.tgz
-          printf 'TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" \
-            | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/.env'
+          # The script goes as the remote command and the token on stdin, so the token
+          # never appears in a command line.
+          set_token=$(cat <<'SCRIPT'
+          set -euo pipefail
+          cd ~/projects/deyslide
+          umask 077
+          touch .env
+          read -r token
+          {
+            grep -v '^CLOUDFLARE_TUNNEL_TOKEN=' .env || true
+            printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$token"
+            for name in POSTGRES_PASSWORD BETTER_AUTH_SECRET; do
+              if ! grep -q "^$name=." .env; then
+                echo "Creating $name (first deploy)" >&2
+                printf '%s=%s\n' "$name" "$(openssl rand -hex 32)"
+              fi
+            done
+          } > .env.new
+          mv .env.new .env
+          SCRIPT
+          )
+          printf '%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" | ssh "${ssh_opts[@]}" "$SERVER" "$set_token"
           {
             printf 'PUBLIC_URL=%s\n' "$PUBLIC_URL"
             for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_EMAIL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_OAUTH_CLIENT_ID GH_OAUTH_CLIENT_SECRET ANTHROPIC_API_KEY ASSISTANT_MONTHLY_LIMIT_USD CLOUDFLARE_R2_ACCESS_KEY_ID CLOUDFLARE_R2_ACCESS_KEY_SECRET R2_BUCKET MEDIA_ACCOUNT_LIMIT_MB; do
               printf '%s=%s\n' "$name" "${!name}"
             done
-          } | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/deyslide/server.env'
+          } | ssh "${ssh_opts[@]}" "$SERVER" 'umask 077 && cat > ~/projects/deyslide/server.env'
 
-      - name: Start containers
+      # The server pulls this commit and builds the images itself. Compose keeps the
+      # old containers running until the new images are built.
+      - name: Pull and start containers
         run: |
-          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$SERVER" 'bash -se' <<'SCRIPT'
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$SERVER" 'bash -se' <<SCRIPT
           set -euo pipefail
-          cd ~/deyslide
+          cd ~/projects/deyslide
+          git fetch --quiet origin main
+          git merge --ff-only --quiet ${{ github.sha }}
 
-          rm -rf release.new
-          mkdir release.new
-          tar -xzf release.tgz -C release.new
-          rm release.tgz
-          cp release.new/up.sh release.new/nginx.conf .
-          rm -f compose.yaml
-
-          # up.sh recreates the app, server and renderer containers, so their
-          # bind mounts pick up the new folders.
-          for folder in site server renderer; do
-            rm -rf "$folder.old"
-            if [ -d "$folder" ]; then mv "$folder" "$folder.old"; fi
-            mv "release.new/$folder" "$folder"
-          done
-          rm -rf release.new
-
-          ./up.sh
-          rm -rf site.old server.old renderer.old
+          # Rootless Podman keeps its state in the user's runtime dir, which a
+          # non-interactive SSH login may not set.
+          export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
+          podman compose up -d --build --remove-orphans --wait --wait-timeout 300
+          podman image prune -f >/dev/null
+          podman compose ps
           SCRIPT
 
       - name: Check the public site

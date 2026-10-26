@@ -63,7 +63,7 @@ This is an open source project (MIT). Every change follows the full contribution
 | `packages/deck-model/` | The deck format: Zod schema, Slidev Markdown conversion, the Yjs live document, its edits, and merging Markdown into it |
 | `features/` | Gherkin features and their step definitions for every package |
 | `e2e/` | Playwright end to end tests and the in-memory API they start, with a fake Claude |
-| `deploy/` | Production Podman script (database, API, nginx, tunnel, renderer), nginx config and the renderer's Containerfile |
+| `deploy/` | Production Dockerfile (API, nginx and renderer images) and nginx config. `compose.yaml` at the root runs them with Postgres and the tunnel |
 | `plugins/deyslide/`, `.claude-plugin/` | The Claude Code plugin (MCP server settings and the `deyslide` skill) and the marketplace that lists it |
 | `scripts/` | `guide-sync.ts`, which copies the hosted MCP tools and guide into the Rust core |
 

@@ -535,31 +535,38 @@ Install Chromium once with `pnpm exec playwright install chromium`. To use a Chr
 
 ## Deployment
 
-Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the web app to https://deyslide.bambanggunawan.id, the demo deck to https://deyslide.bambanggunawan.id/demo/ and the API under https://deyslide.bambanggunawan.id/api/.
+Production runs on the server from a clone of this repository at `~/projects/deyslide`, with Docker Compose on rootless Podman, the same way the server's other sites run. Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the web app to https://deyslide.bambanggunawan.id, the demo deck to https://deyslide.bambanggunawan.id/demo/ and the API under https://deyslide.bambanggunawan.id/api/.
 
-1. Builds the web app, the deck and the API bundle, and runs the BDD scenarios (with Rust installed, since they build the on-device MCP server).
+1. Runs the BDD scenarios (with Rust installed, since they build the on-device MCP server).
 2. Joins the tailnet as `tag:ci` through the Tailscale OAuth client.
-3. Uploads the release and the API settings to `~/deyslide` on the server over Tailscale SSH, as user `ryzen`.
-4. Runs `deploy/up.sh`, which starts the slide renderer and a Podman pod named `deyslide` with four containers:
+3. Over Tailscale SSH, as user `ryzen`, sets the tunnel token in `~/projects/deyslide/.env` and writes the API settings to `server.env`.
+4. On the server, fast-forwards the clone to the pushed commit and runs `podman compose up -d --build --wait`. The images are built there from `deploy/Dockerfile`, and the old containers keep serving until the new ones are built. `compose.yaml` defines five services:
 
-   | Container | Image | Role |
+   | Service | Image | Role |
    | --- | --- | --- |
-   | `deyslide-db` | `postgres:18-alpine` | Database, data in the `deyslide-pgdata` volume. Kept running across deploys |
-   | `deyslide-server` | `node:24-alpine` | The API on port 3001, running the bundled `server.mjs`, with the live rooms and export jobs |
-   | `deyslide-app` | `nginx:stable-alpine` | Port 3000: web app, demo deck, and `/api/` and `/mcp` passed to the API |
-   | `deyslide-tunnel` | `cloudflared` | Publishes `app:3000` through the Cloudflare tunnel |
+   | `db` | `postgres:18-alpine` | Database, data in the `deyslide-pgdata` volume |
+   | `server` | `deyslide-server` (Node 24 Alpine) | The API on port 3001, running the bundled `server.mjs`, with the live rooms and export jobs |
+   | `app` | `deyslide-app` (nginx) | Port 3000: web app, demo deck, and `/api/` and `/mcp` passed to `server:3001` |
+   | `renderer` | `deyslide-renderer` (Playwright) | Headless Chromium that draws slides for the MCP server |
+   | `tunnel` | `cloudflared` | Publishes `app:3000` through the Cloudflare tunnel |
 
-5. Checks that nginx answers at `/`, `/demo/` and `/api/health`, the tunnel connects, and the public URL serves all three.
+5. Checks that the public URL serves `/`, `/demo/` and `/api/health`.
 
-The slide renderer (`deyslide-renderer`) runs outside the pod with `--network none`, since it runs decks' code. Its image is built on the server from `deploy/renderer/Containerfile`, on top of Playwright's image (about 2.5 GB, built once per Playwright version), and it talks to the API through a Unix socket in the `deyslide-sockets` volume. If it cannot start, the deploy goes on with a warning and `render_slides` says images are unavailable.
+The services share one bridge network named `deyslide` and publish no port, so ports 3000, 3001 and 5432 on the server stay free. The Cloudflare tunnel route `http://app:3000` reaches nginx by its service name.
 
-nginx passes the live editing WebSocket through its own `location = /api/collab` (`deploy/nginx.conf`), with the upgrade headers, no buffering and a one hour read timeout. The API pings idle sockets every 30 seconds, well inside it.
+The slide renderer runs decks' code, so it has no network at all (`network_mode: none`). It talks to the API through a Unix socket in the `deyslide-sockets` volume. Its image is about 2.5 GB, on top of Playwright's.
 
-When the API is asked to stop, as when a deploy replaces its container, it stops the exports in progress, closes the live rooms and waits up to 8 seconds, inside Podman's 10 second stop timeout, until every open deck is stored. It logs any deck it could not store. People's pages keep their changes and send them again when they reconnect to the new server.
+nginx passes the live editing WebSocket through its own `location = /api/collab` (`deploy/nginx.conf`), with the upgrade headers, no buffering and a one hour read timeout. The API pings idle sockets every 30 seconds, well inside it. nginx looks up `server` when it starts, so Compose restarts it whenever the API container is replaced.
 
-The pod has its own network and publishes no port, so ports 3000, 3001 and 5432 on the server stay free. Inside the pod, `app` points at the pod's loopback, which is how the Cloudflare tunnel route `http://app:3000` reaches nginx.
+When the API is asked to stop, as when a deploy replaces its container, it stops the exports in progress, closes the live rooms and waits up to 8 seconds, inside the 10 second stop grace period, until every open deck is stored. It logs any deck it could not store. People's pages keep their changes and send them again when they reconnect to the new server.
 
-On its first run, `up.sh` creates `~/deyslide/secrets.env` with a random database password and auth secret. They never leave the server and are kept on later deploys, since a new auth secret would sign everyone out.
+Two files next to `compose.yaml` hold the settings. Git ignores both:
+
+| File | Holds | Written by |
+| --- | --- | --- |
+| `.env` | `CLOUDFLARE_TUNNEL_TOKEN` | Every deploy, from the secret of the same name |
+| `.env` | `POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET` | The first deploy, once. Never replaced: the database keeps its password in the volume, and a new auth secret would sign everyone out |
+| `server.env` | API settings (`server.env.example`) | Every deploy, from the `Production` environment |
 
 The `Production` environment holds:
 
@@ -580,14 +587,18 @@ The `Production` environment holds:
 
 OAuth apps use these callback URLs: `https://deyslide.bambanggunawan.id/api/auth/callback/google` and `https://deyslide.bambanggunawan.id/api/auth/callback/github`.
 
-The server needs Tailscale SSH (`tailscale up --ssh`) and Podman for `ryzen`. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`. To start the containers again after a reboot, run once on the server:
+The server needs Tailscale SSH (`tailscale up --ssh`), Podman with `podman compose` for `ryzen`, and the clone at `~/projects/deyslide` with read access to this repository. The tailnet policy must let `tag:ci` open SSH to `tag:server` as `ryzen`. To start the containers again after a reboot, run once on the server:
 
 ```bash
 sudo loginctl enable-linger ryzen
 systemctl --user enable podman-restart.service
 ```
 
-A manual deploy can be started from the Actions tab with **Run workflow** on the Deploy workflow.
+A manual deploy can be started from the Actions tab with **Run workflow** on the Deploy workflow. On the server itself, the same deploy is:
+
+```bash
+cd ~/projects/deyslide && git pull --ff-only && podman compose up -d --build
+```
 
 ## Releases
 
